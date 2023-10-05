@@ -1,27 +1,64 @@
-use std::fmt::Display;
+use std::time::Instant;
 
-use rlua::Lua;
+use mlua::{Lua, ThreadStatus, VmState};
 use thiserror::Error;
+
+const DEFAULT_TIMEOUT: u64 = 30;
 
 #[derive(Debug, Error)]
 pub enum LamError {
     #[error("lua error: {0}")]
-    Lua(#[from] rlua::Error),
+    Lua(#[from] mlua::Error),
 }
 
 type LamResult<T> = Result<T, LamError>;
 
-pub fn evaluate<D: Display>(script: D) -> LamResult<String> {
-    let state = Lua::new();
+#[derive(Debug)]
+pub struct Evaluation {
+    pub script: String,
+    pub timeout: Option<u64>,
+}
 
-    let script = script.to_string();
-    let res = state.context(|ctx| {
-        let res = ctx
-            .load(&script)
-            .set_name("eval")?
-            .eval::<Option<String>>()?;
-        Ok::<_, LamError>(res.unwrap_or(String::new()))
-    })?;
+pub fn evaluate(e: &Evaluation) -> LamResult<String> {
+    let start = Instant::now();
+    let timeout = e.timeout.unwrap_or(DEFAULT_TIMEOUT) as f32;
 
-    Ok(res)
+    let vm = Lua::new();
+    vm.set_interrupt(move |_| {
+        if start.elapsed().as_secs_f32() > timeout {
+            return Ok(VmState::Yield);
+        }
+        Ok(VmState::Continue)
+    });
+    let co = vm.create_thread(vm.load(&e.script).into_function()?)?;
+    loop {
+        let res = co.resume::<_, Option<String>>(())?;
+        if co.status() != ThreadStatus::Resumable || start.elapsed().as_secs_f32() > timeout {
+            return Ok(res.unwrap_or(String::new()));
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::time::Instant;
+
+    use crate::{evaluate, Evaluation};
+
+    #[test]
+    fn test_evaluate_infinite_loop() {
+        let timeout = 1;
+
+        let start = Instant::now();
+        let e = Evaluation {
+            script: r#"while true do end"#.to_string(),
+            timeout: Some(timeout),
+        };
+        let res = evaluate(&e).unwrap();
+        assert_eq!("", res);
+
+        let s = start.elapsed().as_secs_f32();
+        let timeout = timeout as f32;
+        assert!(s < timeout * 1.01, "timed out {}s", s);
+    }
 }

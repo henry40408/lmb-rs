@@ -6,8 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+mlua = { version = "0.9.1", features = ["luau"] }
 thiserror = "1.0.49"
-rlua = "0.19.7"
 tokio = { version = "1.32.0", default-features = false, features = [
   "macros",
   "rt-multi-thread",
