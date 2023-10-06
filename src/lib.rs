@@ -76,10 +76,11 @@
 
 use std::time::Instant;
 
-use mlua::{Lua, ThreadStatus, VmState};
+use mlua::{Lua, Table, ThreadStatus, VmState};
 use thiserror::Error;
 
 const DEFAULT_TIMEOUT: u64 = 30;
+const K_LOADED: &str = "_LOADED";
 
 #[derive(Debug, Error)]
 pub enum LamError {
@@ -95,17 +96,31 @@ pub struct Evaluation {
     pub timeout: Option<u64>,
 }
 
+fn register_lam_module(vm: &Lua) -> LamResult<()> {
+    let loaded = vm.named_registry_value::<Table<'_>>(K_LOADED)?;
+
+    let m = vm.create_table()?;
+    m.set("_VERSION", env!("CARGO_PKG_VERSION"))?;
+    loaded.set("@lam", m)?;
+
+    vm.set_named_registry_value(K_LOADED, loaded)?;
+    Ok(())
+}
+
 pub fn evaluate(e: &Evaluation) -> LamResult<String> {
     let start = Instant::now();
     let timeout = e.timeout.unwrap_or(DEFAULT_TIMEOUT) as f32;
 
     let vm = Lua::new();
+    vm.sandbox(true)?;
     vm.set_interrupt(move |_| {
         if start.elapsed().as_secs_f32() > timeout {
             return Ok(VmState::Yield);
         }
         Ok(VmState::Continue)
     });
+    register_lam_module(&vm)?;
+
     let co = vm.create_thread(vm.load(&e.script).into_function()?)?;
     loop {
         let res = co.resume::<_, Option<String>>(())?;

@@ -14,7 +14,7 @@ struct World {
     timeout: Option<u64>,
 }
 
-#[given(expr = "a lua script")]
+#[given("a lua script")]
 fn give_a_lua_file(w: &mut World, step: &Step) {
     for row in step.table.as_ref().unwrap().rows.iter().skip(1) {
         let script = &row[0];
@@ -26,7 +26,7 @@ fn give_a_lua_file(w: &mut World, step: &Step) {
     }
 }
 
-#[when(expr = "it is evaluated")]
+#[when("it is evaluated")]
 fn user_evaluates_it(w: &mut World) {
     for case in &w.cases {
         let e = Evaluation {
@@ -42,7 +42,7 @@ fn set_timeout(w: &mut World, secs: u64) {
     w.timeout = Some(secs);
 }
 
-#[then(expr = "it should return result")]
+#[then("it should return result")]
 fn should_have_result(w: &mut World) {
     for (idx, case) in w.cases.iter().enumerate() {
         let result = w.results.get(idx);
@@ -52,5 +52,5 @@ fn should_have_result(w: &mut World) {
 
 #[tokio::main]
 async fn main() {
-    World::run("features/000_initial.feature").await;
+    World::run("tests/features/000_initial.feature").await;
 }
