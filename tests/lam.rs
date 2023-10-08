@@ -1,5 +1,5 @@
 use cucumber::{gherkin::Step, given, then, when, World as _};
-use lam::{evaluate, Evaluation};
+use lam::{evaluate, Evaluation, EvaluationResult};
 
 #[derive(Debug)]
 struct Case {
@@ -10,7 +10,7 @@ struct Case {
 #[derive(cucumber::World, Debug, Default)]
 struct World {
     cases: Vec<Case>,
-    results: Vec<String>,
+    results: Vec<EvaluationResult>,
     timeout: Option<u64>,
 }
 
@@ -46,7 +46,7 @@ fn set_timeout(w: &mut World, secs: u64) {
 fn should_have_result(w: &mut World) {
     for (idx, case) in w.cases.iter().enumerate() {
         let result = w.results.get(idx);
-        assert_eq!(Some(&case.expected), result);
+        assert_eq!(case.expected, result.unwrap().result);
     }
 }
 

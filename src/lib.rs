@@ -74,7 +74,7 @@
     rust_2018_idioms
 )]
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use mlua::{Lua, Table, ThreadStatus, VmState};
 use thiserror::Error;
@@ -96,6 +96,12 @@ pub struct Evaluation {
     pub timeout: Option<u64>,
 }
 
+#[derive(Debug)]
+pub struct EvaluationResult {
+    pub duration: Duration,
+    pub result: String,
+}
+
 fn register_lam_module(vm: &Lua) -> LamResult<()> {
     let loaded = vm.named_registry_value::<Table<'_>>(K_LOADED)?;
 
@@ -107,7 +113,7 @@ fn register_lam_module(vm: &Lua) -> LamResult<()> {
     Ok(())
 }
 
-pub fn evaluate(e: &Evaluation) -> LamResult<String> {
+pub fn evaluate(e: &Evaluation) -> LamResult<EvaluationResult> {
     let start = Instant::now();
     let timeout = e.timeout.unwrap_or(DEFAULT_TIMEOUT) as f32;
 
@@ -125,31 +131,34 @@ pub fn evaluate(e: &Evaluation) -> LamResult<String> {
     loop {
         let res = co.resume::<_, Option<String>>(())?;
         if co.status() != ThreadStatus::Resumable || start.elapsed().as_secs_f32() > timeout {
-            return Ok(res.unwrap_or(String::new()));
+            let r = EvaluationResult {
+                duration: start.elapsed(),
+                result: res.unwrap_or(String::new()),
+            };
+            return Ok(r);
         }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use std::time::Instant;
-
     use crate::{evaluate, Evaluation};
+
+    const TIMEOUT_THRESHOLD: f32 = 0.01;
 
     #[test]
     fn test_evaluate_infinite_loop() {
         let timeout = 1;
 
-        let start = Instant::now();
         let e = Evaluation {
             script: r#"while true do end"#.to_string(),
             timeout: Some(timeout),
         };
         let res = evaluate(&e).unwrap();
-        assert_eq!("", res);
+        assert_eq!("", res.result);
 
-        let s = start.elapsed().as_secs_f32();
-        let timeout = timeout as f32;
-        assert!(s < timeout * 1.01, "timed out {}s", s);
+        let secs = res.duration.as_secs_f32();
+        let to = timeout as f32;
+        assert!((secs - to) / to < TIMEOUT_THRESHOLD, "timed out {}s", secs);
     }
 }
