@@ -1,18 +1,31 @@
 Feature: A simple application to run Lua functions
 
-  Scenario: Evaulate a lua file
+  Scenario: Evaulate a Lua script
     Given a lua script
-      | script        | result |
-      |               |        |
-      | return 1+1    | 2      |
-      | return 'a'..1 | a1     |
-      | local M = require('@lam'); return M._VERSION | 0.1.0 |
+      | script        | result | input |
+      |               |        |       |
+      | return 1+1    | 2      |       |
+      | return 'a'..1 | a1     |       |
+      | local M = require('@lam'); return M._VERSION   | 0.1.0 |     |
     When it is evaluated
     Then it should return result
 
+  Scenario: Evaluate a Lua script w/ timeout
     Given a lua script
       | script            | result |
       | while true do end |        |
     When the timeout is set to 1 second
     And it is evaluated
+    Then it should return result
+
+  Scenario: Evaluate a Lua script w/ lam module
+    Given a lua script
+      | script                                         | result | input |
+      | local M = require('@lam'); return M.read('*a') | lam    | lam   |
+      | local M = require('@lam'); return M.read(1)    | l      | lam   |
+      | local M = require('@lam'); return M.read(3)    | l      | l     |
+      | local M = require('@lam'); return M.read('*a') | 你好   | 你好  |
+      | local M = require('@lam'); return M.read(3)    | 你     | 你好  |
+      | local M = require('@lam'); return M.read(6)    | 你好   | 你好  |
+    When it is evaluated
     Then it should return result

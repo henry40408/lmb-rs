@@ -74,9 +74,12 @@
     rust_2018_idioms
 )]
 
-use std::time::{Duration, Instant};
+use std::{
+    io::Read,
+    time::{Duration, Instant},
+};
 
-use mlua::{Lua, Table, ThreadStatus, VmState};
+use mlua::{Lua, Table, ThreadStatus, Value, VmState};
 use thiserror::Error;
 
 const DEFAULT_TIMEOUT: u64 = 30;
@@ -90,8 +93,8 @@ pub enum LamError {
 
 type LamResult<T> = Result<T, LamError>;
 
-#[derive(Debug)]
 pub struct Evaluation {
+    pub input: Box<dyn Read>,
     pub script: String,
     pub timeout: Option<u64>,
 }
@@ -102,18 +105,7 @@ pub struct EvaluationResult {
     pub result: String,
 }
 
-fn register_lam_module(vm: &Lua) -> LamResult<()> {
-    let loaded = vm.named_registry_value::<Table<'_>>(K_LOADED)?;
-
-    let m = vm.create_table()?;
-    m.set("_VERSION", env!("CARGO_PKG_VERSION"))?;
-    loaded.set("@lam", m)?;
-
-    vm.set_named_registry_value(K_LOADED, loaded)?;
-    Ok(())
-}
-
-pub fn evaluate(e: &Evaluation) -> LamResult<EvaluationResult> {
+pub fn evaluate(e: &mut Evaluation) -> LamResult<EvaluationResult> {
     let start = Instant::now();
     let timeout = e.timeout.unwrap_or(DEFAULT_TIMEOUT) as f32;
 
@@ -125,23 +117,58 @@ pub fn evaluate(e: &Evaluation) -> LamResult<EvaluationResult> {
         }
         Ok(VmState::Continue)
     });
-    register_lam_module(&vm)?;
 
-    let co = vm.create_thread(vm.load(&e.script).into_function()?)?;
-    loop {
-        let res = co.resume::<_, Option<String>>(())?;
-        if co.status() != ThreadStatus::Resumable || start.elapsed().as_secs_f32() > timeout {
-            let r = EvaluationResult {
-                duration: start.elapsed(),
-                result: res.unwrap_or(String::new()),
-            };
-            return Ok(r);
+    let r = vm.scope(|scope| {
+        let loaded = vm.named_registry_value::<Table<'_>>(K_LOADED)?;
+
+        let m = vm.create_table()?;
+        m.set("_VERSION", env!("CARGO_PKG_VERSION"))?;
+
+        let f = scope.create_function_mut(|_, f: Value<'_>| {
+            if let Some(f) = f.as_str() {
+                if f == "*a" {
+                    let mut buf = Vec::new();
+                    e.input.read_to_end(&mut buf)?;
+                    return Ok(String::from_utf8(buf).unwrap_or(String::new()));
+                }
+                // TODO *l *n
+            }
+
+            #[allow(clippy::unused_io_amount)]
+            if let Some(i) = f.as_usize() {
+                let mut buf = vec![0; i];
+                let count = e.input.read(&mut buf)?;
+                buf.truncate(count);
+                return Ok(String::from_utf8(buf).unwrap_or(String::new()));
+            }
+
+            let s = format!("unexpected format {f:?}");
+            Err(mlua::Error::RuntimeError(s))
+        })?;
+        m.set("read", f)?;
+
+        loaded.set("@lam", m)?;
+        vm.set_named_registry_value(K_LOADED, loaded)?;
+
+        let co = vm.create_thread(vm.load(&e.script).into_function()?)?;
+        loop {
+            let res = co.resume::<_, Option<String>>(())?;
+            if co.status() != ThreadStatus::Resumable || start.elapsed().as_secs_f32() > timeout {
+                let r = EvaluationResult {
+                    duration: start.elapsed(),
+                    result: res.unwrap_or(String::new()),
+                };
+                return Ok(r);
+            }
         }
-    }
+    })?;
+    Ok(r)
 }
 
 #[cfg(test)]
 mod test {
+    use std::io::Cursor;
+
     use crate::{evaluate, Evaluation};
 
     const TIMEOUT_THRESHOLD: f32 = 0.01;
@@ -150,15 +177,64 @@ mod test {
     fn test_evaluate_infinite_loop() {
         let timeout = 1;
 
-        let e = Evaluation {
+        let mut e = Evaluation {
+            input: Box::new(Cursor::new("")),
             script: r#"while true do end"#.to_string(),
             timeout: Some(timeout),
         };
-        let res = evaluate(&e).unwrap();
+        let res = evaluate(&mut e).unwrap();
         assert_eq!("", res.result);
 
         let secs = res.duration.as_secs_f32();
         let to = timeout as f32;
         assert!((secs - to) / to < TIMEOUT_THRESHOLD, "timed out {}s", secs);
+    }
+
+    #[test]
+    fn test_read_from_input() {
+        let input = "lam";
+        let mut e = Evaluation {
+            input: Box::new(Cursor::new(input)),
+            script: r#"local m = require('@lam'); return m.read('*a')"#.to_string(),
+            timeout: None,
+        };
+        let res = evaluate(&mut e).unwrap();
+        assert_eq!(input, res.result);
+    }
+
+    #[test]
+    fn test_read_partially_from_input() {
+        let input = "lam";
+        let mut e = Evaluation {
+            input: Box::new(Cursor::new(input)),
+            script: r#"local m = require('@lam'); return m.read(1)"#.to_string(),
+            timeout: None,
+        };
+        let res = evaluate(&mut e).unwrap();
+        assert_eq!("l", res.result);
+    }
+
+    #[test]
+    fn test_read_from_shorter_input() {
+        let input = "l";
+        let mut e = Evaluation {
+            input: Box::new(Cursor::new(input)),
+            script: r#"local m = require('@lam'); return m.read(3)"#.to_string(),
+            timeout: None,
+        };
+        let res = evaluate(&mut e).unwrap();
+        assert_eq!("l", res.result);
+    }
+
+    #[test]
+    fn test_read_from_unicode() {
+        let input = "你好";
+        let mut e = Evaluation {
+            input: Box::new(Cursor::new(input)),
+            script: r#"local m = require('@lam'); return m.read(3)"#.to_string(),
+            timeout: None,
+        };
+        let res = evaluate(&mut e).unwrap();
+        assert_eq!("你", res.result);
     }
 }
