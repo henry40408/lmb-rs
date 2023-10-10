@@ -25,7 +25,10 @@ Feature: A simple application to run Lua functions
       | local M = require('@lam'); return M.read(1)    | l      | lam   |
       | local M = require('@lam'); return M.read(3)    | l      | l     |
       | local M = require('@lam'); return M.read('*a') | 你好   | 你好  |
-      | local M = require('@lam'); return M.read(3)    | 你     | 你好  |
-      | local M = require('@lam'); return M.read(6)    | 你好   | 你好  |
+      | local M = require('@lam'); return M.read_unicode(1) | l    | lam  |
+      | local M = require('@lam'); return M.read_unicode(2) | l    | l    |
+      | local M = require('@lam'); return M.read_unicode(1) | 你   | 你好 |
+      | local M = require('@lam'); return M.read_unicode(2) | 你   | 你   |
+      | local M = require('@lam'); return M.read_unicode(2) | 你好 | 你好 |
     When it is evaluated
     Then it should return result

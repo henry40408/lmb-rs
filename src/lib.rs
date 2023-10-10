@@ -75,7 +75,9 @@
 )]
 
 use std::{
+    cell::RefCell,
     io::Read,
+    rc::Rc,
     time::{Duration, Instant},
 };
 
@@ -94,7 +96,7 @@ pub enum LamError {
 type LamResult<T> = Result<T, LamError>;
 
 pub struct Evaluation {
-    pub input: Box<dyn Read>,
+    pub input: Rc<RefCell<dyn Read>>,
     pub script: String,
     pub timeout: Option<u64>,
 }
@@ -124,11 +126,11 @@ pub fn evaluate(e: &mut Evaluation) -> LamResult<EvaluationResult> {
         let m = vm.create_table()?;
         m.set("_VERSION", env!("CARGO_PKG_VERSION"))?;
 
-        let f = scope.create_function_mut(|_, f: Value<'_>| {
+        let read_fn = scope.create_function(|_, f: Value<'_>| {
             if let Some(f) = f.as_str() {
                 if f == "*a" {
                     let mut buf = Vec::new();
-                    e.input.read_to_end(&mut buf)?;
+                    e.input.borrow_mut().read_to_end(&mut buf)?;
                     return Ok(String::from_utf8(buf).unwrap_or(String::new()));
                 }
                 // TODO *l *n
@@ -137,7 +139,7 @@ pub fn evaluate(e: &mut Evaluation) -> LamResult<EvaluationResult> {
             #[allow(clippy::unused_io_amount)]
             if let Some(i) = f.as_usize() {
                 let mut buf = vec![0; i];
-                let count = e.input.read(&mut buf)?;
+                let count = e.input.borrow_mut().read(&mut buf)?;
                 buf.truncate(count);
                 return Ok(String::from_utf8(buf).unwrap_or(String::new()));
             }
@@ -145,7 +147,30 @@ pub fn evaluate(e: &mut Evaluation) -> LamResult<EvaluationResult> {
             let s = format!("unexpected format {f:?}");
             Err(mlua::Error::RuntimeError(s))
         })?;
-        m.set("read", f)?;
+        m.set("read", read_fn)?;
+
+        let read_unicode_fn = scope.create_function(|_, i: usize| {
+            let mut expected_read = i;
+            let mut buf = Vec::new();
+            let mut byte_buf = vec![0; 1];
+            loop {
+                if expected_read == 0 {
+                    return Ok(String::from_utf8(buf).unwrap_or(String::new()));
+                }
+                let read_bytes = e.input.borrow_mut().read(&mut byte_buf)?;
+                // caveat: buffer is not empty when no bytes are read
+                if read_bytes > 0 {
+                    buf.extend_from_slice(&byte_buf);
+                }
+                if read_bytes == 0 {
+                    return Ok(String::from_utf8(buf).unwrap_or(String::new()));
+                }
+                if std::str::from_utf8(&buf).is_ok() {
+                    expected_read -= 1;
+                }
+            }
+        })?;
+        m.set("read_unicode", read_unicode_fn)?;
 
         loaded.set("@lam", m)?;
         vm.set_named_registry_value(K_LOADED, loaded)?;
@@ -167,7 +192,7 @@ pub fn evaluate(e: &mut Evaluation) -> LamResult<EvaluationResult> {
 
 #[cfg(test)]
 mod test {
-    use std::io::Cursor;
+    use std::{cell::RefCell, io::Cursor, rc::Rc};
 
     use crate::{evaluate, Evaluation};
 
@@ -178,7 +203,7 @@ mod test {
         let timeout = 1;
 
         let mut e = Evaluation {
-            input: Box::new(Cursor::new("")),
+            input: Rc::new(RefCell::new(Cursor::new(""))),
             script: r#"while true do end"#.to_string(),
             timeout: Some(timeout),
         };
@@ -194,7 +219,7 @@ mod test {
     fn test_read_from_input() {
         let input = "lam";
         let mut e = Evaluation {
-            input: Box::new(Cursor::new(input)),
+            input: Rc::new(RefCell::new(Cursor::new(input))),
             script: r#"local m = require('@lam'); return m.read('*a')"#.to_string(),
             timeout: None,
         };
@@ -206,7 +231,7 @@ mod test {
     fn test_read_partially_from_input() {
         let input = "lam";
         let mut e = Evaluation {
-            input: Box::new(Cursor::new(input)),
+            input: Rc::new(RefCell::new(Cursor::new(input))),
             script: r#"local m = require('@lam'); return m.read(1)"#.to_string(),
             timeout: None,
         };
@@ -218,7 +243,7 @@ mod test {
     fn test_read_from_shorter_input() {
         let input = "l";
         let mut e = Evaluation {
-            input: Box::new(Cursor::new(input)),
+            input: Rc::new(RefCell::new(Cursor::new(input))),
             script: r#"local m = require('@lam'); return m.read(3)"#.to_string(),
             timeout: None,
         };
@@ -230,8 +255,8 @@ mod test {
     fn test_read_from_unicode() {
         let input = "你好";
         let mut e = Evaluation {
-            input: Box::new(Cursor::new(input)),
-            script: r#"local m = require('@lam'); return m.read(3)"#.to_string(),
+            input: Rc::new(RefCell::new(Cursor::new(input))),
+            script: r#"local m = require('@lam'); return m.read_unicode(1)"#.to_string(),
             timeout: None,
         };
         let res = evaluate(&mut e).unwrap();

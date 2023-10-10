@@ -1,4 +1,4 @@
-use std::io::Cursor;
+use std::{cell::RefCell, io::Cursor, rc::Rc};
 
 use cucumber::{gherkin::Step, given, then, when, World as _};
 use lam::{evaluate, Evaluation, EvaluationResult};
@@ -35,7 +35,7 @@ fn give_a_lua_file(w: &mut World, step: &Step) {
 fn user_evaluates_it(w: &mut World) {
     for case in &w.cases {
         let mut e = Evaluation {
-            input: Box::new(Cursor::new(case.input.clone())),
+            input: Rc::new(RefCell::new(Cursor::new(case.input.clone()))),
             script: case.script.clone(),
             timeout: w.timeout,
         };
