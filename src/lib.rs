@@ -76,8 +76,7 @@
 
 use std::{
     cell::RefCell,
-    io::Read,
-    rc::Rc,
+    io::{BufRead, BufReader, Read},
     time::{Duration, Instant},
 };
 
@@ -95,8 +94,24 @@ pub enum LamError {
 
 type LamResult<T> = Result<T, LamError>;
 
-pub struct Evaluation {
-    pub input: Rc<RefCell<dyn Read>>,
+pub struct Evaluation<R: Read> {
+    pub input: RefCell<BufReader<R>>,
+    pub script: String,
+    pub timeout: Option<u64>,
+}
+
+impl<R: Read> Evaluation<R> {
+    pub fn new(c: EvaluationConfig<R>) -> Evaluation<R> {
+        Evaluation {
+            input: RefCell::new(BufReader::new(c.input)),
+            script: c.script,
+            timeout: c.timeout,
+        }
+    }
+}
+
+pub struct EvaluationConfig<R: Read> {
+    pub input: R,
     pub script: String,
     pub timeout: Option<u64>,
 }
@@ -107,7 +122,7 @@ pub struct EvaluationResult {
     pub result: String,
 }
 
-pub fn evaluate(e: &mut Evaluation) -> LamResult<EvaluationResult> {
+pub fn evaluate<R: Read>(e: &mut Evaluation<R>) -> LamResult<EvaluationResult> {
     let start = Instant::now();
     let timeout = e.timeout.unwrap_or(DEFAULT_TIMEOUT) as f32;
 
@@ -131,9 +146,21 @@ pub fn evaluate(e: &mut Evaluation) -> LamResult<EvaluationResult> {
                 if f == "*a" {
                     let mut buf = Vec::new();
                     e.input.borrow_mut().read_to_end(&mut buf)?;
-                    return Ok(String::from_utf8(buf).unwrap_or(String::new()));
+                    let s = vm.create_string(String::from_utf8(buf).unwrap_or(String::new()))?;
+                    return Ok(Value::String(s));
                 }
-                // TODO *l *n
+                if f == "*l" {
+                    let mut r = e.input.borrow_mut();
+                    let mut buf = String::new();
+                    r.read_line(&mut buf)?;
+                    let s = vm.create_string(buf)?;
+                    return Ok(Value::String(s));
+                }
+                if f == "*n" {
+                    let mut buf = String::new();
+                    e.input.borrow_mut().read_to_string(&mut buf)?;
+                    return Ok(buf.parse::<f64>().map(Value::Number).unwrap_or(Value::Nil));
+                }
             }
 
             #[allow(clippy::unused_io_amount)]
@@ -141,7 +168,8 @@ pub fn evaluate(e: &mut Evaluation) -> LamResult<EvaluationResult> {
                 let mut buf = vec![0; i];
                 let count = e.input.borrow_mut().read(&mut buf)?;
                 buf.truncate(count);
-                return Ok(String::from_utf8(buf).unwrap_or(String::new()));
+                let s = vm.create_string(String::from_utf8(buf).unwrap_or(String::new()))?;
+                return Ok(Value::String(s));
             }
 
             let s = format!("unexpected format {f:?}");
@@ -192,9 +220,9 @@ pub fn evaluate(e: &mut Evaluation) -> LamResult<EvaluationResult> {
 
 #[cfg(test)]
 mod test {
-    use std::{cell::RefCell, io::Cursor, rc::Rc};
+    use std::io::Cursor;
 
-    use crate::{evaluate, Evaluation};
+    use crate::{evaluate, Evaluation, EvaluationConfig};
 
     const TIMEOUT_THRESHOLD: f32 = 0.01;
 
@@ -202,11 +230,11 @@ mod test {
     fn test_evaluate_infinite_loop() {
         let timeout = 1;
 
-        let mut e = Evaluation {
-            input: Rc::new(RefCell::new(Cursor::new(""))),
+        let mut e = Evaluation::new(EvaluationConfig {
+            input: Cursor::new(""),
             script: r#"while true do end"#.to_string(),
             timeout: Some(timeout),
-        };
+        });
         let res = evaluate(&mut e).unwrap();
         assert_eq!("", res.result);
 
@@ -216,50 +244,86 @@ mod test {
     }
 
     #[test]
-    fn test_read_from_input() {
+    fn test_read_all() {
         let input = "lam";
-        let mut e = Evaluation {
-            input: Rc::new(RefCell::new(Cursor::new(input))),
+        let mut e = Evaluation::new(EvaluationConfig {
+            input: Cursor::new(input),
             script: r#"local m = require('@lam'); return m.read('*a')"#.to_string(),
             timeout: None,
-        };
+        });
         let res = evaluate(&mut e).unwrap();
         assert_eq!(input, res.result);
     }
 
     #[test]
-    fn test_read_partially_from_input() {
+    fn test_read_partial_input() {
         let input = "lam";
-        let mut e = Evaluation {
-            input: Rc::new(RefCell::new(Cursor::new(input))),
+        let mut e = Evaluation::new(EvaluationConfig {
+            input: Cursor::new(input),
             script: r#"local m = require('@lam'); return m.read(1)"#.to_string(),
             timeout: None,
-        };
+        });
         let res = evaluate(&mut e).unwrap();
         assert_eq!("l", res.result);
     }
 
     #[test]
-    fn test_read_from_shorter_input() {
+    fn test_read_more_than_input() {
         let input = "l";
-        let mut e = Evaluation {
-            input: Rc::new(RefCell::new(Cursor::new(input))),
+        let mut e = Evaluation::new(EvaluationConfig {
+            input: Cursor::new(input),
             script: r#"local m = require('@lam'); return m.read(3)"#.to_string(),
             timeout: None,
-        };
+        });
         let res = evaluate(&mut e).unwrap();
         assert_eq!("l", res.result);
     }
 
     #[test]
-    fn test_read_from_unicode() {
+    fn test_read_unicode() {
         let input = "你好";
-        let mut e = Evaluation {
-            input: Rc::new(RefCell::new(Cursor::new(input))),
+        let mut e = Evaluation::new(EvaluationConfig {
+            input: Cursor::new(input),
             script: r#"local m = require('@lam'); return m.read_unicode(1)"#.to_string(),
             timeout: None,
-        };
+        });
         let res = evaluate(&mut e).unwrap();
         assert_eq!("你", res.result);
+    }
+
+    #[test]
+    fn test_read_line() {
+        let input = "foo\nbar";
+        let mut e = Evaluation::new(EvaluationConfig {
+            input: Cursor::new(input),
+            script: r#"local m = require('@lam'); m.read('*l'); return m.read('*l')"#.to_string(),
+            timeout: None,
+        });
+        let res = evaluate(&mut e).unwrap();
+        assert_eq!("bar", res.result);
+    }
+
+    #[test]
+    fn test_read_number() {
+        let input = "3.1415926";
+        let mut e = Evaluation::new(EvaluationConfig {
+            input: Cursor::new(input),
+            script: r#"local m = require('@lam'); return m.read('*n')"#.to_string(),
+            timeout: None,
+        });
+        let res = evaluate(&mut e).unwrap();
+        assert_eq!("3.1415926", res.result);
+    }
+
+    #[test]
+    fn test_read_integer() {
+        let input = "3";
+        let mut e = Evaluation::new(EvaluationConfig {
+            input: Cursor::new(input),
+            script: r#"local m = require('@lam'); return m.read('*n')"#.to_string(),
+            timeout: None,
+        });
+        let res = evaluate(&mut e).unwrap();
+        assert_eq!("3", res.result);
     }
 }

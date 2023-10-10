@@ -1,7 +1,7 @@
-use std::{cell::RefCell, io::Cursor, rc::Rc};
+use std::io::Cursor;
 
 use cucumber::{gherkin::Step, given, then, when, World as _};
-use lam::{evaluate, Evaluation, EvaluationResult};
+use lam::{evaluate, Evaluation, EvaluationConfig, EvaluationResult};
 
 #[derive(Debug)]
 struct Case {
@@ -34,11 +34,11 @@ fn give_a_lua_file(w: &mut World, step: &Step) {
 #[when("it is evaluated")]
 fn user_evaluates_it(w: &mut World) {
     for case in &w.cases {
-        let mut e = Evaluation {
-            input: Rc::new(RefCell::new(Cursor::new(case.input.clone()))),
+        let mut e = Evaluation::new(EvaluationConfig {
+            input: Cursor::new(case.input.clone()),
             script: case.script.clone(),
             timeout: w.timeout,
-        };
+        });
         w.results.push(evaluate(&mut e).unwrap());
     }
 }
