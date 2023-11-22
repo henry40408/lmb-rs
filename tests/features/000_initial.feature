@@ -32,3 +32,12 @@ Feature: A simple application to run Lua functions
       | local M = require('@lam'); return M.read_unicode(2) | 你好 | 你好 |
     When it is evaluated
     Then it should return result
+
+  Scenario: Evaluate Lua examples
+    Given lua examples
+      | filename        | input  | expected |
+      | 01-hello.lua    |        |          |
+      | 02-input.lua    | lua    |          |
+      | 03-algebra.lua  | 2      | 4        |
+    When it is evaluated
+    Then it should return result

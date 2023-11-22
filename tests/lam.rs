@@ -1,4 +1,4 @@
-use std::io::Cursor;
+use std::{fs, io::Cursor};
 
 use cucumber::{gherkin::Step, given, then, when, World as _};
 use lam::{evaluate, Evaluation, EvaluationConfig, EvaluationResult};
@@ -22,9 +22,24 @@ fn give_a_lua_file(w: &mut World, step: &Step) {
     for row in step.table.as_ref().unwrap().rows.iter().skip(1) {
         let script = &row[0];
         let expected = &row[1];
-        let input = row.get(2).map(String::from).unwrap_or(String::new());
+        let input = row.get(2).map_or(String::new(), String::from);
         w.cases.push(Case {
             script: script.to_string(),
+            expected: expected.to_string(),
+            input,
+        });
+    }
+}
+
+#[given("lua examples")]
+fn given_lua_examples(w: &mut World, step: &Step) {
+    for row in step.table.as_ref().unwrap().rows.iter().skip(1) {
+        let filename = format!("lua-examples/{}", &row[0]);
+        let script = fs::read_to_string(filename).expect("failed to read lua example");
+        let input = row.get(1).map_or(String::new(), String::from);
+        let expected = &row[2];
+        w.cases.push(Case {
+            script,
             expected: expected.to_string(),
             input,
         });

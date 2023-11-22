@@ -60,8 +60,6 @@ pub fn evaluate<R: Read>(e: &mut Evaluation<R>) -> LamResult<EvaluationResult> {
     });
 
     let r = vm.scope(|scope| {
-        let loaded = vm.named_registry_value::<Table<'_>>(K_LOADED)?;
-
         let m = vm.create_table()?;
         m.set("_VERSION", env!("CARGO_PKG_VERSION"))?;
 
@@ -127,6 +125,7 @@ pub fn evaluate<R: Read>(e: &mut Evaluation<R>) -> LamResult<EvaluationResult> {
         })?;
         m.set("read_unicode", read_unicode_fn)?;
 
+        let loaded = vm.named_registry_value::<Table<'_>>(K_LOADED)?;
         loaded.set("@lam", m)?;
         vm.set_named_registry_value(K_LOADED, loaded)?;
 
@@ -255,23 +254,19 @@ mod test {
     }
 
     #[test]
-    fn test_multiple_evaluation() {
-        let input = "2";
-        let mut e = Evaluation::new(EvaluationConfig {
-            input: Cursor::new(input),
-            script: r#"local m = require('@lam'); return tonumber(m.read('*n'))*2"#.to_string(),
-            timeout: None,
-        });
-        let res = evaluate(&mut e).unwrap();
-        assert_eq!("4", res.result);
+    fn test_reevaluate() {
+        let input = "foo\nbar";
 
-        let input = res.result;
         let mut e = Evaluation::new(EvaluationConfig {
             input: Cursor::new(input),
-            script: r#"local m = require('@lam'); return tonumber(m.read('*n'))+3"#.to_string(),
+            script: r#"local m = require('@lam'); return m.read('*l')"#.to_string(),
             timeout: None,
         });
+
         let res = evaluate(&mut e).unwrap();
-        assert_eq!("7", res.result);
+        assert_eq!("foo\n", res.result);
+
+        let res = evaluate(&mut e).unwrap();
+        assert_eq!("bar", res.result);
     }
 }
