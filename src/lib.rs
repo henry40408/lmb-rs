@@ -67,20 +67,23 @@ pub fn evaluate<R: Read>(e: &mut Evaluation<R>) -> LamResult<EvaluationResult> {
 
         let read_fn = scope.create_function(|_, f: Value<'_>| {
             if let Some(f) = f.as_str() {
-                if f == "*a" {
+                if f.starts_with("*a") {
+                    // accepts *a or *all
                     let mut buf = Vec::new();
                     e.input.borrow_mut().read_to_end(&mut buf)?;
                     let s = vm.create_string(String::from_utf8(buf).unwrap_or_default())?;
                     return Ok(Value::String(s));
                 }
-                if f == "*l" {
+                if f.starts_with("*l") {
+                    // accepts *l or *line
                     let mut r = e.input.borrow_mut();
                     let mut buf = String::new();
                     r.read_line(&mut buf)?;
                     let s = vm.create_string(buf)?;
                     return Ok(Value::String(s));
                 }
-                if f == "*n" {
+                if f.starts_with("*n") {
+                    // accepts *n or *number
                     let mut buf = String::new();
                     e.input.borrow_mut().read_to_string(&mut buf)?;
                     return Ok(buf.parse::<f64>().map(Value::Number).unwrap_or(Value::Nil));
@@ -249,5 +252,26 @@ mod test {
         });
         let res = evaluate(&mut e).unwrap();
         assert_eq!("3", res.result);
+    }
+
+    #[test]
+    fn test_multiple_evaluation() {
+        let input = "2";
+        let mut e = Evaluation::new(EvaluationConfig {
+            input: Cursor::new(input),
+            script: r#"local m = require('@lam'); return tonumber(m.read('*n'))*2"#.to_string(),
+            timeout: None,
+        });
+        let res = evaluate(&mut e).unwrap();
+        assert_eq!("4", res.result);
+
+        let input = res.result;
+        let mut e = Evaluation::new(EvaluationConfig {
+            input: Cursor::new(input),
+            script: r#"local m = require('@lam'); return tonumber(m.read('*n'))+3"#.to_string(),
+            timeout: None,
+        });
+        let res = evaluate(&mut e).unwrap();
+        assert_eq!("7", res.result);
     }
 }
