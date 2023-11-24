@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use lam::{evaluate, Evaluation};
+use lam::{evaluate, Evaluation, InMemory};
 use std::{fs, io, path};
 
 #[derive(Parser, Debug)]
@@ -27,9 +27,11 @@ fn main() {
     match cli.command {
         Commands::Eval { file, timeout } => {
             let script = fs::read_to_string(file).expect("failed to read script");
-            let mut e = Evaluation::new(lam::EvaluationConfig {
+            let state_manager = Some(InMemory::default());
+            let mut e = Evaluation::new(lam::EvalConfig {
                 input: io::stdin(),
                 script,
+                state_manager,
                 timeout: Some(timeout),
             });
             let res = evaluate(&mut e).expect("failed to evaluate the script");

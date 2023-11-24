@@ -1,10 +1,11 @@
 use std::{
     cell::RefCell,
+    collections::HashMap,
     io::{BufRead, BufReader, Read},
     time::{Duration, Instant},
 };
 
-use mlua::{Lua, Table, ThreadStatus, Value, VmState};
+use mlua::{Lua, Table, ThreadStatus, VmState};
 use thiserror::Error;
 
 const DEFAULT_TIMEOUT: u64 = 30;
@@ -18,35 +19,54 @@ pub enum LamError {
 
 type LamResult<T> = Result<T, LamError>;
 
-pub struct Evaluation<R: Read> {
+pub struct Evaluation<R, S>
+where
+    R: Read,
+    S: StateManager,
+{
     pub input: RefCell<BufReader<R>>,
     pub script: String,
+    pub state_manager: Option<S>,
     pub timeout: Option<u64>,
 }
 
-impl<R: Read> Evaluation<R> {
-    pub fn new(c: EvaluationConfig<R>) -> Evaluation<R> {
-        Evaluation {
+impl<R, S> Evaluation<R, S>
+where
+    R: Read,
+    S: StateManager,
+{
+    pub fn new(c: EvalConfig<R, S>) -> Self {
+        Self {
             input: RefCell::new(BufReader::new(c.input)),
             script: c.script,
+            state_manager: c.state_manager,
             timeout: c.timeout,
         }
     }
 }
 
-pub struct EvaluationConfig<R: Read> {
+pub struct EvalConfig<R, S>
+where
+    R: Read,
+    S: StateManager,
+{
     pub input: R,
     pub script: String,
+    pub state_manager: Option<S>,
     pub timeout: Option<u64>,
 }
 
 #[derive(Debug)]
-pub struct EvaluationResult {
+pub struct EvalResult {
     pub duration: Duration,
     pub result: String,
 }
 
-pub fn evaluate<R: Read>(e: &mut Evaluation<R>) -> LamResult<EvaluationResult> {
+pub fn evaluate<R, S>(e: &mut Evaluation<R, S>) -> LamResult<EvalResult>
+where
+    R: Read,
+    S: StateManager,
+{
     let start = Instant::now();
     let timeout = e.timeout.unwrap_or(DEFAULT_TIMEOUT) as f32;
 
@@ -63,14 +83,14 @@ pub fn evaluate<R: Read>(e: &mut Evaluation<R>) -> LamResult<EvaluationResult> {
         let m = vm.create_table()?;
         m.set("_VERSION", env!("CARGO_PKG_VERSION"))?;
 
-        let read_fn = scope.create_function(|_, f: Value<'_>| {
+        let read_fn = scope.create_function(|_, f: mlua::Value<'_>| {
             if let Some(f) = f.as_str() {
                 if f.starts_with("*a") {
                     // accepts *a or *all
                     let mut buf = Vec::new();
                     e.input.borrow_mut().read_to_end(&mut buf)?;
                     let s = vm.create_string(String::from_utf8(buf).unwrap_or_default())?;
-                    return Ok(Value::String(s));
+                    return Ok(mlua::Value::String(s));
                 }
                 if f.starts_with("*l") {
                     // accepts *l or *line
@@ -78,13 +98,16 @@ pub fn evaluate<R: Read>(e: &mut Evaluation<R>) -> LamResult<EvaluationResult> {
                     let mut buf = String::new();
                     r.read_line(&mut buf)?;
                     let s = vm.create_string(buf)?;
-                    return Ok(Value::String(s));
+                    return Ok(mlua::Value::String(s));
                 }
                 if f.starts_with("*n") {
                     // accepts *n or *number
                     let mut buf = String::new();
                     e.input.borrow_mut().read_to_string(&mut buf)?;
-                    return Ok(buf.parse::<f64>().map(Value::Number).unwrap_or(Value::Nil));
+                    return Ok(buf
+                        .parse::<f64>()
+                        .map(mlua::Value::Number)
+                        .unwrap_or(mlua::Value::Nil));
                 }
             }
 
@@ -94,7 +117,7 @@ pub fn evaluate<R: Read>(e: &mut Evaluation<R>) -> LamResult<EvaluationResult> {
                 let count = e.input.borrow_mut().read(&mut buf)?;
                 buf.truncate(count);
                 let s = vm.create_string(String::from_utf8(buf).unwrap_or_default())?;
-                return Ok(Value::String(s));
+                return Ok(mlua::Value::String(s));
             }
 
             let s = format!("unexpected format {f:?}");
@@ -133,7 +156,7 @@ pub fn evaluate<R: Read>(e: &mut Evaluation<R>) -> LamResult<EvaluationResult> {
         loop {
             let res = co.resume::<_, Option<String>>(())?;
             if co.status() != ThreadStatus::Resumable || start.elapsed().as_secs_f32() > timeout {
-                let r = EvaluationResult {
+                let r = EvalResult {
                     duration: start.elapsed(),
                     result: res.unwrap_or(String::new()),
                 };
@@ -144,11 +167,35 @@ pub fn evaluate<R: Read>(e: &mut Evaluation<R>) -> LamResult<EvaluationResult> {
     Ok(r)
 }
 
+pub trait StateManager {
+    type Value;
+    fn get<S: AsRef<str>>(&self, name: S) -> LamResult<Option<Self::Value>>;
+    fn set<S: AsRef<str>>(&mut self, name: S, value: Self::Value) -> LamResult<()>;
+}
+
+#[derive(Default)]
+pub struct InMemory<'a> {
+    inner: HashMap<String, mlua::Value<'a>>,
+}
+
+impl<'a> StateManager for InMemory<'a> {
+    type Value = mlua::Value<'a>;
+
+    fn get<S: AsRef<str>>(&self, name: S) -> LamResult<Option<mlua::Value<'a>>> {
+        Ok(self.inner.get(name.as_ref()).cloned())
+    }
+
+    fn set<S: AsRef<str>>(&mut self, name: S, value: mlua::Value<'a>) -> LamResult<()> {
+        self.inner.insert(name.as_ref().to_string(), value.clone());
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::io::Cursor;
 
-    use crate::{evaluate, Evaluation, EvaluationConfig};
+    use crate::{evaluate, EvalConfig, Evaluation, InMemory};
 
     const TIMEOUT_THRESHOLD: f32 = 0.01;
 
@@ -156,9 +203,11 @@ mod test {
     fn test_evaluate_infinite_loop() {
         let timeout = 1;
 
-        let mut e = Evaluation::new(EvaluationConfig {
+        let state_manager: Option<InMemory<'_>> = None;
+        let mut e = Evaluation::new(EvalConfig {
             input: Cursor::new(""),
             script: r#"while true do end"#.to_string(),
+            state_manager,
             timeout: Some(timeout),
         });
         let res = evaluate(&mut e).unwrap();
@@ -172,9 +221,11 @@ mod test {
     #[test]
     fn test_read_all() {
         let input = "lam";
-        let mut e = Evaluation::new(EvaluationConfig {
+        let state_manager: Option<InMemory<'_>> = None;
+        let mut e = Evaluation::new(EvalConfig {
             input: Cursor::new(input),
             script: r#"local m = require('@lam'); return m.read('*a')"#.to_string(),
+            state_manager,
             timeout: None,
         });
         let res = evaluate(&mut e).unwrap();
@@ -184,9 +235,11 @@ mod test {
     #[test]
     fn test_read_partial_input() {
         let input = "lam";
-        let mut e = Evaluation::new(EvaluationConfig {
+        let state_manager: Option<InMemory<'_>> = None;
+        let mut e = Evaluation::new(EvalConfig {
             input: Cursor::new(input),
             script: r#"local m = require('@lam'); return m.read(1)"#.to_string(),
+            state_manager,
             timeout: None,
         });
         let res = evaluate(&mut e).unwrap();
@@ -196,9 +249,11 @@ mod test {
     #[test]
     fn test_read_more_than_input() {
         let input = "l";
-        let mut e = Evaluation::new(EvaluationConfig {
+        let state_manager: Option<InMemory<'_>> = None;
+        let mut e = Evaluation::new(EvalConfig {
             input: Cursor::new(input),
             script: r#"local m = require('@lam'); return m.read(3)"#.to_string(),
+            state_manager,
             timeout: None,
         });
         let res = evaluate(&mut e).unwrap();
@@ -208,9 +263,11 @@ mod test {
     #[test]
     fn test_read_unicode() {
         let input = "你好";
-        let mut e = Evaluation::new(EvaluationConfig {
+        let state_manager: Option<InMemory<'_>> = None;
+        let mut e = Evaluation::new(EvalConfig {
             input: Cursor::new(input),
             script: r#"local m = require('@lam'); return m.read_unicode(1)"#.to_string(),
+            state_manager,
             timeout: None,
         });
         let res = evaluate(&mut e).unwrap();
@@ -220,9 +277,11 @@ mod test {
     #[test]
     fn test_read_line() {
         let input = "foo\nbar";
-        let mut e = Evaluation::new(EvaluationConfig {
+        let state_manager: Option<InMemory<'_>> = None;
+        let mut e = Evaluation::new(EvalConfig {
             input: Cursor::new(input),
             script: r#"local m = require('@lam'); m.read('*l'); return m.read('*l')"#.to_string(),
+            state_manager,
             timeout: None,
         });
         let res = evaluate(&mut e).unwrap();
@@ -232,9 +291,11 @@ mod test {
     #[test]
     fn test_read_number() {
         let input = "3.1415926";
-        let mut e = Evaluation::new(EvaluationConfig {
+        let state_manager: Option<InMemory<'_>> = None;
+        let mut e = Evaluation::new(EvalConfig {
             input: Cursor::new(input),
             script: r#"local m = require('@lam'); return m.read('*n')"#.to_string(),
+            state_manager,
             timeout: None,
         });
         let res = evaluate(&mut e).unwrap();
@@ -244,9 +305,11 @@ mod test {
     #[test]
     fn test_read_integer() {
         let input = "3";
-        let mut e = Evaluation::new(EvaluationConfig {
+        let state_manager: Option<InMemory<'_>> = None;
+        let mut e = Evaluation::new(EvalConfig {
             input: Cursor::new(input),
             script: r#"local m = require('@lam'); return m.read('*n')"#.to_string(),
+            state_manager,
             timeout: None,
         });
         let res = evaluate(&mut e).unwrap();
@@ -257,9 +320,11 @@ mod test {
     fn test_reevaluate() {
         let input = "foo\nbar";
 
-        let mut e = Evaluation::new(EvaluationConfig {
+        let state_manager: Option<InMemory<'_>> = None;
+        let mut e = Evaluation::new(EvalConfig {
             input: Cursor::new(input),
             script: r#"local m = require('@lam'); return m.read('*l')"#.to_string(),
+            state_manager,
             timeout: None,
         });
 
@@ -268,5 +333,18 @@ mod test {
 
         let res = evaluate(&mut e).unwrap();
         assert_eq!("bar", res.result);
+    }
+}
+
+#[cfg(test)]
+mod state_manager_test {
+    use crate::{InMemory, StateManager};
+
+    #[test]
+    fn test_get_set() {
+        let mut s = InMemory::default();
+        s.set("n", mlua::Value::Number(1.0)).unwrap();
+        let s = s;
+        assert_eq!(Some(mlua::Value::Number(1.0)), s.get("n").unwrap());
     }
 }
