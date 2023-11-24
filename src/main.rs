@@ -15,18 +15,28 @@ enum Commands {
     Eval {
         /// Script path
         #[arg(long)]
-        file: path::PathBuf,
+        file: Option<path::PathBuf>,
         /// Timeout
         #[arg(long, default_value_t = 30)]
         timeout: u64,
+        /// Inline script
+        script: Option<String>,
     },
 }
 
 fn main() {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Eval { file, timeout } => {
-            let script = fs::read_to_string(file).expect("failed to read script");
+        Commands::Eval {
+            file,
+            timeout,
+            script,
+        } => {
+            let script = if let Some(f) = file {
+                fs::read_to_string(f).expect("failed to read script")
+            } else {
+                script.expect("inline script is expected when filename is absent")
+            };
             let state_manager = Some(InMemory::default());
             let mut e = Evaluation::new(lam::EvalConfig {
                 input: io::stdin(),
