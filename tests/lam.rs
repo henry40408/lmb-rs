@@ -31,7 +31,7 @@ fn give_a_lua_file(w: &mut World, step: &Step) {
     }
 }
 
-#[given("lua examples")]
+#[given("a filename of lua script")]
 fn given_lua_examples(w: &mut World, step: &Step) {
     for row in step.table.as_ref().unwrap().rows.iter().skip(1) {
         let filename = format!("lua-examples/{}", &row[0]);

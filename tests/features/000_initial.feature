@@ -34,7 +34,7 @@ Feature: A simple application to run Lua functions
     Then it should return result
 
   Scenario: Evaluate Lua examples
-    Given lua examples
+    Given a filename of lua script
       | filename        | input  | expected |
       | 01-hello.lua    |        |          |
       | 02-input.lua    | lua    |          |
