@@ -334,6 +334,20 @@ mod test {
         let res = evaluate(&mut e).unwrap();
         assert_eq!("bar", res.result);
     }
+
+    #[test]
+    fn test_handle_binary() {
+        let input = &[1, 2, 3];
+        let state_manager: Option<InMemory<'_>> = None;
+        let mut e = Evaluation::new(EvalConfig {
+            input: Cursor::new(input),
+            script: r#"local m = require('@lam'); local a = m.read('*a'); return #a"#.to_string(),
+            state_manager,
+            timeout: None,
+        });
+        let res = evaluate(&mut e).unwrap();
+        assert_eq!("3", res.result);
+    }
 }
 
 #[cfg(test)]
