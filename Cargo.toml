@@ -9,7 +9,6 @@ edition = "2021"
 anyhow = "1.0.75"
 axum = "0.7.2"
 clap = { version = "4.4.8", features = ["derive"] }
-derive_builder = "0.12.0"
 mlua = { version = "0.9.1", features = ["luau"] }
 thiserror = "1.0.49"
 tokio = { version = "1.32.0", default-features = false, features = [
