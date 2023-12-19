@@ -2,7 +2,7 @@ use axum::{
     body::Bytes, extract::State, http::StatusCode, response::IntoResponse, routing::post, Router,
 };
 use clap::{Parser, Subcommand};
-use lam::{evaluate, EvalConfig, Evaluation, InMemory};
+use lam::{evaluate, EvalConfig, Evaluation};
 use std::{
     fs,
     io::{self, Cursor},
@@ -59,11 +59,9 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 script.unwrap()
             };
-            let state_manager = Some(InMemory::default());
             let mut e = Evaluation::new(lam::EvalConfig {
                 input: io::stdin(),
                 script,
-                state_manager,
                 timeout: Some(timeout),
             });
             let res = evaluate(&mut e)?;
@@ -86,11 +84,9 @@ struct AppState {
 }
 
 async fn index_route(State(state): State<Arc<AppState>>, body: Bytes) -> impl IntoResponse {
-    let state_manager: Option<InMemory<'_>> = None;
     let mut e = Evaluation::new(EvalConfig {
         input: Cursor::new(body),
         script: state.script.clone(),
-        state_manager,
         timeout: Some(state.timeout),
     });
     let res = evaluate(&mut e);

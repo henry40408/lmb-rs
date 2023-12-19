@@ -1,6 +1,5 @@
 use std::{
     cell::RefCell,
-    collections::HashMap,
     io::{BufRead, BufReader, Read},
     time::{Duration, Instant},
 };
@@ -19,40 +18,34 @@ pub enum LamError {
 
 type LamResult<T> = Result<T, LamError>;
 
-pub struct Evaluation<R, S>
+pub struct Evaluation<R>
 where
     R: Read,
-    S: StateManager,
 {
     pub input: RefCell<BufReader<R>>,
     pub script: String,
-    pub state_manager: Option<S>,
     pub timeout: Option<u64>,
 }
 
-impl<R, S> Evaluation<R, S>
+impl<R> Evaluation<R>
 where
     R: Read,
-    S: StateManager,
 {
-    pub fn new(c: EvalConfig<R, S>) -> Self {
+    pub fn new(c: EvalConfig<R>) -> Self {
         Self {
             input: RefCell::new(BufReader::new(c.input)),
             script: c.script,
-            state_manager: c.state_manager,
             timeout: c.timeout,
         }
     }
 }
 
-pub struct EvalConfig<R, S>
+pub struct EvalConfig<R>
 where
     R: Read,
-    S: StateManager,
 {
     pub input: R,
     pub script: String,
-    pub state_manager: Option<S>,
     pub timeout: Option<u64>,
 }
 
@@ -62,10 +55,9 @@ pub struct EvalResult {
     pub result: String,
 }
 
-pub fn evaluate<R, S>(e: &mut Evaluation<R, S>) -> LamResult<EvalResult>
+pub fn evaluate<R>(e: &mut Evaluation<R>) -> LamResult<EvalResult>
 where
     R: Read,
-    S: StateManager,
 {
     let start = Instant::now();
     let timeout = e.timeout.unwrap_or(DEFAULT_TIMEOUT) as f32;
@@ -167,35 +159,11 @@ where
     Ok(r)
 }
 
-pub trait StateManager {
-    type Value;
-    fn get<S: AsRef<str>>(&self, name: S) -> LamResult<Option<Self::Value>>;
-    fn set<S: AsRef<str>>(&mut self, name: S, value: Self::Value) -> LamResult<()>;
-}
-
-#[derive(Default)]
-pub struct InMemory<'a> {
-    inner: HashMap<String, mlua::Value<'a>>,
-}
-
-impl<'a> StateManager for InMemory<'a> {
-    type Value = mlua::Value<'a>;
-
-    fn get<S: AsRef<str>>(&self, name: S) -> LamResult<Option<mlua::Value<'a>>> {
-        Ok(self.inner.get(name.as_ref()).cloned())
-    }
-
-    fn set<S: AsRef<str>>(&mut self, name: S, value: mlua::Value<'a>) -> LamResult<()> {
-        self.inner.insert(name.as_ref().to_string(), value.clone());
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod test {
     use std::io::Cursor;
 
-    use crate::{evaluate, EvalConfig, Evaluation, InMemory};
+    use crate::{evaluate, EvalConfig, Evaluation};
 
     const TIMEOUT_THRESHOLD: f32 = 0.01;
 
@@ -203,11 +171,9 @@ mod test {
     fn test_evaluate_infinite_loop() {
         let timeout = 1;
 
-        let state_manager: Option<InMemory<'_>> = None;
         let mut e = Evaluation::new(EvalConfig {
             input: Cursor::new(""),
             script: r#"while true do end"#.to_string(),
-            state_manager,
             timeout: Some(timeout),
         });
         let res = evaluate(&mut e).unwrap();
@@ -221,11 +187,9 @@ mod test {
     #[test]
     fn test_read_all() {
         let input = "lam";
-        let state_manager: Option<InMemory<'_>> = None;
         let mut e = Evaluation::new(EvalConfig {
             input: Cursor::new(input),
             script: r#"local m = require('@lam'); return m.read('*a')"#.to_string(),
-            state_manager,
             timeout: None,
         });
         let res = evaluate(&mut e).unwrap();
@@ -235,11 +199,9 @@ mod test {
     #[test]
     fn test_read_partial_input() {
         let input = "lam";
-        let state_manager: Option<InMemory<'_>> = None;
         let mut e = Evaluation::new(EvalConfig {
             input: Cursor::new(input),
             script: r#"local m = require('@lam'); return m.read(1)"#.to_string(),
-            state_manager,
             timeout: None,
         });
         let res = evaluate(&mut e).unwrap();
@@ -249,11 +211,9 @@ mod test {
     #[test]
     fn test_read_more_than_input() {
         let input = "l";
-        let state_manager: Option<InMemory<'_>> = None;
         let mut e = Evaluation::new(EvalConfig {
             input: Cursor::new(input),
             script: r#"local m = require('@lam'); return m.read(3)"#.to_string(),
-            state_manager,
             timeout: None,
         });
         let res = evaluate(&mut e).unwrap();
@@ -263,11 +223,9 @@ mod test {
     #[test]
     fn test_read_unicode() {
         let input = "你好";
-        let state_manager: Option<InMemory<'_>> = None;
         let mut e = Evaluation::new(EvalConfig {
             input: Cursor::new(input),
             script: r#"local m = require('@lam'); return m.read_unicode(1)"#.to_string(),
-            state_manager,
             timeout: None,
         });
         let res = evaluate(&mut e).unwrap();
@@ -277,11 +235,9 @@ mod test {
     #[test]
     fn test_read_line() {
         let input = "foo\nbar";
-        let state_manager: Option<InMemory<'_>> = None;
         let mut e = Evaluation::new(EvalConfig {
             input: Cursor::new(input),
             script: r#"local m = require('@lam'); m.read('*l'); return m.read('*l')"#.to_string(),
-            state_manager,
             timeout: None,
         });
         let res = evaluate(&mut e).unwrap();
@@ -291,11 +247,9 @@ mod test {
     #[test]
     fn test_read_number() {
         let input = "3.1415926";
-        let state_manager: Option<InMemory<'_>> = None;
         let mut e = Evaluation::new(EvalConfig {
             input: Cursor::new(input),
             script: r#"local m = require('@lam'); return m.read('*n')"#.to_string(),
-            state_manager,
             timeout: None,
         });
         let res = evaluate(&mut e).unwrap();
@@ -305,11 +259,9 @@ mod test {
     #[test]
     fn test_read_integer() {
         let input = "3";
-        let state_manager: Option<InMemory<'_>> = None;
         let mut e = Evaluation::new(EvalConfig {
             input: Cursor::new(input),
             script: r#"local m = require('@lam'); return m.read('*n')"#.to_string(),
-            state_manager,
             timeout: None,
         });
         let res = evaluate(&mut e).unwrap();
@@ -320,11 +272,9 @@ mod test {
     fn test_reevaluate() {
         let input = "foo\nbar";
 
-        let state_manager: Option<InMemory<'_>> = None;
         let mut e = Evaluation::new(EvalConfig {
             input: Cursor::new(input),
             script: r#"local m = require('@lam'); return m.read('*l')"#.to_string(),
-            state_manager,
             timeout: None,
         });
 
@@ -338,27 +288,12 @@ mod test {
     #[test]
     fn test_handle_binary() {
         let input = &[1, 2, 3];
-        let state_manager: Option<InMemory<'_>> = None;
         let mut e = Evaluation::new(EvalConfig {
             input: Cursor::new(input),
             script: r#"local m = require('@lam'); local a = m.read('*a'); return #a"#.to_string(),
-            state_manager,
             timeout: None,
         });
         let res = evaluate(&mut e).unwrap();
         assert_eq!("3", res.result);
-    }
-}
-
-#[cfg(test)]
-mod state_manager_test {
-    use crate::{InMemory, StateManager};
-
-    #[test]
-    fn test_get_set() {
-        let mut s = InMemory::default();
-        s.set("n", mlua::Value::Number(1.0)).unwrap();
-        let s = s;
-        assert_eq!(Some(mlua::Value::Number(1.0)), s.get("n").unwrap());
     }
 }
