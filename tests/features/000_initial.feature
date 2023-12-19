@@ -39,5 +39,6 @@ Feature: A simple application to run Lua functions
       | 01-hello.lua    |        |          |
       | 02-input.lua    | lua    |          |
       | 03-algebra.lua  | 2      | 4        |
+      | 04-echo.lua     | a      | a        |
     When it is evaluated
     Then it should return result
