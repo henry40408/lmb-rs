@@ -1,10 +1,12 @@
 use std::{
     cell::RefCell,
+    collections::HashMap,
     io::{BufRead, BufReader, Read},
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
-use mlua::{Lua, Table, ThreadStatus, VmState};
+use mlua::{FromLua, IntoLua, Lua, Table, ThreadStatus, VmState};
 use thiserror::Error;
 
 const DEFAULT_TIMEOUT: u64 = 30;
@@ -24,6 +26,7 @@ where
 {
     pub input: RefCell<BufReader<R>>,
     pub script: String,
+    pub state: Arc<Mutex<HashMap<String, StateValue>>>,
     pub timeout: Option<u64>,
 }
 
@@ -35,6 +38,7 @@ where
         Self {
             input: RefCell::new(BufReader::new(c.input)),
             script: c.script,
+            state: Arc::new(Mutex::new(c.state)),
             timeout: Some(c.timeout),
         }
     }
@@ -46,7 +50,45 @@ where
 {
     pub input: R,
     pub script: String,
+    pub state: HashMap<String, StateValue>,
     pub timeout: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum StateValue {
+    None,
+    Boolean(bool),
+    Number(f64),
+    String(String),
+}
+
+impl<'lua> IntoLua<'lua> for StateValue {
+    fn into_lua(self, lua: &'lua Lua) -> mlua::prelude::LuaResult<mlua::prelude::LuaValue<'lua>> {
+        match self {
+            StateValue::None => Ok(mlua::Value::Nil),
+            StateValue::Boolean(b) => b.into_lua(lua),
+            StateValue::Number(n) => n.into_lua(lua),
+            StateValue::String(s) => s.into_lua(lua),
+        }
+    }
+}
+
+impl<'lua> FromLua<'lua> for StateValue {
+    fn from_lua(
+        value: mlua::prelude::LuaValue<'lua>,
+        _lua: &'lua Lua,
+    ) -> mlua::prelude::LuaResult<Self> {
+        if let Some(b) = value.as_boolean() {
+            return Ok(StateValue::Boolean(b));
+        }
+        if let Some(n) = value.as_f64() {
+            return Ok(StateValue::Number(n));
+        }
+        if let Some(s) = value.as_str() {
+            return Ok(StateValue::String(s.to_string()));
+        }
+        Ok(StateValue::None)
+    }
 }
 
 pub struct EvalConfigBuilder<R>
@@ -55,6 +97,7 @@ where
 {
     pub input: R,
     pub script: String,
+    pub state: Option<HashMap<String, StateValue>>,
     pub timeout: Option<u64>,
 }
 
@@ -66,6 +109,7 @@ where
         Self {
             input,
             script: script.as_ref().to_string(),
+            state: None,
             timeout: None,
         }
     }
@@ -75,10 +119,16 @@ where
         self
     }
 
+    pub fn set_state(mut self, state: HashMap<String, StateValue>) -> Self {
+        self.state = Some(state);
+        self
+    }
+
     pub fn build(self) -> EvalConfig<R> {
         EvalConfig {
             input: self.input,
             script: self.script,
+            state: self.state.unwrap_or_default(),
             timeout: self.timeout.unwrap_or(60),
         }
     }
@@ -175,6 +225,25 @@ where
         })?;
         m.set("read_unicode", read_unicode_fn)?;
 
+        let r_state = e.state.clone();
+        let get_fn = vm.create_function(move |vm: &Lua, f: mlua::Value<'_>| {
+            if let Some(key) = f.as_str() {
+                if let Some(v) = r_state.lock().unwrap().get(key) {
+                    return v.clone().into_lua(vm);
+                }
+            }
+            Ok(mlua::Value::Nil)
+        })?;
+        m.set("get", get_fn)?;
+
+        let rw_state = e.state.clone();
+        let set_fn = vm.create_function(move |vm: &Lua, (k, v): (String, mlua::Value<'_>)| {
+            let mut locked = rw_state.lock().unwrap();
+            locked.insert(k, StateValue::from_lua(v, vm)?);
+            Ok(())
+        })?;
+        m.set("set", set_fn)?;
+
         let loaded = vm.named_registry_value::<Table<'_>>(K_LOADED)?;
         loaded.set("@lam", m)?;
         vm.set_named_registry_value(K_LOADED, loaded)?;
@@ -196,9 +265,9 @@ where
 
 #[cfg(test)]
 mod test {
-    use std::io::Cursor;
+    use std::{collections::HashMap, io::Cursor};
 
-    use crate::{evaluate, EvalConfigBuilder, Evaluation};
+    use crate::{evaluate, EvalConfigBuilder, Evaluation, StateValue};
 
     const TIMEOUT_THRESHOLD: f32 = 0.01;
 
@@ -330,14 +399,40 @@ mod test {
 
     #[test]
     fn test_handle_binary() {
-        let input = &[1, 2, 3];
+        let input: &[u8] = &[1, 2, 3];
         let c = EvalConfigBuilder::new(
-            Cursor::new(input),
+            input,
             r#"local m = require('@lam'); local a = m.read('*a'); return #a"#,
         )
         .build();
         let mut e = Evaluation::new(c);
         let res = evaluate(&mut e).unwrap();
         assert_eq!("3", res.result);
+    }
+
+    #[test]
+    fn test_state() {
+        let input: &[u8] = &[];
+
+        let mut state = HashMap::new();
+        state.insert("a".to_string(), StateValue::Number(1.23));
+
+        let c = EvalConfigBuilder::new(
+            input,
+            r#"
+            local m = require('@lam');
+            local a = m.get('a');
+            m.set('a', 4.56); 
+            return a"#,
+        )
+        .set_state(state)
+        .build();
+        let mut e = Evaluation::new(c);
+
+        let res = evaluate(&mut e).unwrap();
+        assert_eq!("1.23", res.result);
+
+        let s = e.state.lock().unwrap();
+        assert_eq!(&StateValue::Number(4.56), s.get("a").unwrap());
     }
 }
