@@ -35,7 +35,7 @@ where
         Self {
             input: RefCell::new(BufReader::new(c.input)),
             script: c.script,
-            timeout: c.timeout,
+            timeout: Some(c.timeout),
         }
     }
 }
@@ -46,7 +46,42 @@ where
 {
     pub input: R,
     pub script: String,
+    pub timeout: u64,
+}
+
+pub struct EvalConfigBuilder<R>
+where
+    R: Read,
+{
+    pub input: R,
+    pub script: String,
     pub timeout: Option<u64>,
+}
+
+impl<R> EvalConfigBuilder<R>
+where
+    R: Read,
+{
+    pub fn new<S: AsRef<str>>(input: R, script: S) -> Self {
+        Self {
+            input,
+            script: script.as_ref().to_string(),
+            timeout: None,
+        }
+    }
+
+    pub fn set_timeout(mut self, timeout: u64) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+
+    pub fn build(self) -> EvalConfig<R> {
+        EvalConfig {
+            input: self.input,
+            script: self.script,
+            timeout: self.timeout.unwrap_or(60),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -163,7 +198,7 @@ where
 mod test {
     use std::io::Cursor;
 
-    use crate::{evaluate, EvalConfig, Evaluation};
+    use crate::{evaluate, EvalConfigBuilder, Evaluation};
 
     const TIMEOUT_THRESHOLD: f32 = 0.01;
 
@@ -171,11 +206,11 @@ mod test {
     fn test_evaluate_infinite_loop() {
         let timeout = 1;
 
-        let mut e = Evaluation::new(EvalConfig {
-            input: Cursor::new(""),
-            script: r#"while true do end"#.to_string(),
-            timeout: Some(timeout),
-        });
+        let input: &[u8] = &[];
+        let c = EvalConfigBuilder::new(input, r#"while true do end"#)
+            .set_timeout(timeout)
+            .build();
+        let mut e = Evaluation::new(c);
         let res = evaluate(&mut e).unwrap();
         assert_eq!("", res.result);
 
@@ -187,11 +222,12 @@ mod test {
     #[test]
     fn test_read_all() {
         let input = "lam";
-        let mut e = Evaluation::new(EvalConfig {
-            input: Cursor::new(input),
-            script: r#"local m = require('@lam'); return m.read('*a')"#.to_string(),
-            timeout: None,
-        });
+        let c = EvalConfigBuilder::new(
+            Cursor::new(input),
+            r#"local m = require('@lam'); return m.read('*a')"#,
+        )
+        .build();
+        let mut e = Evaluation::new(c);
         let res = evaluate(&mut e).unwrap();
         assert_eq!(input, res.result);
     }
@@ -199,11 +235,12 @@ mod test {
     #[test]
     fn test_read_partial_input() {
         let input = "lam";
-        let mut e = Evaluation::new(EvalConfig {
-            input: Cursor::new(input),
-            script: r#"local m = require('@lam'); return m.read(1)"#.to_string(),
-            timeout: None,
-        });
+        let c = EvalConfigBuilder::new(
+            Cursor::new(input),
+            r#"local m = require('@lam'); return m.read(1)"#,
+        )
+        .build();
+        let mut e = Evaluation::new(c);
         let res = evaluate(&mut e).unwrap();
         assert_eq!("l", res.result);
     }
@@ -211,11 +248,12 @@ mod test {
     #[test]
     fn test_read_more_than_input() {
         let input = "l";
-        let mut e = Evaluation::new(EvalConfig {
-            input: Cursor::new(input),
-            script: r#"local m = require('@lam'); return m.read(3)"#.to_string(),
-            timeout: None,
-        });
+        let c = EvalConfigBuilder::new(
+            Cursor::new(input),
+            r#"local m = require('@lam'); return m.read(3)"#,
+        )
+        .build();
+        let mut e = Evaluation::new(c);
         let res = evaluate(&mut e).unwrap();
         assert_eq!("l", res.result);
     }
@@ -223,11 +261,12 @@ mod test {
     #[test]
     fn test_read_unicode() {
         let input = "你好";
-        let mut e = Evaluation::new(EvalConfig {
-            input: Cursor::new(input),
-            script: r#"local m = require('@lam'); return m.read_unicode(1)"#.to_string(),
-            timeout: None,
-        });
+        let c = EvalConfigBuilder::new(
+            Cursor::new(input),
+            r#"local m = require('@lam'); return m.read_unicode(1)"#,
+        )
+        .build();
+        let mut e = Evaluation::new(c);
         let res = evaluate(&mut e).unwrap();
         assert_eq!("你", res.result);
     }
@@ -235,11 +274,12 @@ mod test {
     #[test]
     fn test_read_line() {
         let input = "foo\nbar";
-        let mut e = Evaluation::new(EvalConfig {
-            input: Cursor::new(input),
-            script: r#"local m = require('@lam'); m.read('*l'); return m.read('*l')"#.to_string(),
-            timeout: None,
-        });
+        let c = EvalConfigBuilder::new(
+            Cursor::new(input),
+            r#"local m = require('@lam'); m.read('*l'); return m.read('*l')"#,
+        )
+        .build();
+        let mut e = Evaluation::new(c);
         let res = evaluate(&mut e).unwrap();
         assert_eq!("bar", res.result);
     }
@@ -247,11 +287,12 @@ mod test {
     #[test]
     fn test_read_number() {
         let input = "3.1415926";
-        let mut e = Evaluation::new(EvalConfig {
-            input: Cursor::new(input),
-            script: r#"local m = require('@lam'); return m.read('*n')"#.to_string(),
-            timeout: None,
-        });
+        let c = EvalConfigBuilder::new(
+            Cursor::new(input),
+            r#"local m = require('@lam'); return m.read('*n')"#,
+        )
+        .build();
+        let mut e = Evaluation::new(c);
         let res = evaluate(&mut e).unwrap();
         assert_eq!("3.1415926", res.result);
     }
@@ -259,11 +300,12 @@ mod test {
     #[test]
     fn test_read_integer() {
         let input = "3";
-        let mut e = Evaluation::new(EvalConfig {
-            input: Cursor::new(input),
-            script: r#"local m = require('@lam'); return m.read('*n')"#.to_string(),
-            timeout: None,
-        });
+        let c = EvalConfigBuilder::new(
+            Cursor::new(input),
+            r#"local m = require('@lam'); return m.read('*n')"#,
+        )
+        .build();
+        let mut e = Evaluation::new(c);
         let res = evaluate(&mut e).unwrap();
         assert_eq!("3", res.result);
     }
@@ -272,11 +314,12 @@ mod test {
     fn test_reevaluate() {
         let input = "foo\nbar";
 
-        let mut e = Evaluation::new(EvalConfig {
-            input: Cursor::new(input),
-            script: r#"local m = require('@lam'); return m.read('*l')"#.to_string(),
-            timeout: None,
-        });
+        let c = EvalConfigBuilder::new(
+            Cursor::new(input),
+            r#"local m = require('@lam'); return m.read('*l')"#,
+        )
+        .build();
+        let mut e = Evaluation::new(c);
 
         let res = evaluate(&mut e).unwrap();
         assert_eq!("foo\n", res.result);
@@ -288,11 +331,12 @@ mod test {
     #[test]
     fn test_handle_binary() {
         let input = &[1, 2, 3];
-        let mut e = Evaluation::new(EvalConfig {
-            input: Cursor::new(input),
-            script: r#"local m = require('@lam'); local a = m.read('*a'); return #a"#.to_string(),
-            timeout: None,
-        });
+        let c = EvalConfigBuilder::new(
+            Cursor::new(input),
+            r#"local m = require('@lam'); local a = m.read('*a'); return #a"#,
+        )
+        .build();
+        let mut e = Evaluation::new(c);
         let res = evaluate(&mut e).unwrap();
         assert_eq!("3", res.result);
     }
