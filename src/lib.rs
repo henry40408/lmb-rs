@@ -57,6 +57,9 @@ impl<'lua> FromLua<'lua> for StateValue {
         if let Some(b) = value.as_boolean() {
             return Ok(StateValue::Boolean(b));
         }
+        if let Some(n) = value.as_i64() {
+            return Ok(StateValue::Number(n as f64));
+        }
         if let Some(n) = value.as_f64() {
             return Ok(StateValue::Number(n));
         }
@@ -391,11 +394,7 @@ mod test {
 
         let mut e = EvaluationBuilder::new(
             input,
-            r#"
-            local m = require('@lam');
-            local a = m.get('a');
-            m.set('a', 4.56);
-            return a"#,
+            r#"local m = require('@lam'); local a = m.get('a'); m.set('a', 4.56); return a"#,
         )
         .set_state(state)
         .build();
@@ -405,5 +404,36 @@ mod test {
 
         let s = e.state.lock().unwrap();
         assert_eq!(&StateValue::Number(4.56), s.get("a").unwrap());
+    }
+
+    #[test]
+    fn test_reuse_state() {
+        let input: &[u8] = &[];
+
+        let mut state = HashMap::new();
+        state.insert("a".to_string(), StateValue::Number(1f64));
+
+        let mut e = EvaluationBuilder::new(
+            input,
+            r#"local m = require('@lam'); local a = m.get('a'); m.set('a', a+1); return a"#,
+        )
+        .set_state(state)
+        .build();
+
+        {
+            let res = evaluate(&mut e).unwrap();
+            assert_eq!("1", res.result);
+
+            let s = e.state.lock().unwrap();
+            assert_eq!(&StateValue::Number(2f64), s.get("a").unwrap());
+        }
+
+        {
+            let res = evaluate(&mut e).unwrap();
+            assert_eq!("2", res.result);
+
+            let s = e.state.lock().unwrap();
+            assert_eq!(&StateValue::Number(3f64), s.get("a").unwrap());
+        }
     }
 }
