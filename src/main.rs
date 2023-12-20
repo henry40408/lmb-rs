@@ -2,10 +2,10 @@ use axum::{
     body::Bytes, extract::State, http::StatusCode, response::IntoResponse, routing::post, Router,
 };
 use clap::{Parser, Subcommand};
-use lam::{evaluate, EvalConfigBuilder, Evaluation};
+use lam::{evaluate, EvaluationBuilder};
 use std::{
     fs,
-    io::{self, Cursor},
+    io::{self, Cursor, Read},
     path,
     sync::Arc,
 };
@@ -28,8 +28,6 @@ enum Commands {
         /// Timeout
         #[arg(long, default_value_t = 30)]
         timeout: u64,
-        /// Inline script
-        script: Option<String>,
     },
     /// Handle request with a script file
     Serve {
@@ -49,20 +47,19 @@ enum Commands {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Eval {
-            file,
-            timeout,
-            script,
-        } => {
+        Commands::Eval { file, timeout } => {
             let script = if let Some(f) = file {
                 fs::read_to_string(f)?
             } else {
-                script.unwrap()
+                let mut buf = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut buf)
+                    .expect("either file or script via standard input should be provided");
+                buf
             };
-            let c = EvalConfigBuilder::new(io::stdin(), script)
+            let mut e = EvaluationBuilder::new(io::stdin(), script)
                 .set_timeout(timeout)
                 .build();
-            let mut e = Evaluation::new(c);
             let res = evaluate(&mut e)?;
             print!("{}", res.result);
         }
@@ -83,10 +80,9 @@ struct AppState {
 }
 
 async fn index_route(State(state): State<Arc<AppState>>, body: Bytes) -> impl IntoResponse {
-    let c = EvalConfigBuilder::new(Cursor::new(body), state.script.clone())
+    let mut e = EvaluationBuilder::new(Cursor::new(body), state.script.clone())
         .set_timeout(state.timeout)
         .build();
-    let mut e = Evaluation::new(c);
     let res = evaluate(&mut e);
     let (status_code, response_body) = match res {
         Ok(res) => (StatusCode::OK, res.result),

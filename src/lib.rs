@@ -30,30 +30,6 @@ where
     pub timeout: Option<u64>,
 }
 
-impl<R> Evaluation<R>
-where
-    R: Read,
-{
-    pub fn new(c: EvalConfig<R>) -> Self {
-        Self {
-            input: RefCell::new(BufReader::new(c.input)),
-            script: c.script,
-            state: Arc::new(Mutex::new(c.state)),
-            timeout: Some(c.timeout),
-        }
-    }
-}
-
-pub struct EvalConfig<R>
-where
-    R: Read,
-{
-    pub input: R,
-    pub script: String,
-    pub state: HashMap<String, StateValue>,
-    pub timeout: u64,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum StateValue {
     None,
@@ -91,7 +67,7 @@ impl<'lua> FromLua<'lua> for StateValue {
     }
 }
 
-pub struct EvalConfigBuilder<R>
+pub struct EvaluationBuilder<R>
 where
     R: Read,
 {
@@ -101,7 +77,7 @@ where
     pub timeout: Option<u64>,
 }
 
-impl<R> EvalConfigBuilder<R>
+impl<R> EvaluationBuilder<R>
 where
     R: Read,
 {
@@ -124,12 +100,12 @@ where
         self
     }
 
-    pub fn build(self) -> EvalConfig<R> {
-        EvalConfig {
-            input: self.input,
+    pub fn build(self) -> Evaluation<R> {
+        Evaluation {
+            input: RefCell::new(BufReader::new(self.input)),
             script: self.script,
-            state: self.state.unwrap_or_default(),
-            timeout: self.timeout.unwrap_or(60),
+            state: Arc::new(Mutex::new(self.state.unwrap_or_default())),
+            timeout: self.timeout,
         }
     }
 }
@@ -228,7 +204,11 @@ where
         let r_state = e.state.clone();
         let get_fn = vm.create_function(move |vm: &Lua, f: mlua::Value<'_>| {
             if let Some(key) = f.as_str() {
-                if let Some(v) = r_state.lock().unwrap().get(key) {
+                if let Some(v) = r_state
+                    .lock()
+                    .expect("failed to acquire lock when get state")
+                    .get(key)
+                {
                     return v.clone().into_lua(vm);
                 }
             }
@@ -238,7 +218,9 @@ where
 
         let rw_state = e.state.clone();
         let set_fn = vm.create_function(move |vm: &Lua, (k, v): (String, mlua::Value<'_>)| {
-            let mut locked = rw_state.lock().unwrap();
+            let mut locked = rw_state
+                .lock()
+                .expect("failed to acquire lock when set state");
             locked.insert(k, StateValue::from_lua(v, vm)?);
             Ok(())
         })?;
@@ -267,7 +249,7 @@ where
 mod test {
     use std::{collections::HashMap, io::Cursor};
 
-    use crate::{evaluate, EvalConfigBuilder, Evaluation, StateValue};
+    use crate::{evaluate, EvaluationBuilder, StateValue};
 
     const TIMEOUT_THRESHOLD: f32 = 0.01;
 
@@ -276,10 +258,9 @@ mod test {
         let timeout = 1;
 
         let input: &[u8] = &[];
-        let c = EvalConfigBuilder::new(input, r#"while true do end"#)
+        let mut e = EvaluationBuilder::new(input, r#"while true do end"#)
             .set_timeout(timeout)
             .build();
-        let mut e = Evaluation::new(c);
         let res = evaluate(&mut e).unwrap();
         assert_eq!("", res.result);
 
@@ -291,12 +272,11 @@ mod test {
     #[test]
     fn test_read_all() {
         let input = "lam";
-        let c = EvalConfigBuilder::new(
+        let mut e = EvaluationBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); return m.read('*a')"#,
         )
         .build();
-        let mut e = Evaluation::new(c);
         let res = evaluate(&mut e).unwrap();
         assert_eq!(input, res.result);
     }
@@ -304,12 +284,11 @@ mod test {
     #[test]
     fn test_read_partial_input() {
         let input = "lam";
-        let c = EvalConfigBuilder::new(
+        let mut e = EvaluationBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); return m.read(1)"#,
         )
         .build();
-        let mut e = Evaluation::new(c);
         let res = evaluate(&mut e).unwrap();
         assert_eq!("l", res.result);
     }
@@ -317,12 +296,11 @@ mod test {
     #[test]
     fn test_read_more_than_input() {
         let input = "l";
-        let c = EvalConfigBuilder::new(
+        let mut e = EvaluationBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); return m.read(3)"#,
         )
         .build();
-        let mut e = Evaluation::new(c);
         let res = evaluate(&mut e).unwrap();
         assert_eq!("l", res.result);
     }
@@ -330,12 +308,11 @@ mod test {
     #[test]
     fn test_read_unicode() {
         let input = "你好";
-        let c = EvalConfigBuilder::new(
+        let mut e = EvaluationBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); return m.read_unicode(1)"#,
         )
         .build();
-        let mut e = Evaluation::new(c);
         let res = evaluate(&mut e).unwrap();
         assert_eq!("你", res.result);
     }
@@ -343,12 +320,11 @@ mod test {
     #[test]
     fn test_read_line() {
         let input = "foo\nbar";
-        let c = EvalConfigBuilder::new(
+        let mut e = EvaluationBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); m.read('*l'); return m.read('*l')"#,
         )
         .build();
-        let mut e = Evaluation::new(c);
         let res = evaluate(&mut e).unwrap();
         assert_eq!("bar", res.result);
     }
@@ -356,12 +332,11 @@ mod test {
     #[test]
     fn test_read_number() {
         let input = "3.1415926";
-        let c = EvalConfigBuilder::new(
+        let mut e = EvaluationBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); return m.read('*n')"#,
         )
         .build();
-        let mut e = Evaluation::new(c);
         let res = evaluate(&mut e).unwrap();
         assert_eq!("3.1415926", res.result);
     }
@@ -369,12 +344,11 @@ mod test {
     #[test]
     fn test_read_integer() {
         let input = "3";
-        let c = EvalConfigBuilder::new(
+        let mut e = EvaluationBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); return m.read('*n')"#,
         )
         .build();
-        let mut e = Evaluation::new(c);
         let res = evaluate(&mut e).unwrap();
         assert_eq!("3", res.result);
     }
@@ -383,12 +357,11 @@ mod test {
     fn test_reevaluate() {
         let input = "foo\nbar";
 
-        let c = EvalConfigBuilder::new(
+        let mut e = EvaluationBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); return m.read('*l')"#,
         )
         .build();
-        let mut e = Evaluation::new(c);
 
         let res = evaluate(&mut e).unwrap();
         assert_eq!("foo\n", res.result);
@@ -400,12 +373,11 @@ mod test {
     #[test]
     fn test_handle_binary() {
         let input: &[u8] = &[1, 2, 3];
-        let c = EvalConfigBuilder::new(
+        let mut e = EvaluationBuilder::new(
             input,
             r#"local m = require('@lam'); local a = m.read('*a'); return #a"#,
         )
         .build();
-        let mut e = Evaluation::new(c);
         let res = evaluate(&mut e).unwrap();
         assert_eq!("3", res.result);
     }
@@ -417,17 +389,16 @@ mod test {
         let mut state = HashMap::new();
         state.insert("a".to_string(), StateValue::Number(1.23));
 
-        let c = EvalConfigBuilder::new(
+        let mut e = EvaluationBuilder::new(
             input,
             r#"
             local m = require('@lam');
             local a = m.get('a');
-            m.set('a', 4.56); 
+            m.set('a', 4.56);
             return a"#,
         )
         .set_state(state)
         .build();
-        let mut e = Evaluation::new(c);
 
         let res = evaluate(&mut e).unwrap();
         assert_eq!("1.23", res.result);

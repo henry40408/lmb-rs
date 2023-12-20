@@ -1,7 +1,9 @@
+#![allow(clippy::unwrap_used)]
+
 use std::{fs, io::Cursor};
 
 use cucumber::{gherkin::Step, given, then, when, World as _};
-use lam::{evaluate, EvalConfigBuilder, EvalResult, Evaluation};
+use lam::{evaluate, EvalResult, EvaluationBuilder};
 
 #[derive(Debug)]
 struct Case {
@@ -49,13 +51,12 @@ fn given_lua_examples(w: &mut World, step: &Step) {
 #[when("it is evaluated")]
 fn user_evaluates_it(w: &mut World) {
     for case in &w.cases {
-        let c = EvalConfigBuilder::new(Cursor::new(case.input.clone()), case.script.clone());
-        let c = match w.timeout {
-            Some(t) => c.set_timeout(t),
-            None => c,
+        let b = EvaluationBuilder::new(Cursor::new(case.input.clone()), case.script.clone());
+        let b = match w.timeout {
+            Some(t) => b.set_timeout(t),
+            None => b,
         };
-        let c = c.build();
-        let mut e = Evaluation::new(c);
+        let mut e = b.build();
         w.results.push(evaluate(&mut e).unwrap());
     }
 }
