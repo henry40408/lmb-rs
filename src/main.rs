@@ -2,12 +2,13 @@ use axum::{
     body::Bytes, extract::State, http::StatusCode, response::IntoResponse, routing::post, Router,
 };
 use clap::{Parser, Subcommand};
-use lam::{evaluate, EvalConfig, Evaluation, InMemory};
+use lam::{evaluate, EvaluationBuilder, StateValue};
 use std::{
+    collections::HashMap,
     fs,
-    io::{self, Cursor},
+    io::{self, Cursor, Read},
     path,
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 use tracing::error;
 
@@ -28,8 +29,6 @@ enum Commands {
         /// Timeout
         #[arg(long, default_value_t = 30)]
         timeout: u64,
-        /// Inline script
-        script: Option<String>,
     },
     /// Handle request with a script file
     Serve {
@@ -49,23 +48,19 @@ enum Commands {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Eval {
-            file,
-            timeout,
-            script,
-        } => {
+        Commands::Eval { file, timeout } => {
             let script = if let Some(f) = file {
                 fs::read_to_string(f)?
             } else {
-                script.unwrap()
+                let mut buf = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut buf)
+                    .expect("either file or script via standard input should be provided");
+                buf
             };
-            let state_manager = Some(InMemory::default());
-            let mut e = Evaluation::new(lam::EvalConfig {
-                input: io::stdin(),
-                script,
-                state_manager,
-                timeout: Some(timeout),
-            });
+            let mut e = EvaluationBuilder::new(io::stdin(), script)
+                .set_timeout(timeout)
+                .build();
             let res = evaluate(&mut e)?;
             print!("{}", res.result);
         }
@@ -82,25 +77,31 @@ async fn main() -> anyhow::Result<()> {
 
 struct AppState {
     script: String,
+    state: Mutex<HashMap<String, StateValue>>,
     timeout: u64,
 }
 
 async fn index_route(State(state): State<Arc<AppState>>, body: Bytes) -> impl IntoResponse {
-    let state_manager: Option<InMemory<'_>> = None;
-    let mut e = Evaluation::new(EvalConfig {
-        input: Cursor::new(body),
-        script: state.script.clone(),
-        state_manager,
-        timeout: Some(state.timeout),
-    });
-    let res = evaluate(&mut e);
-    let (status_code, response_body) = match res {
-        Ok(res) => (StatusCode::OK, res.result),
-        Err(e) => {
-            error!("{:?}", e);
-            (StatusCode::BAD_REQUEST, "".to_string())
+    let (status_code, response_body, new_state) = {
+        let locked = state.state.lock().expect("failed to acquire lock on state");
+        let mut e = EvaluationBuilder::new(Cursor::new(body), state.script.clone())
+            .set_timeout(state.timeout)
+            .set_state(locked.clone())
+            .build();
+        let res = evaluate(&mut e);
+        match res {
+            Ok(res) => (StatusCode::OK, res.result, e.state),
+            Err(err) => {
+                error!("{:?}", err);
+                (StatusCode::BAD_REQUEST, "".to_string(), e.state)
+            }
         }
     };
+    let mut locked = state
+        .state
+        .lock()
+        .expect("failed to acquire lock on state to update");
+    *locked = new_state;
     (status_code, response_body)
 }
 
@@ -108,7 +109,12 @@ async fn serve_file(file: &path::PathBuf, bind: &str, timeout: u64) -> anyhow::R
     tracing_subscriber::fmt::init();
 
     let script = fs::read_to_string(file)?;
-    let app_state = Arc::new(AppState { script, timeout });
+    let state = Mutex::new(HashMap::new());
+    let app_state = Arc::new(AppState {
+        script,
+        state,
+        timeout,
+    });
 
     let app = Router::new()
         .route("/", post(index_route))
