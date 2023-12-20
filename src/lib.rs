@@ -26,7 +26,7 @@ where
 {
     pub input: RefCell<BufReader<R>>,
     pub script: String,
-    pub state: Arc<Mutex<HashMap<String, StateValue>>>,
+    pub state: HashMap<String, StateValue>,
     pub timeout: Option<u64>,
 }
 
@@ -107,7 +107,7 @@ where
         Evaluation {
             input: RefCell::new(BufReader::new(self.input)),
             script: self.script,
-            state: Arc::new(Mutex::new(self.state.unwrap_or_default())),
+            state: self.state.unwrap_or_default(),
             timeout: self.timeout,
         }
     }
@@ -134,6 +134,8 @@ where
         }
         Ok(VmState::Continue)
     });
+
+    let shared_state = Arc::new(Mutex::new(e.state.clone()));
 
     let r = vm.scope(|scope| {
         let m = vm.create_table()?;
@@ -204,12 +206,12 @@ where
         })?;
         m.set("read_unicode", read_unicode_fn)?;
 
-        let r_state = e.state.clone();
+        let r_state = shared_state.clone();
         let get_fn = vm.create_function(move |vm: &Lua, f: mlua::Value<'_>| {
             if let Some(key) = f.as_str() {
                 if let Some(v) = r_state
                     .lock()
-                    .expect("failed to acquire lock when get state")
+                    .expect("failed to acquire lock to get state")
                     .get(key)
                 {
                     return v.clone().into_lua(vm);
@@ -219,11 +221,11 @@ where
         })?;
         m.set("get", get_fn)?;
 
-        let rw_state = e.state.clone();
+        let rw_state = shared_state.clone();
         let set_fn = vm.create_function(move |vm: &Lua, (k, v): (String, mlua::Value<'_>)| {
             let mut locked = rw_state
                 .lock()
-                .expect("failed to acquire lock when set state");
+                .expect("failed to acquire lock to set state");
             locked.insert(k, StateValue::from_lua(v, vm)?);
             Ok(())
         })?;
@@ -241,6 +243,10 @@ where
                     duration: start.elapsed(),
                     result: res.unwrap_or(String::new()),
                 };
+                let locked = shared_state
+                    .lock()
+                    .expect("failed to acquire lock on new state");
+                e.state = locked.clone();
                 return Ok(r);
             }
         }
@@ -401,9 +407,7 @@ mod test {
 
         let res = evaluate(&mut e).unwrap();
         assert_eq!("1.23", res.result);
-
-        let s = e.state.lock().unwrap();
-        assert_eq!(&StateValue::Number(4.56), s.get("a").unwrap());
+        assert_eq!(&StateValue::Number(4.56), e.state.get("a").unwrap());
     }
 
     #[test]
@@ -423,17 +427,13 @@ mod test {
         {
             let res = evaluate(&mut e).unwrap();
             assert_eq!("1", res.result);
-
-            let s = e.state.lock().unwrap();
-            assert_eq!(&StateValue::Number(2f64), s.get("a").unwrap());
+            assert_eq!(&StateValue::Number(2f64), e.state.get("a").unwrap());
         }
 
         {
             let res = evaluate(&mut e).unwrap();
             assert_eq!("2", res.result);
-
-            let s = e.state.lock().unwrap();
-            assert_eq!(&StateValue::Number(3f64), s.get("a").unwrap());
+            assert_eq!(&StateValue::Number(3f64), e.state.get("a").unwrap());
         }
     }
 }
