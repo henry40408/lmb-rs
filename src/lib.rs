@@ -8,6 +8,7 @@ use std::{
 use dashmap::DashMap;
 use mlua::{FromLua, IntoLua, Lua, Table, ThreadStatus, VmState};
 use thiserror::Error;
+use tracing::error;
 
 const DEFAULT_TIMEOUT: u64 = 30;
 const K_LOADED: &str = "_LOADED";
@@ -209,6 +210,7 @@ where
         )?;
 
         let r_state = e.state.clone();
+        // "get" is NOT concurrency-safe
         m.set(
             "get",
             vm.create_function(move |vm: &Lua, f: mlua::Value<'_>| {
@@ -222,11 +224,37 @@ where
         )?;
 
         let rw_state = e.state.clone();
+        // "set" is NOT concurrency-safe
         m.set(
             "set",
             vm.create_function(move |vm: &Lua, (k, v): (String, mlua::Value<'_>)| {
                 rw_state.insert(k, StateValue::from_lua(v, vm)?);
                 Ok(())
+            })?,
+        )?;
+
+        let rw_state = e.state.clone();
+        // "get_set" is concurrency-safe
+        m.set(
+            "get_set",
+            vm.create_function(move |vm: &Lua, (k, f, default_v): (String, mlua::Function<'_>, mlua::Value<'_>)| {
+                Ok(rw_state.entry(k).and_modify(|v| {
+                    match f.call(v.clone().into_lua(vm)) {
+                        Ok(ret_v) => {
+                            match StateValue::from_lua(ret_v, vm) {
+                                Ok(state_v) => {
+                                    *v = state_v;
+                                },
+                                Err(e) => {
+                                    error!("failed to convert lua value {:?}",e);
+                                },
+                            }
+                        }
+                        Err(e) => {
+                            error!("failed to run lua function {:?}",e);
+                        },
+                    }
+                }).or_insert(StateValue::from_lua(default_v, vm)?).value().clone())
             })?,
         )?;
 
@@ -437,17 +465,15 @@ mod test {
     fn test_state_concurrency() {
         let input: &[u8] = &[];
 
-        let state = DashMap::new();
-        state.insert("a".to_string(), StateValue::Number(0f64));
-        let state = Arc::new(state);
+        let state = Arc::new(DashMap::new());
 
         let mut threads = vec![];
-        for _ in 1..=1000 {
+        for _ in 0..=1000 {
             let state = state.clone();
             threads.push(thread::spawn(move || {
                 let mut e = EvaluationBuilder::new(
                     input,
-                    r#"local m = require('@lam'); local a = m.get('a'); m.set('a', a+1); return a"#,
+                    r#"local m = require('@lam'); m.get_set('a', function(v) return v+1 end, 0)"#,
                 )
                 .set_state(state)
                 .build();
