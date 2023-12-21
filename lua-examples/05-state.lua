@@ -1,5 +1,4 @@
 local m = require("@lam")
-local a = m.get("a") or 1
-a = a + 1
-m.set("a", a)
-return a
+return m.get_set("a", function(v)
+	return v + 1
+end, 0)
