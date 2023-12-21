@@ -1,11 +1,11 @@
 use std::{
     cell::RefCell,
-    collections::HashMap,
     io::{BufRead, BufReader, Read},
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
+use dashmap::DashMap;
 use mlua::{FromLua, IntoLua, Lua, Table, ThreadStatus, VmState};
 use thiserror::Error;
 
@@ -26,7 +26,7 @@ where
 {
     pub input: RefCell<BufReader<R>>,
     pub script: String,
-    pub state: HashMap<String, StateValue>,
+    pub state: Arc<DashMap<String, StateValue>>,
     pub timeout: Option<u64>,
 }
 
@@ -76,7 +76,7 @@ where
 {
     pub input: R,
     pub script: String,
-    pub state: Option<HashMap<String, StateValue>>,
+    pub state: Option<Arc<DashMap<String, StateValue>>>,
     pub timeout: Option<u64>,
 }
 
@@ -98,7 +98,7 @@ where
         self
     }
 
-    pub fn set_state(mut self, state: HashMap<String, StateValue>) -> Self {
+    pub fn set_state(mut self, state: Arc<DashMap<String, StateValue>>) -> Self {
         self.state = Some(state);
         self
     }
@@ -135,101 +135,100 @@ where
         Ok(VmState::Continue)
     });
 
-    let shared_state = Arc::new(Mutex::new(e.state.clone()));
-
     let r = vm.scope(|scope| {
         let m = vm.create_table()?;
         m.set("_VERSION", env!("CARGO_PKG_VERSION"))?;
 
-        let read_fn = scope.create_function(|_, f: mlua::Value<'_>| {
-            if let Some(f) = f.as_str() {
-                if f.starts_with("*a") {
-                    // accepts *a or *all
-                    let mut buf = Vec::new();
-                    e.input.borrow_mut().read_to_end(&mut buf)?;
+        m.set(
+            "read",
+            scope.create_function(|_, f: mlua::Value<'_>| {
+                if let Some(f) = f.as_str() {
+                    if f.starts_with("*a") {
+                        // accepts *a or *all
+                        let mut buf = Vec::new();
+                        e.input.borrow_mut().read_to_end(&mut buf)?;
+                        let s = vm.create_string(String::from_utf8(buf).unwrap_or_default())?;
+                        return Ok(mlua::Value::String(s));
+                    }
+                    if f.starts_with("*l") {
+                        // accepts *l or *line
+                        let mut r = e.input.borrow_mut();
+                        let mut buf = String::new();
+                        r.read_line(&mut buf)?;
+                        let s = vm.create_string(buf)?;
+                        return Ok(mlua::Value::String(s));
+                    }
+                    if f.starts_with("*n") {
+                        // accepts *n or *number
+                        let mut buf = String::new();
+                        e.input.borrow_mut().read_to_string(&mut buf)?;
+                        return Ok(buf
+                            .parse::<f64>()
+                            .map(mlua::Value::Number)
+                            .unwrap_or(mlua::Value::Nil));
+                    }
+                }
+
+                #[allow(clippy::unused_io_amount)]
+                if let Some(i) = f.as_usize() {
+                    let mut buf = vec![0; i];
+                    let count = e.input.borrow_mut().read(&mut buf)?;
+                    buf.truncate(count);
                     let s = vm.create_string(String::from_utf8(buf).unwrap_or_default())?;
                     return Ok(mlua::Value::String(s));
                 }
-                if f.starts_with("*l") {
-                    // accepts *l or *line
-                    let mut r = e.input.borrow_mut();
-                    let mut buf = String::new();
-                    r.read_line(&mut buf)?;
-                    let s = vm.create_string(buf)?;
-                    return Ok(mlua::Value::String(s));
-                }
-                if f.starts_with("*n") {
-                    // accepts *n or *number
-                    let mut buf = String::new();
-                    e.input.borrow_mut().read_to_string(&mut buf)?;
-                    return Ok(buf
-                        .parse::<f64>()
-                        .map(mlua::Value::Number)
-                        .unwrap_or(mlua::Value::Nil));
-                }
-            }
 
-            #[allow(clippy::unused_io_amount)]
-            if let Some(i) = f.as_usize() {
-                let mut buf = vec![0; i];
-                let count = e.input.borrow_mut().read(&mut buf)?;
-                buf.truncate(count);
-                let s = vm.create_string(String::from_utf8(buf).unwrap_or_default())?;
-                return Ok(mlua::Value::String(s));
-            }
+                let s = format!("unexpected format {f:?}");
+                Err(mlua::Error::RuntimeError(s))
+            })?,
+        )?;
 
-            let s = format!("unexpected format {f:?}");
-            Err(mlua::Error::RuntimeError(s))
-        })?;
-        m.set("read", read_fn)?;
+        m.set(
+            "read_unicode",
+            scope.create_function(|_, i: usize| {
+                let mut expected_read = i;
+                let mut buf = Vec::new();
+                let mut byte_buf = vec![0; 1];
+                loop {
+                    if expected_read == 0 {
+                        return Ok(String::from_utf8(buf).unwrap_or_default());
+                    }
+                    let read_bytes = e.input.borrow_mut().read(&mut byte_buf)?;
+                    // caveat: buffer is not empty when no bytes are read
+                    if read_bytes > 0 {
+                        buf.extend_from_slice(&byte_buf);
+                    }
+                    if read_bytes == 0 {
+                        return Ok(String::from_utf8(buf).unwrap_or_default());
+                    }
+                    if std::str::from_utf8(&buf).is_ok() {
+                        expected_read -= 1;
+                    }
+                }
+            })?,
+        )?;
 
-        let read_unicode_fn = scope.create_function(|_, i: usize| {
-            let mut expected_read = i;
-            let mut buf = Vec::new();
-            let mut byte_buf = vec![0; 1];
-            loop {
-                if expected_read == 0 {
-                    return Ok(String::from_utf8(buf).unwrap_or_default());
+        let r_state = e.state.clone();
+        m.set(
+            "get",
+            vm.create_function(move |vm: &Lua, f: mlua::Value<'_>| {
+                if let Some(key) = f.as_str() {
+                    if let Some(v) = r_state.get(key) {
+                        return v.clone().into_lua(vm);
+                    }
                 }
-                let read_bytes = e.input.borrow_mut().read(&mut byte_buf)?;
-                // caveat: buffer is not empty when no bytes are read
-                if read_bytes > 0 {
-                    buf.extend_from_slice(&byte_buf);
-                }
-                if read_bytes == 0 {
-                    return Ok(String::from_utf8(buf).unwrap_or_default());
-                }
-                if std::str::from_utf8(&buf).is_ok() {
-                    expected_read -= 1;
-                }
-            }
-        })?;
-        m.set("read_unicode", read_unicode_fn)?;
+                Ok(mlua::Value::Nil)
+            })?,
+        )?;
 
-        let r_state = shared_state.clone();
-        let get_fn = vm.create_function(move |vm: &Lua, f: mlua::Value<'_>| {
-            if let Some(key) = f.as_str() {
-                if let Some(v) = r_state
-                    .lock()
-                    .expect("failed to acquire lock to get state")
-                    .get(key)
-                {
-                    return v.clone().into_lua(vm);
-                }
-            }
-            Ok(mlua::Value::Nil)
-        })?;
-        m.set("get", get_fn)?;
-
-        let rw_state = shared_state.clone();
-        let set_fn = vm.create_function(move |vm: &Lua, (k, v): (String, mlua::Value<'_>)| {
-            let mut locked = rw_state
-                .lock()
-                .expect("failed to acquire lock to set state");
-            locked.insert(k, StateValue::from_lua(v, vm)?);
-            Ok(())
-        })?;
-        m.set("set", set_fn)?;
+        let rw_state = e.state.clone();
+        m.set(
+            "set",
+            vm.create_function(move |vm: &Lua, (k, v): (String, mlua::Value<'_>)| {
+                rw_state.insert(k, StateValue::from_lua(v, vm)?);
+                Ok(())
+            })?,
+        )?;
 
         let loaded = vm.named_registry_value::<Table<'_>>(K_LOADED)?;
         loaded.set("@lam", m)?;
@@ -239,15 +238,10 @@ where
         loop {
             let res = co.resume::<_, Option<String>>(())?;
             if co.status() != ThreadStatus::Resumable || start.elapsed().as_secs_f32() > timeout {
-                let r = EvalResult {
+                return Ok(EvalResult {
                     duration: start.elapsed(),
                     result: res.unwrap_or(String::new()),
-                };
-                let locked = shared_state
-                    .lock()
-                    .expect("failed to acquire lock on new state");
-                e.state = locked.clone();
-                return Ok(r);
+                });
             }
         }
     })?;
@@ -256,7 +250,9 @@ where
 
 #[cfg(test)]
 mod test {
-    use std::{collections::HashMap, io::Cursor};
+    use std::{io::Cursor, sync::Arc, thread};
+
+    use dashmap::DashMap;
 
     use crate::{evaluate, EvaluationBuilder, StateValue};
 
@@ -395,45 +391,72 @@ mod test {
     fn test_state() {
         let input: &[u8] = &[];
 
-        let mut state = HashMap::new();
+        let state = DashMap::new();
         state.insert("a".to_string(), StateValue::Number(1.23));
 
         let mut e = EvaluationBuilder::new(
             input,
             r#"local m = require('@lam'); local a = m.get('a'); m.set('a', 4.56); return a"#,
         )
-        .set_state(state)
+        .set_state(Arc::new(state))
         .build();
 
         let res = evaluate(&mut e).unwrap();
         assert_eq!("1.23", res.result);
-        assert_eq!(&StateValue::Number(4.56), e.state.get("a").unwrap());
+        assert_eq!(StateValue::Number(4.56), *e.state.get("a").unwrap());
     }
 
     #[test]
     fn test_reuse_state() {
         let input: &[u8] = &[];
 
-        let mut state = HashMap::new();
+        let state = DashMap::new();
         state.insert("a".to_string(), StateValue::Number(1f64));
 
         let mut e = EvaluationBuilder::new(
             input,
             r#"local m = require('@lam'); local a = m.get('a'); m.set('a', a+1); return a"#,
         )
-        .set_state(state)
+        .set_state(Arc::new(state))
         .build();
 
         {
             let res = evaluate(&mut e).unwrap();
             assert_eq!("1", res.result);
-            assert_eq!(&StateValue::Number(2f64), e.state.get("a").unwrap());
+            assert_eq!(StateValue::Number(2f64), *e.state.get("a").unwrap());
         }
 
         {
             let res = evaluate(&mut e).unwrap();
             assert_eq!("2", res.result);
-            assert_eq!(&StateValue::Number(3f64), e.state.get("a").unwrap());
+            assert_eq!(StateValue::Number(3f64), *e.state.get("a").unwrap());
         }
+    }
+
+    #[test]
+    fn test_state_concurrency() {
+        let input: &[u8] = &[];
+
+        let state = DashMap::new();
+        state.insert("a".to_string(), StateValue::Number(0f64));
+        let state = Arc::new(state);
+
+        let mut threads = vec![];
+        for _ in 1..=1000 {
+            let state = state.clone();
+            threads.push(thread::spawn(move || {
+                let mut e = EvaluationBuilder::new(
+                    input,
+                    r#"local m = require('@lam'); local a = m.get('a'); m.set('a', a+1); return a"#,
+                )
+                .set_state(state)
+                .build();
+                let _ = evaluate(&mut e);
+            }));
+        }
+        for t in threads {
+            let _ = t.join();
+        }
+        assert_eq!(StateValue::Number(1000f64), *state.get("a").unwrap());
     }
 }
