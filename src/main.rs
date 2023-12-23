@@ -60,10 +60,10 @@ async fn main() -> anyhow::Result<()> {
                     .expect("either file or script via standard input should be provided");
                 buf
             };
-            let mut e = EvalBuilder::new(io::stdin(), script)
+            let e = EvalBuilder::new(io::stdin(), script)
                 .set_timeout(timeout)
-                .build();
-            let res = evaluate(&mut e)?;
+                .build()?;
+            let res = evaluate(&e)?;
             print!("{}", res.result);
         }
         Commands::Serve {
@@ -84,11 +84,18 @@ struct AppState {
 }
 
 async fn index_route(State(state): State<Arc<AppState>>, body: Bytes) -> impl IntoResponse {
-    let mut e = EvalBuilder::new(Cursor::new(body), state.script.clone())
+    let e = match EvalBuilder::new(Cursor::new(body), state.script.clone())
         .set_timeout(state.timeout)
         .set_state(state.state.clone())
-        .build();
-    let res = evaluate(&mut e);
+        .build()
+    {
+        Ok(e) => e,
+        Err(err) => {
+            error!("{:?}", err);
+            return (StatusCode::BAD_REQUEST, "".to_string());
+        }
+    };
+    let res = evaluate(&e);
     match res {
         Ok(res) => (StatusCode::OK, res.result),
         Err(err) => {

@@ -56,8 +56,8 @@ fn user_evaluates_it(w: &mut World) {
             Some(t) => b.set_timeout(t),
             None => b,
         };
-        let mut e = b.build();
-        w.results.push(evaluate(&mut e).unwrap());
+        let e = b.build().unwrap();
+        w.results.push(evaluate(&e).unwrap());
     }
 }
 

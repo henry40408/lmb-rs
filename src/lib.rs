@@ -26,6 +26,7 @@ pub struct Evaluation<R>
 where
     R: Read,
 {
+    pub vm: mlua::Lua,
     pub input: Arc<Mutex<BufReader<R>>>,
     pub script: String,
     pub state: Arc<DashMap<String, LamValue>>,
@@ -105,13 +106,16 @@ where
         self
     }
 
-    pub fn build(self) -> Evaluation<R> {
-        Evaluation {
+    pub fn build(self) -> LamResult<Evaluation<R>> {
+        let vm = mlua::Lua::new();
+        vm.sandbox(true)?;
+        Ok(Evaluation {
+            vm,
             input: Arc::new(Mutex::new(BufReader::new(self.input))),
             script: self.script,
             state: self.state.unwrap_or_default(),
             timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
-        }
+        })
     }
 }
 
@@ -121,15 +125,14 @@ pub struct EvalResult {
     pub result: String,
 }
 
-pub fn evaluate<R>(e: &mut Evaluation<R>) -> LamResult<EvalResult>
+pub fn evaluate<R>(e: &Evaluation<R>) -> LamResult<EvalResult>
 where
     R: Read,
 {
+    let vm = &e.vm;
+
     let start = Instant::now();
     let timeout = e.timeout as f64;
-
-    let vm = Lua::new();
-    vm.sandbox(true)?;
     vm.set_interrupt(move |_| {
         if start.elapsed().as_secs_f64() > timeout {
             return Ok(VmState::Yield);
@@ -293,10 +296,11 @@ mod test {
         let timeout = 1;
 
         let input: &[u8] = &[];
-        let mut e = EvalBuilder::new(input, r#"while true do end"#)
+        let e = EvalBuilder::new(input, r#"while true do end"#)
             .set_timeout(timeout)
-            .build();
-        let res = evaluate(&mut e).unwrap();
+            .build()
+            .unwrap();
+        let res = evaluate(&e).unwrap();
         assert_eq!("", res.result);
 
         let secs = res.duration.as_secs_f32();
@@ -307,84 +311,91 @@ mod test {
     #[test]
     fn test_read_all() {
         let input = "lam";
-        let mut e = EvalBuilder::new(
+        let e = EvalBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); return m.read('*a')"#,
         )
-        .build();
-        let res = evaluate(&mut e).unwrap();
+        .build()
+        .unwrap();
+        let res = evaluate(&e).unwrap();
         assert_eq!(input, res.result);
     }
 
     #[test]
     fn test_read_partial_input() {
         let input = "lam";
-        let mut e = EvalBuilder::new(
+        let e = EvalBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); return m.read(1)"#,
         )
-        .build();
-        let res = evaluate(&mut e).unwrap();
+        .build()
+        .unwrap();
+        let res = evaluate(&e).unwrap();
         assert_eq!("l", res.result);
     }
 
     #[test]
     fn test_read_more_than_input() {
         let input = "l";
-        let mut e = EvalBuilder::new(
+        let e = EvalBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); return m.read(3)"#,
         )
-        .build();
-        let res = evaluate(&mut e).unwrap();
+        .build()
+        .unwrap();
+        let res = evaluate(&e).unwrap();
         assert_eq!("l", res.result);
     }
 
     #[test]
     fn test_read_unicode() {
         let input = "你好";
-        let mut e = EvalBuilder::new(
+        let e = EvalBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); return m.read_unicode(1)"#,
         )
-        .build();
-        let res = evaluate(&mut e).unwrap();
+        .build()
+        .unwrap();
+        let res = evaluate(&e).unwrap();
         assert_eq!("你", res.result);
     }
 
     #[test]
     fn test_read_line() {
         let input = "foo\nbar";
-        let mut e = EvalBuilder::new(
+        let e = EvalBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); m.read('*l'); return m.read('*l')"#,
         )
-        .build();
-        let res = evaluate(&mut e).unwrap();
+        .build()
+        .unwrap();
+        let res = evaluate(&e).unwrap();
         assert_eq!("bar", res.result);
     }
 
     #[test]
     fn test_read_number() {
         let input = "3.1415926";
-        let mut e = EvalBuilder::new(
+        let e = EvalBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); return m.read('*n')"#,
         )
-        .build();
-        let res = evaluate(&mut e).unwrap();
+        .build()
+        .unwrap();
+        let res = evaluate(&e).unwrap();
         assert_eq!("3.1415926", res.result);
     }
 
     #[test]
     fn test_read_integer() {
         let input = "3";
-        let mut e = EvalBuilder::new(
+        let e = EvalBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); return m.read('*n')"#,
         )
-        .build();
-        let res = evaluate(&mut e).unwrap();
+        .build()
+        .unwrap();
+        let res = evaluate(&e).unwrap();
         assert_eq!("3", res.result);
     }
 
@@ -392,28 +403,30 @@ mod test {
     fn test_reevaluate() {
         let input = "foo\nbar";
 
-        let mut e = EvalBuilder::new(
+        let e = EvalBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); return m.read('*l')"#,
         )
-        .build();
+        .build()
+        .unwrap();
 
-        let res = evaluate(&mut e).unwrap();
+        let res = evaluate(&e).unwrap();
         assert_eq!("foo\n", res.result);
 
-        let res = evaluate(&mut e).unwrap();
+        let res = evaluate(&e).unwrap();
         assert_eq!("bar", res.result);
     }
 
     #[test]
     fn test_handle_binary() {
         let input: &[u8] = &[1, 2, 3];
-        let mut e = EvalBuilder::new(
+        let e = EvalBuilder::new(
             input,
             r#"local m = require('@lam'); local a = m.read('*a'); return #a"#,
         )
-        .build();
-        let res = evaluate(&mut e).unwrap();
+        .build()
+        .unwrap();
+        let res = evaluate(&e).unwrap();
         assert_eq!("3", res.result);
     }
 
@@ -424,14 +437,15 @@ mod test {
         let state = DashMap::new();
         state.insert("a".to_string(), LamValue::Number(1.23));
 
-        let mut e = EvalBuilder::new(
+        let e = EvalBuilder::new(
             input,
             r#"local m = require('@lam'); local a = m.get('a'); m.set('a', 4.56); return a"#,
         )
         .set_state(Arc::new(state))
-        .build();
+        .build()
+        .unwrap();
 
-        let res = evaluate(&mut e).unwrap();
+        let res = evaluate(&e).unwrap();
         assert_eq!("1.23", res.result);
         assert_eq!(LamValue::Number(4.56), *e.state.get("a").unwrap());
     }
@@ -443,21 +457,22 @@ mod test {
         let state = DashMap::new();
         state.insert("a".to_string(), LamValue::Number(1f64));
 
-        let mut e = EvalBuilder::new(
+        let e = EvalBuilder::new(
             input,
             r#"local m = require('@lam'); local a = m.get('a'); m.set('a', a+1); return a"#,
         )
         .set_state(Arc::new(state))
-        .build();
+        .build()
+        .unwrap();
 
         {
-            let res = evaluate(&mut e).unwrap();
+            let res = evaluate(&e).unwrap();
             assert_eq!("1", res.result);
             assert_eq!(LamValue::Number(2f64), *e.state.get("a").unwrap());
         }
 
         {
-            let res = evaluate(&mut e).unwrap();
+            let res = evaluate(&e).unwrap();
             assert_eq!("2", res.result);
             assert_eq!(LamValue::Number(3f64), *e.state.get("a").unwrap());
         }
@@ -473,13 +488,14 @@ mod test {
         for _ in 0..=1000 {
             let state = state.clone();
             threads.push(thread::spawn(move || {
-                let mut e = EvalBuilder::new(
+                let e = EvalBuilder::new(
                     input,
                     r#"local m = require('@lam'); m.get_set('a', function(v) return v+1 end, 0)"#,
                 )
                 .set_state(state)
-                .build();
-                let _ = evaluate(&mut e);
+                .build()
+                .unwrap();
+                let _ = evaluate(&e);
             }));
         }
         for t in threads {
