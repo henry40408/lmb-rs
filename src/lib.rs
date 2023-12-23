@@ -53,24 +53,32 @@ where
         methods.add_method("read", |vm, this, f: mlua::Value<'lua>| {
             let mut input = this.input.lock().expect("failed to lock input for read");
             if let Some(f) = f.as_str() {
-                if f.starts_with("*a") {
+                if f == "*a" || f == "*all" {
                     // accepts *a or *all
                     let mut buf = Vec::new();
-                    input.read_to_end(&mut buf)?;
-                    let s = vm.create_string(String::from_utf8(buf).unwrap_or_default())?;
-                    return Ok(mlua::Value::String(s));
+                    let count = input.read_to_end(&mut buf)?;
+                    if count == 0 {
+                        return Ok(mlua::Value::Nil);
+                    }
+                    let s = String::from_utf8(buf).unwrap_or_default();
+                    return Ok(mlua::Value::String(vm.create_string(s)?));
                 }
-                if f.starts_with("*l") {
+                if f == "*l" || f == "*line" {
                     // accepts *l or *line
                     let mut buf = String::new();
-                    input.read_line(&mut buf)?;
-                    let s = vm.create_string(buf)?;
-                    return Ok(mlua::Value::String(s));
+                    let count = input.read_line(&mut buf)?;
+                    if count == 0 {
+                        return Ok(mlua::Value::Nil);
+                    }
+                    return Ok(mlua::Value::String(vm.create_string(buf)?));
                 }
-                if f.starts_with("*n") {
+                if f == "*n" || f == "*number" {
                     // accepts *n or *number
                     let mut buf = String::new();
-                    input.read_to_string(&mut buf)?;
+                    let count = input.read_to_string(&mut buf)?;
+                    if count == 0 {
+                        return Ok(mlua::Value::Nil);
+                    }
                     return Ok(buf
                         .parse::<f64>()
                         .map(mlua::Value::Number)
@@ -78,12 +86,14 @@ where
                 }
             }
 
-            #[allow(clippy::unused_io_amount)]
             if let Some(i) = f.as_usize() {
                 let mut buf = vec![0; i];
                 let count = input.read(&mut buf)?;
+                if count == 0 {
+                    return Ok(mlua::Value::Nil);
+                }
                 buf.truncate(count);
-                let s = vm.create_string(String::from_utf8(buf).unwrap_or_default())?;
+                let s = vm.create_string(buf)?;
                 return Ok(mlua::Value::String(s));
             }
 
@@ -91,7 +101,7 @@ where
             Err(mlua::Error::RuntimeError(s))
         });
 
-        methods.add_method("read_unicode", |_vm, this, i: u64| {
+        methods.add_method("read_unicode", |_, this, i: u64| {
             let mut input = this
                 .input
                 .lock()
@@ -101,15 +111,19 @@ where
             let mut byte_buf = vec![0; 1];
             loop {
                 if expected_read == 0 {
-                    return Ok(String::from_utf8(buf).unwrap_or_default());
+                    let s = String::from_utf8(buf).unwrap_or_default();
+                    return Ok(Some(s));
                 }
                 let read_bytes = input.read(&mut byte_buf)?;
-                // caveat: buffer is not empty when no bytes are read
+                if read_bytes == 0 {
+                    if buf.is_empty() {
+                        return Ok(None);
+                    }
+                    let s = String::from_utf8(buf).unwrap_or_default();
+                    return Ok(Some(s));
+                }
                 if read_bytes > 0 {
                     buf.extend_from_slice(&byte_buf);
-                }
-                if read_bytes == 0 {
-                    return Ok(String::from_utf8(buf).unwrap_or_default());
                 }
                 if std::str::from_utf8(&buf).is_ok() {
                     expected_read -= 1;
@@ -127,8 +141,9 @@ where
         methods.add_method(
             "set",
             |vm, this, (key, value): (String, mlua::Value<'lua>)| {
-                this.state.insert(key, LamValue::from_lua(value, vm)?);
-                Ok(())
+                let v = LamValue::from_lua(value.clone(), vm)?;
+                this.state.insert(key, v);
+                Ok(value)
             },
         );
 
@@ -329,12 +344,9 @@ mod test {
     #[test]
     fn test_read_all() {
         let input = "lam";
-        let e = EvalBuilder::new(
-            Cursor::new(input),
-            r#"local m = require('@lam'); return m:read('*a')"#,
-        )
-        .build()
-        .unwrap();
+        let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read('*a')"#)
+            .build()
+            .unwrap();
         let res = evaluate(&e).unwrap();
         assert_eq!(input, res.result);
     }
@@ -342,12 +354,9 @@ mod test {
     #[test]
     fn test_read_partial_input() {
         let input = "lam";
-        let e = EvalBuilder::new(
-            Cursor::new(input),
-            r#"local m = require('@lam'); return m:read(1)"#,
-        )
-        .build()
-        .unwrap();
+        let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read(1)"#)
+            .build()
+            .unwrap();
         let res = evaluate(&e).unwrap();
         assert_eq!("l", res.result);
     }
@@ -355,12 +364,9 @@ mod test {
     #[test]
     fn test_read_more_than_input() {
         let input = "l";
-        let e = EvalBuilder::new(
-            Cursor::new(input),
-            r#"local m = require('@lam'); return m:read(3)"#,
-        )
-        .build()
-        .unwrap();
+        let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read(3)"#)
+            .build()
+            .unwrap();
         let res = evaluate(&e).unwrap();
         assert_eq!("l", res.result);
     }
@@ -370,7 +376,7 @@ mod test {
         let input = "你好";
         let e = EvalBuilder::new(
             Cursor::new(input),
-            r#"local m = require('@lam'); return m:read_unicode(1)"#,
+            r#"return require('@lam'):read_unicode(1)"#,
         )
         .build()
         .unwrap();
@@ -394,12 +400,9 @@ mod test {
     #[test]
     fn test_read_number() {
         let input = "3.1415926";
-        let e = EvalBuilder::new(
-            Cursor::new(input),
-            r#"local m = require('@lam'); return m:read('*n')"#,
-        )
-        .build()
-        .unwrap();
+        let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read('*n')"#)
+            .build()
+            .unwrap();
         let res = evaluate(&e).unwrap();
         assert_eq!("3.1415926", res.result);
     }
@@ -407,26 +410,49 @@ mod test {
     #[test]
     fn test_read_integer() {
         let input = "3";
-        let e = EvalBuilder::new(
-            Cursor::new(input),
-            r#"local m = require('@lam'); return m:read('*n')"#,
-        )
-        .build()
-        .unwrap();
+        let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read('*n')"#)
+            .build()
+            .unwrap();
         let res = evaluate(&e).unwrap();
         assert_eq!("3", res.result);
+    }
+
+    #[test]
+    fn test_read_empty() {
+        let input: &[u8] = &[];
+        {
+            let e = EvalBuilder::new(input, r#"assert(not require('@lam'):read('*a'))"#)
+                .build()
+                .unwrap();
+            let _ = evaluate(&e).unwrap();
+        }
+        {
+            let e = EvalBuilder::new(input, r#"assert(not require('@lam'):read('*l'))"#)
+                .build()
+                .unwrap();
+            let _ = evaluate(&e).unwrap();
+        }
+        {
+            let e = EvalBuilder::new(input, r#"assert(not require('@lam'):read('*n'))"#)
+                .build()
+                .unwrap();
+            let _ = evaluate(&e).unwrap();
+        }
+        {
+            let e = EvalBuilder::new(input, r#"assert(not require('@lam'):read(1))"#)
+                .build()
+                .unwrap();
+            let _ = evaluate(&e).unwrap();
+        }
     }
 
     #[test]
     fn test_reevaluate() {
         let input = "foo\nbar";
 
-        let e = EvalBuilder::new(
-            Cursor::new(input),
-            r#"local m = require('@lam'); return m:read('*l')"#,
-        )
-        .build()
-        .unwrap();
+        let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read('*l')"#)
+            .build()
+            .unwrap();
 
         let res = evaluate(&e).unwrap();
         assert_eq!("foo\n", res.result);
@@ -438,12 +464,9 @@ mod test {
     #[test]
     fn test_handle_binary() {
         let input: &[u8] = &[1, 2, 3];
-        let e = EvalBuilder::new(
-            input,
-            r#"local m = require('@lam'); local a = m:read('*a'); return #a"#,
-        )
-        .build()
-        .unwrap();
+        let e = EvalBuilder::new(input, r#"return #require('@lam'):read('*a')"#)
+            .build()
+            .unwrap();
         let res = evaluate(&e).unwrap();
         assert_eq!("3", res.result);
     }
@@ -508,7 +531,7 @@ mod test {
             threads.push(thread::spawn(move || {
                 let e = EvalBuilder::new(
                     input,
-                    r#"local m = require('@lam'); m:get_set('a', function(v) return v+1 end, 0)"#,
+                    r#"return require('@lam'):get_set('a', function(v) return v+1 end, 0)"#,
                 )
                 .set_state(state)
                 .build()
