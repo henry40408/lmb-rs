@@ -1,7 +1,6 @@
 use std::{
-    cell::RefCell,
-    io::{BufRead, BufReader, Read},
-    sync::Arc,
+    io::{BufRead as _, BufReader, Read},
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -25,7 +24,7 @@ pub struct Evaluation<R>
 where
     R: Read,
 {
-    pub input: RefCell<BufReader<R>>,
+    pub input: Arc<Mutex<BufReader<R>>>,
     pub script: String,
     pub state: Arc<DashMap<String, StateValue>>,
     pub timeout: Option<u64>,
@@ -106,7 +105,7 @@ where
 
     pub fn build(self) -> Evaluation<R> {
         Evaluation {
-            input: RefCell::new(BufReader::new(self.input)),
+            input: Arc::new(Mutex::new(BufReader::new(self.input))),
             script: self.script,
             state: self.state.unwrap_or_default(),
             timeout: self.timeout,
@@ -143,26 +142,26 @@ where
         m.set(
             "read",
             scope.create_function(|_, f: mlua::Value<'_>| {
+                let mut input = e.input.lock().expect("failed to lock input for read");
                 if let Some(f) = f.as_str() {
                     if f.starts_with("*a") {
                         // accepts *a or *all
                         let mut buf = Vec::new();
-                        e.input.borrow_mut().read_to_end(&mut buf)?;
+                        input.read_to_end(&mut buf)?;
                         let s = vm.create_string(String::from_utf8(buf).unwrap_or_default())?;
                         return Ok(mlua::Value::String(s));
                     }
                     if f.starts_with("*l") {
                         // accepts *l or *line
-                        let mut r = e.input.borrow_mut();
                         let mut buf = String::new();
-                        r.read_line(&mut buf)?;
+                        input.read_line(&mut buf)?;
                         let s = vm.create_string(buf)?;
                         return Ok(mlua::Value::String(s));
                     }
                     if f.starts_with("*n") {
                         // accepts *n or *number
                         let mut buf = String::new();
-                        e.input.borrow_mut().read_to_string(&mut buf)?;
+                        input.read_to_string(&mut buf)?;
                         return Ok(buf
                             .parse::<f64>()
                             .map(mlua::Value::Number)
@@ -173,7 +172,7 @@ where
                 #[allow(clippy::unused_io_amount)]
                 if let Some(i) = f.as_usize() {
                     let mut buf = vec![0; i];
-                    let count = e.input.borrow_mut().read(&mut buf)?;
+                    let count = input.read(&mut buf)?;
                     buf.truncate(count);
                     let s = vm.create_string(String::from_utf8(buf).unwrap_or_default())?;
                     return Ok(mlua::Value::String(s));
@@ -187,6 +186,7 @@ where
         m.set(
             "read_unicode",
             scope.create_function(|_, i: usize| {
+                let mut input = e.input.lock().expect("failed to lock input for read_unicode");
                 let mut expected_read = i;
                 let mut buf = Vec::new();
                 let mut byte_buf = vec![0; 1];
@@ -194,7 +194,7 @@ where
                     if expected_read == 0 {
                         return Ok(String::from_utf8(buf).unwrap_or_default());
                     }
-                    let read_bytes = e.input.borrow_mut().read(&mut byte_buf)?;
+                    let read_bytes = input.read(&mut byte_buf)?;
                     // caveat: buffer is not empty when no bytes are read
                     if read_bytes > 0 {
                         buf.extend_from_slice(&byte_buf);
