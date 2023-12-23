@@ -27,9 +27,9 @@ where
     R: Read,
 {
     pub vm: mlua::Lua,
-    pub input: Arc<Mutex<BufReader<R>>>,
+    pub input: LamInput<R>,
     pub script: String,
-    pub store: Arc<DashMap<String, LamValue>>,
+    pub store: LamStore,
     pub timeout: u64,
 }
 
