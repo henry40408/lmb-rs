@@ -24,7 +24,7 @@ pub type LamStore = Arc<DashMap<String, LamValue>>;
 
 pub struct Evaluation<R>
 where
-    R: Read,
+    for<'lua> R: Read + 'lua,
 {
     pub vm: mlua::Lua,
     pub input: LamInput<R>,
@@ -256,7 +256,10 @@ where
         self
     }
 
-    pub fn build(self) -> LamResult<Evaluation<R>> {
+    pub fn build(self) -> LamResult<Evaluation<R>>
+    where
+        for<'lua> R: 'lua,
+    {
         let vm = mlua::Lua::new();
         vm.sandbox(true)?;
         Ok(Evaluation {
@@ -277,7 +280,7 @@ pub struct EvalResult {
 
 pub fn evaluate<R>(e: &Evaluation<R>) -> LamResult<EvalResult>
 where
-    R: Read + 'static,
+    for<'lua> R: Read + 'lua,
 {
     let vm = &e.vm;
 
