@@ -1,2 +1,2 @@
 local m = require("@lam")
-return m.read("*a")
+return m:read("*a")

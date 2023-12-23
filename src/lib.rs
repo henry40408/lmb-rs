@@ -5,7 +5,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use mlua::{FromLua, IntoLua, Lua, Table, ThreadStatus, VmState};
+use mlua::{FromLua, IntoLua, Lua, Table, ThreadStatus, UserData, VmState};
 use thiserror::Error;
 use tracing::error;
 
@@ -33,6 +33,141 @@ where
     pub timeout: u64,
 }
 
+pub struct LuaLam<R>
+where
+    R: Read,
+{
+    input: LamInput<R>,
+    state: LamState,
+}
+
+impl<R> UserData for LuaLam<R>
+where
+    R: Read,
+{
+    fn add_fields<'lua, F: mlua::prelude::LuaUserDataFields<'lua, Self>>(fields: &mut F) {
+        fields.add_field("_VERSION", env!("CARGO_PKG_VERSION"));
+    }
+
+    fn add_methods<'lua, M: mlua::prelude::LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
+        methods.add_method("read", |vm, this, f: mlua::Value<'lua>| {
+            let mut input = this.input.lock().expect("failed to lock input for read");
+            if let Some(f) = f.as_str() {
+                if f.starts_with("*a") {
+                    // accepts *a or *all
+                    let mut buf = Vec::new();
+                    input.read_to_end(&mut buf)?;
+                    let s = vm.create_string(String::from_utf8(buf).unwrap_or_default())?;
+                    return Ok(mlua::Value::String(s));
+                }
+                if f.starts_with("*l") {
+                    // accepts *l or *line
+                    let mut buf = String::new();
+                    input.read_line(&mut buf)?;
+                    let s = vm.create_string(buf)?;
+                    return Ok(mlua::Value::String(s));
+                }
+                if f.starts_with("*n") {
+                    // accepts *n or *number
+                    let mut buf = String::new();
+                    input.read_to_string(&mut buf)?;
+                    return Ok(buf
+                        .parse::<f64>()
+                        .map(mlua::Value::Number)
+                        .unwrap_or(mlua::Value::Nil));
+                }
+            }
+
+            #[allow(clippy::unused_io_amount)]
+            if let Some(i) = f.as_usize() {
+                let mut buf = vec![0; i];
+                let count = input.read(&mut buf)?;
+                buf.truncate(count);
+                let s = vm.create_string(String::from_utf8(buf).unwrap_or_default())?;
+                return Ok(mlua::Value::String(s));
+            }
+
+            let s = format!("unexpected format {f:?}");
+            Err(mlua::Error::RuntimeError(s))
+        });
+
+        methods.add_method("read_unicode", |_vm, this, i: u64| {
+            let mut input = this
+                .input
+                .lock()
+                .expect("failed to lock input for read_unicode");
+            let mut expected_read = i;
+            let mut buf = Vec::new();
+            let mut byte_buf = vec![0; 1];
+            loop {
+                if expected_read == 0 {
+                    return Ok(String::from_utf8(buf).unwrap_or_default());
+                }
+                let read_bytes = input.read(&mut byte_buf)?;
+                // caveat: buffer is not empty when no bytes are read
+                if read_bytes > 0 {
+                    buf.extend_from_slice(&byte_buf);
+                }
+                if read_bytes == 0 {
+                    return Ok(String::from_utf8(buf).unwrap_or_default());
+                }
+                if std::str::from_utf8(&buf).is_ok() {
+                    expected_read -= 1;
+                }
+            }
+        });
+
+        methods.add_method("get", |vm, this, key: String| {
+            if let Some(v) = this.state.get(key.as_str()) {
+                return v.clone().into_lua(vm);
+            }
+            Ok(mlua::Value::Nil)
+        });
+
+        methods.add_method(
+            "set",
+            |vm, this, (key, value): (String, mlua::Value<'lua>)| {
+                this.state.insert(key, LamValue::from_lua(value, vm)?);
+                Ok(())
+            },
+        );
+
+        methods.add_method(
+            "get_set",
+            |vm, this, (key, f, default_v): (String, mlua::Function<'lua>, mlua::Value<'lua>)| {
+                Ok(this
+                    .state
+                    .entry(key)
+                    .and_modify(|v| match f.call(v.clone().into_lua(vm)) {
+                        Ok(ret_v) => match LamValue::from_lua(ret_v, vm) {
+                            Ok(state_v) => {
+                                *v = state_v;
+                            }
+                            Err(e) => {
+                                error!("failed to convert lua value {:?}", e);
+                            }
+                        },
+                        Err(e) => {
+                            error!("failed to run lua function {:?}", e);
+                        }
+                    })
+                    .or_insert(LamValue::from_lua(default_v, vm)?)
+                    .value()
+                    .clone())
+            },
+        );
+    }
+}
+
+impl<R> LuaLam<R>
+where
+    R: Read,
+{
+    pub fn new(input: LamInput<R>, state: LamState) -> Self {
+        Self { input, state }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum LamValue {
     None,
@@ -44,10 +179,10 @@ pub enum LamValue {
 impl<'lua> IntoLua<'lua> for LamValue {
     fn into_lua(self, lua: &'lua Lua) -> mlua::prelude::LuaResult<mlua::prelude::LuaValue<'lua>> {
         match self {
-            LamValue::None => Ok(mlua::Value::Nil),
-            LamValue::Boolean(b) => b.into_lua(lua),
-            LamValue::Number(n) => n.into_lua(lua),
-            LamValue::String(s) => s.into_lua(lua),
+            Self::None => Ok(mlua::Value::Nil),
+            Self::Boolean(b) => b.into_lua(lua),
+            Self::Number(n) => n.into_lua(lua),
+            Self::String(s) => s.into_lua(lua),
         }
     }
 }
@@ -58,18 +193,18 @@ impl<'lua> FromLua<'lua> for LamValue {
         _lua: &'lua Lua,
     ) -> mlua::prelude::LuaResult<Self> {
         if let Some(b) = value.as_boolean() {
-            return Ok(LamValue::Boolean(b));
+            return Ok(Self::Boolean(b));
         }
         if let Some(n) = value.as_i64() {
-            return Ok(LamValue::Number(n as f64));
+            return Ok(Self::Number(n as f64));
         }
         if let Some(n) = value.as_f64() {
-            return Ok(LamValue::Number(n));
+            return Ok(Self::Number(n));
         }
         if let Some(s) = value.as_str() {
-            return Ok(LamValue::String(s.to_string()));
+            return Ok(Self::String(s.to_string()));
         }
-        Ok(LamValue::None)
+        Ok(Self::None)
     }
 }
 
@@ -127,7 +262,7 @@ pub struct EvalResult {
 
 pub fn evaluate<R>(e: &Evaluation<R>) -> LamResult<EvalResult>
 where
-    R: Read,
+    R: Read + 'static,
 {
     let vm = &e.vm;
 
@@ -140,137 +275,20 @@ where
         Ok(VmState::Continue)
     });
 
-    let r = vm.scope(|scope| {
-        let m = vm.create_table()?;
-        m.set("_VERSION", env!("CARGO_PKG_VERSION"))?;
-
-        m.set(
-            "read",
-            scope.create_function(|_, f: mlua::Value<'_>| {
-                let mut input = e.input.lock().expect("failed to lock input for read");
-                if let Some(f) = f.as_str() {
-                    if f.starts_with("*a") {
-                        // accepts *a or *all
-                        let mut buf = Vec::new();
-                        input.read_to_end(&mut buf)?;
-                        let s = vm.create_string(String::from_utf8(buf).unwrap_or_default())?;
-                        return Ok(mlua::Value::String(s));
-                    }
-                    if f.starts_with("*l") {
-                        // accepts *l or *line
-                        let mut buf = String::new();
-                        input.read_line(&mut buf)?;
-                        let s = vm.create_string(buf)?;
-                        return Ok(mlua::Value::String(s));
-                    }
-                    if f.starts_with("*n") {
-                        // accepts *n or *number
-                        let mut buf = String::new();
-                        input.read_to_string(&mut buf)?;
-                        return Ok(buf
-                            .parse::<f64>()
-                            .map(mlua::Value::Number)
-                            .unwrap_or(mlua::Value::Nil));
-                    }
-                }
-
-                #[allow(clippy::unused_io_amount)]
-                if let Some(i) = f.as_usize() {
-                    let mut buf = vec![0; i];
-                    let count = input.read(&mut buf)?;
-                    buf.truncate(count);
-                    let s = vm.create_string(String::from_utf8(buf).unwrap_or_default())?;
-                    return Ok(mlua::Value::String(s));
-                }
-
-                let s = format!("unexpected format {f:?}");
-                Err(mlua::Error::RuntimeError(s))
-            })?,
-        )?;
-
-        m.set(
-            "read_unicode",
-            scope.create_function(|_, i: usize| {
-                let mut input = e.input.lock().expect("failed to lock input for read_unicode");
-                let mut expected_read = i;
-                let mut buf = Vec::new();
-                let mut byte_buf = vec![0; 1];
-                loop {
-                    if expected_read == 0 {
-                        return Ok(String::from_utf8(buf).unwrap_or_default());
-                    }
-                    let read_bytes = input.read(&mut byte_buf)?;
-                    // caveat: buffer is not empty when no bytes are read
-                    if read_bytes > 0 {
-                        buf.extend_from_slice(&byte_buf);
-                    }
-                    if read_bytes == 0 {
-                        return Ok(String::from_utf8(buf).unwrap_or_default());
-                    }
-                    if std::str::from_utf8(&buf).is_ok() {
-                        expected_read -= 1;
-                    }
-                }
-            })?,
-        )?;
-
-        let r_state = e.state.clone();
-        // "get" is NOT concurrency-safe
-        m.set(
-            "get",
-            vm.create_function(move |vm: &Lua, f: mlua::Value<'_>| {
-                if let Some(key) = f.as_str() {
-                    if let Some(v) = r_state.get(key) {
-                        return v.clone().into_lua(vm);
-                    }
-                }
-                Ok(mlua::Value::Nil)
-            })?,
-        )?;
-
-        let rw_state = e.state.clone();
-        // "set" is NOT concurrency-safe
-        m.set(
-            "set",
-            vm.create_function(move |vm: &Lua, (k, v): (String, mlua::Value<'_>)| {
-                rw_state.insert(k, LamValue::from_lua(v, vm)?);
-                Ok(())
-            })?,
-        )?;
-
-        let rw_state = e.state.clone();
-        // "get_set" is concurrency-safe
-        m.set(
-            "get_set",
-            vm.create_function(move |vm: &Lua, (k, f, default_v): (String, mlua::Function<'_>, mlua::Value<'_>)| {
-                Ok(rw_state.entry(k).and_modify(|v| {
-                    match f.call(v.clone().into_lua(vm)) {
-                        Ok(ret_v) => {
-                            match LamValue::from_lua(ret_v, vm) {
-                                Ok(state_v) => {
-                                    *v = state_v;
-                                },
-                                Err(e) => {
-                                    error!("failed to convert lua value {:?}",e);
-                                },
-                            }
-                        }
-                        Err(e) => {
-                            error!("failed to run lua function {:?}",e);
-                        },
-                    }
-                }).or_insert(LamValue::from_lua(default_v, vm)?).value().clone())
-            })?,
-        )?;
-
+    let r = vm.scope(|_| {
         let loaded = vm.named_registry_value::<Table<'_>>(K_LOADED)?;
-        loaded.set("@lam", m)?;
+
+        let lua_lam = LuaLam::new(e.input.clone(), e.state.clone());
+        loaded.set("@lam", lua_lam)?;
+
         vm.set_named_registry_value(K_LOADED, loaded)?;
 
         let co = vm.create_thread(vm.load(&e.script).into_function()?)?;
         loop {
             let res = co.resume::<_, Option<String>>(())?;
-            if co.status() != ThreadStatus::Resumable || start.elapsed().as_secs_f64() > e.timeout as f64 {
+            if co.status() != ThreadStatus::Resumable
+                || start.elapsed().as_secs_f64() > e.timeout as f64
+            {
                 return Ok(EvalResult {
                     duration: start.elapsed(),
                     result: res.unwrap_or(String::new()),
@@ -313,7 +331,7 @@ mod test {
         let input = "lam";
         let e = EvalBuilder::new(
             Cursor::new(input),
-            r#"local m = require('@lam'); return m.read('*a')"#,
+            r#"local m = require('@lam'); return m:read('*a')"#,
         )
         .build()
         .unwrap();
@@ -326,7 +344,7 @@ mod test {
         let input = "lam";
         let e = EvalBuilder::new(
             Cursor::new(input),
-            r#"local m = require('@lam'); return m.read(1)"#,
+            r#"local m = require('@lam'); return m:read(1)"#,
         )
         .build()
         .unwrap();
@@ -339,7 +357,7 @@ mod test {
         let input = "l";
         let e = EvalBuilder::new(
             Cursor::new(input),
-            r#"local m = require('@lam'); return m.read(3)"#,
+            r#"local m = require('@lam'); return m:read(3)"#,
         )
         .build()
         .unwrap();
@@ -352,7 +370,7 @@ mod test {
         let input = "你好";
         let e = EvalBuilder::new(
             Cursor::new(input),
-            r#"local m = require('@lam'); return m.read_unicode(1)"#,
+            r#"local m = require('@lam'); return m:read_unicode(1)"#,
         )
         .build()
         .unwrap();
@@ -365,7 +383,7 @@ mod test {
         let input = "foo\nbar";
         let e = EvalBuilder::new(
             Cursor::new(input),
-            r#"local m = require('@lam'); m.read('*l'); return m.read('*l')"#,
+            r#"local m = require('@lam'); m:read('*l'); return m:read('*l')"#,
         )
         .build()
         .unwrap();
@@ -378,7 +396,7 @@ mod test {
         let input = "3.1415926";
         let e = EvalBuilder::new(
             Cursor::new(input),
-            r#"local m = require('@lam'); return m.read('*n')"#,
+            r#"local m = require('@lam'); return m:read('*n')"#,
         )
         .build()
         .unwrap();
@@ -391,7 +409,7 @@ mod test {
         let input = "3";
         let e = EvalBuilder::new(
             Cursor::new(input),
-            r#"local m = require('@lam'); return m.read('*n')"#,
+            r#"local m = require('@lam'); return m:read('*n')"#,
         )
         .build()
         .unwrap();
@@ -405,7 +423,7 @@ mod test {
 
         let e = EvalBuilder::new(
             Cursor::new(input),
-            r#"local m = require('@lam'); return m.read('*l')"#,
+            r#"local m = require('@lam'); return m:read('*l')"#,
         )
         .build()
         .unwrap();
@@ -422,7 +440,7 @@ mod test {
         let input: &[u8] = &[1, 2, 3];
         let e = EvalBuilder::new(
             input,
-            r#"local m = require('@lam'); local a = m.read('*a'); return #a"#,
+            r#"local m = require('@lam'); local a = m:read('*a'); return #a"#,
         )
         .build()
         .unwrap();
@@ -439,7 +457,7 @@ mod test {
 
         let e = EvalBuilder::new(
             input,
-            r#"local m = require('@lam'); local a = m.get('a'); m.set('a', 4.56); return a"#,
+            r#"local m = require('@lam'); local a = m:get('a'); m:set('a', 4.56); return a"#,
         )
         .set_state(Arc::new(state))
         .build()
@@ -459,7 +477,7 @@ mod test {
 
         let e = EvalBuilder::new(
             input,
-            r#"local m = require('@lam'); local a = m.get('a'); m.set('a', a+1); return a"#,
+            r#"local m = require('@lam'); local a = m:get('a'); m:set('a', a+1); return a"#,
         )
         .set_state(Arc::new(state))
         .build()
@@ -490,7 +508,7 @@ mod test {
             threads.push(thread::spawn(move || {
                 let e = EvalBuilder::new(
                     input,
-                    r#"local m = require('@lam'); m.get_set('a', function(v) return v+1 end, 0)"#,
+                    r#"local m = require('@lam'); m:get_set('a', function(v) return v+1 end, 0)"#,
                 )
                 .set_state(state)
                 .build()
