@@ -10,7 +10,9 @@ use std::{
     path,
     sync::Arc,
 };
-use tracing::error;
+use tower_http::trace::{self, TraceLayer};
+use tracing::{error, info, Level};
+use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
 #[command(author,version,about,long_about=None)]
@@ -97,7 +99,10 @@ async fn index_route(State(state): State<Arc<AppState>>, body: Bytes) -> impl In
 }
 
 async fn serve_file(file: &path::PathBuf, bind: &str, timeout: u64) -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(Level::INFO.into())
+        .from_env_lossy();
+    tracing_subscriber::fmt().with_env_filter(env_filter).init();
 
     let script = fs::read_to_string(file)?;
     let state = Arc::new(DashMap::new());
@@ -109,8 +114,14 @@ async fn serve_file(file: &path::PathBuf, bind: &str, timeout: u64) -> anyhow::R
 
     let app = Router::new()
         .route("/", post(index_route))
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(trace::DefaultMakeSpan::new().level(Level::INFO))
+                .on_response(trace::DefaultOnResponse::new().level(Level::INFO)),
+        )
         .with_state(app_state);
     let listener = tokio::net::TcpListener::bind(bind).await?;
+    info!("serving lua script on {bind}");
     axum::serve(listener, app).await?;
 
     Ok(())
