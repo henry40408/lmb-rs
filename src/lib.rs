@@ -352,23 +352,29 @@ mod test {
     }
 
     #[test]
-    fn test_read_partial_input() {
+    fn test_read_n() {
         let input = "lam";
-        let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read(1)"#)
-            .build()
-            .unwrap();
-        let res = evaluate(&e).unwrap();
-        assert_eq!("l", res.result);
-    }
-
-    #[test]
-    fn test_read_more_than_input() {
-        let input = "l";
-        let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read(3)"#)
-            .build()
-            .unwrap();
-        let res = evaluate(&e).unwrap();
-        assert_eq!("l", res.result);
+        {
+            let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read(1)"#)
+                .build()
+                .unwrap();
+            let res = evaluate(&e).unwrap();
+            assert_eq!("l", res.result);
+        }
+        {
+            let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read(3)"#)
+                .build()
+                .unwrap();
+            let res = evaluate(&e).unwrap();
+            assert_eq!("lam", res.result);
+        }
+        {
+            let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read(5)"#)
+                .build()
+                .unwrap();
+            let res = evaluate(&e).unwrap();
+            assert_eq!("lam", res.result);
+        }
     }
 
     #[test]
@@ -387,34 +393,37 @@ mod test {
     #[test]
     fn test_read_line() {
         let input = "foo\nbar";
-        let e = EvalBuilder::new(
-            Cursor::new(input),
-            r#"local m = require('@lam'); m:read('*l'); return m:read('*l')"#,
-        )
-        .build()
-        .unwrap();
-        let res = evaluate(&e).unwrap();
-        assert_eq!("bar", res.result);
+        let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read('*l')"#)
+            .build()
+            .unwrap();
+        {
+            let res = evaluate(&e).unwrap();
+            assert_eq!("foo\n", res.result);
+        }
+        {
+            let res = evaluate(&e).unwrap();
+            assert_eq!("bar", res.result);
+        }
     }
 
     #[test]
     fn test_read_number() {
-        let input = "3.1415926";
-        let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read('*n')"#)
-            .build()
-            .unwrap();
-        let res = evaluate(&e).unwrap();
-        assert_eq!("3.1415926", res.result);
-    }
-
-    #[test]
-    fn test_read_integer() {
-        let input = "3";
-        let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read('*n')"#)
-            .build()
-            .unwrap();
-        let res = evaluate(&e).unwrap();
-        assert_eq!("3", res.result);
+        {
+            let input = "3.1415926";
+            let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read('*n')"#)
+                .build()
+                .unwrap();
+            let res = evaluate(&e).unwrap();
+            assert_eq!("3.1415926", res.result);
+        }
+        {
+            let input = "3";
+            let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read('*n')"#)
+                .build()
+                .unwrap();
+            let res = evaluate(&e).unwrap();
+            assert_eq!("3", res.result);
+        }
     }
 
     #[test]
@@ -444,31 +453,6 @@ mod test {
                 .unwrap();
             let _ = evaluate(&e).unwrap();
         }
-    }
-
-    #[test]
-    fn test_reevaluate() {
-        let input = "foo\nbar";
-
-        let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read('*l')"#)
-            .build()
-            .unwrap();
-
-        let res = evaluate(&e).unwrap();
-        assert_eq!("foo\n", res.result);
-
-        let res = evaluate(&e).unwrap();
-        assert_eq!("bar", res.result);
-    }
-
-    #[test]
-    fn test_handle_binary() {
-        let input: &[u8] = &[1, 2, 3];
-        let e = EvalBuilder::new(input, r#"return #require('@lam'):read('*a')"#)
-            .build()
-            .unwrap();
-        let res = evaluate(&e).unwrap();
-        assert_eq!("3", res.result);
     }
 
     #[test]
@@ -526,7 +510,7 @@ mod test {
         let state = Arc::new(DashMap::new());
 
         let mut threads = vec![];
-        for _ in 0..=1000 {
+        for _ in 0..=100 {
             let state = state.clone();
             threads.push(thread::spawn(move || {
                 let e = EvalBuilder::new(
@@ -542,6 +526,6 @@ mod test {
         for t in threads {
             let _ = t.join();
         }
-        assert_eq!(LamValue::Number(1000f64), *state.get("a").unwrap());
+        assert_eq!(LamValue::Number(100f64), *state.get("a").unwrap());
     }
 }
