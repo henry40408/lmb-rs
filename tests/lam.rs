@@ -3,7 +3,7 @@
 use std::{fs, io::Cursor};
 
 use cucumber::{gherkin::Step, given, then, when, World as _};
-use lam::{evaluate, EvalResult, EvaluationBuilder};
+use lam::{evaluate, EvalBuilder, EvalResult};
 
 #[derive(Debug)]
 struct Case {
@@ -51,13 +51,13 @@ fn given_lua_examples(w: &mut World, step: &Step) {
 #[when("it is evaluated")]
 fn user_evaluates_it(w: &mut World) {
     for case in &w.cases {
-        let b = EvaluationBuilder::new(Cursor::new(case.input.clone()), case.script.clone());
+        let b = EvalBuilder::new(Cursor::new(case.input.clone()), case.script.clone());
         let b = match w.timeout {
             Some(t) => b.set_timeout(t),
             None => b,
         };
-        let mut e = b.build();
-        w.results.push(evaluate(&mut e).unwrap());
+        let e = b.build().unwrap();
+        w.results.push(evaluate(&e).unwrap());
     }
 }
 

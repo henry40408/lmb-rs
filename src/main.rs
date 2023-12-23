@@ -3,7 +3,7 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use dashmap::DashMap;
-use lam::{evaluate, EvaluationBuilder, StateValue};
+use lam::{evaluate, EvalBuilder, LamState};
 use std::{
     fs,
     io::{self, Cursor, Read},
@@ -60,10 +60,10 @@ async fn main() -> anyhow::Result<()> {
                     .expect("either file or script via standard input should be provided");
                 buf
             };
-            let mut e = EvaluationBuilder::new(io::stdin(), script)
+            let e = EvalBuilder::new(io::stdin(), script)
                 .set_timeout(timeout)
-                .build();
-            let res = evaluate(&mut e)?;
+                .build()?;
+            let res = evaluate(&e)?;
             print!("{}", res.result);
         }
         Commands::Serve {
@@ -79,16 +79,23 @@ async fn main() -> anyhow::Result<()> {
 
 struct AppState {
     script: String,
-    state: Arc<DashMap<String, StateValue>>,
+    state: LamState,
     timeout: u64,
 }
 
 async fn index_route(State(state): State<Arc<AppState>>, body: Bytes) -> impl IntoResponse {
-    let mut e = EvaluationBuilder::new(Cursor::new(body), state.script.clone())
+    let e = match EvalBuilder::new(Cursor::new(body), state.script.clone())
         .set_timeout(state.timeout)
         .set_state(state.state.clone())
-        .build();
-    let res = evaluate(&mut e);
+        .build()
+    {
+        Ok(e) => e,
+        Err(err) => {
+            error!("{:?}", err);
+            return (StatusCode::BAD_REQUEST, "".to_string());
+        }
+    };
+    let res = evaluate(&e);
     match res {
         Ok(res) => (StatusCode::OK, res.result),
         Err(err) => {

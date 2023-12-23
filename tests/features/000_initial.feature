@@ -6,7 +6,7 @@ Feature: A simple application to run Lua functions
       |               |        |       |
       | return 1+1    | 2      |       |
       | return 'a'..1 | a1     |       |
-      | local M = require('@lam'); return M._VERSION   | 0.1.0 |     |
+      | return require('@lam')._VERSION   | 0.1.0 |     |
     When it is evaluated
     Then it should return result
 
@@ -20,16 +20,16 @@ Feature: A simple application to run Lua functions
 
   Scenario: Evaluate a Lua script w/ lam module
     Given a lua script
-      | script                                         | result | input |
-      | local M = require('@lam'); return M.read('*a') | lam    | lam   |
-      | local M = require('@lam'); return M.read(1)    | l      | lam   |
-      | local M = require('@lam'); return M.read(3)    | l      | l     |
-      | local M = require('@lam'); return M.read('*a') | 你好   | 你好  |
-      | local M = require('@lam'); return M.read_unicode(1) | l    | lam  |
-      | local M = require('@lam'); return M.read_unicode(2) | l    | l    |
-      | local M = require('@lam'); return M.read_unicode(1) | 你   | 你好 |
-      | local M = require('@lam'); return M.read_unicode(2) | 你   | 你   |
-      | local M = require('@lam'); return M.read_unicode(2) | 你好 | 你好 |
+      | script                            | result | input |
+      | return require('@lam'):read('*a') | lam    | lam   |
+      | return require('@lam'):read(1)    | l      | lam   |
+      | return require('@lam'):read(3)    | l      | l     |
+      | return require('@lam'):read('*a') | 你好   | 你好  |
+      | return require('@lam'):read_unicode(1) | l    | lam  |
+      | return require('@lam'):read_unicode(2) | l    | l    |
+      | return require('@lam'):read_unicode(1) | 你   | 你好 |
+      | return require('@lam'):read_unicode(2) | 你   | 你   |
+      | return require('@lam'):read_unicode(2) | 你好 | 你好 |
     When it is evaluated
     Then it should return result
 
