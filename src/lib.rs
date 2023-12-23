@@ -18,7 +18,9 @@ pub enum LamError {
     Lua(#[from] mlua::Error),
 }
 
-type LamResult<T> = Result<T, LamError>;
+pub type LamInput<R> = Arc<Mutex<BufReader<R>>>;
+pub type LamResult<T> = Result<T, LamError>;
+pub type LamState = Arc<DashMap<String, LamValue>>;
 
 pub struct Evaluation<R>
 where
@@ -26,61 +28,61 @@ where
 {
     pub input: Arc<Mutex<BufReader<R>>>,
     pub script: String,
-    pub state: Arc<DashMap<String, StateValue>>,
-    pub timeout: Option<u64>,
+    pub state: Arc<DashMap<String, LamValue>>,
+    pub timeout: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum StateValue {
+pub enum LamValue {
     None,
     Boolean(bool),
-    Number(f64),
+    Number(f64), // represent float and integer
     String(String),
 }
 
-impl<'lua> IntoLua<'lua> for StateValue {
+impl<'lua> IntoLua<'lua> for LamValue {
     fn into_lua(self, lua: &'lua Lua) -> mlua::prelude::LuaResult<mlua::prelude::LuaValue<'lua>> {
         match self {
-            StateValue::None => Ok(mlua::Value::Nil),
-            StateValue::Boolean(b) => b.into_lua(lua),
-            StateValue::Number(n) => n.into_lua(lua),
-            StateValue::String(s) => s.into_lua(lua),
+            LamValue::None => Ok(mlua::Value::Nil),
+            LamValue::Boolean(b) => b.into_lua(lua),
+            LamValue::Number(n) => n.into_lua(lua),
+            LamValue::String(s) => s.into_lua(lua),
         }
     }
 }
 
-impl<'lua> FromLua<'lua> for StateValue {
+impl<'lua> FromLua<'lua> for LamValue {
     fn from_lua(
         value: mlua::prelude::LuaValue<'lua>,
         _lua: &'lua Lua,
     ) -> mlua::prelude::LuaResult<Self> {
         if let Some(b) = value.as_boolean() {
-            return Ok(StateValue::Boolean(b));
+            return Ok(LamValue::Boolean(b));
         }
         if let Some(n) = value.as_i64() {
-            return Ok(StateValue::Number(n as f64));
+            return Ok(LamValue::Number(n as f64));
         }
         if let Some(n) = value.as_f64() {
-            return Ok(StateValue::Number(n));
+            return Ok(LamValue::Number(n));
         }
         if let Some(s) = value.as_str() {
-            return Ok(StateValue::String(s.to_string()));
+            return Ok(LamValue::String(s.to_string()));
         }
-        Ok(StateValue::None)
+        Ok(LamValue::None)
     }
 }
 
-pub struct EvaluationBuilder<R>
+pub struct EvalBuilder<R>
 where
     R: Read,
 {
     pub input: R,
     pub script: String,
-    pub state: Option<Arc<DashMap<String, StateValue>>>,
+    pub state: Option<LamState>,
     pub timeout: Option<u64>,
 }
 
-impl<R> EvaluationBuilder<R>
+impl<R> EvalBuilder<R>
 where
     R: Read,
 {
@@ -98,7 +100,7 @@ where
         self
     }
 
-    pub fn set_state(mut self, state: Arc<DashMap<String, StateValue>>) -> Self {
+    pub fn set_state(mut self, state: LamState) -> Self {
         self.state = Some(state);
         self
     }
@@ -108,7 +110,7 @@ where
             input: Arc::new(Mutex::new(BufReader::new(self.input))),
             script: self.script,
             state: self.state.unwrap_or_default(),
-            timeout: self.timeout,
+            timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
         }
     }
 }
@@ -124,12 +126,12 @@ where
     R: Read,
 {
     let start = Instant::now();
-    let timeout = e.timeout.unwrap_or(DEFAULT_TIMEOUT) as f32;
+    let timeout = e.timeout as f64;
 
     let vm = Lua::new();
     vm.sandbox(true)?;
     vm.set_interrupt(move |_| {
-        if start.elapsed().as_secs_f32() > timeout {
+        if start.elapsed().as_secs_f64() > timeout {
             return Ok(VmState::Yield);
         }
         Ok(VmState::Continue)
@@ -228,7 +230,7 @@ where
         m.set(
             "set",
             vm.create_function(move |vm: &Lua, (k, v): (String, mlua::Value<'_>)| {
-                rw_state.insert(k, StateValue::from_lua(v, vm)?);
+                rw_state.insert(k, LamValue::from_lua(v, vm)?);
                 Ok(())
             })?,
         )?;
@@ -241,7 +243,7 @@ where
                 Ok(rw_state.entry(k).and_modify(|v| {
                     match f.call(v.clone().into_lua(vm)) {
                         Ok(ret_v) => {
-                            match StateValue::from_lua(ret_v, vm) {
+                            match LamValue::from_lua(ret_v, vm) {
                                 Ok(state_v) => {
                                     *v = state_v;
                                 },
@@ -254,7 +256,7 @@ where
                             error!("failed to run lua function {:?}",e);
                         },
                     }
-                }).or_insert(StateValue::from_lua(default_v, vm)?).value().clone())
+                }).or_insert(LamValue::from_lua(default_v, vm)?).value().clone())
             })?,
         )?;
 
@@ -265,7 +267,7 @@ where
         let co = vm.create_thread(vm.load(&e.script).into_function()?)?;
         loop {
             let res = co.resume::<_, Option<String>>(())?;
-            if co.status() != ThreadStatus::Resumable || start.elapsed().as_secs_f32() > timeout {
+            if co.status() != ThreadStatus::Resumable || start.elapsed().as_secs_f64() > e.timeout as f64 {
                 return Ok(EvalResult {
                     duration: start.elapsed(),
                     result: res.unwrap_or(String::new()),
@@ -282,7 +284,7 @@ mod test {
 
     use dashmap::DashMap;
 
-    use crate::{evaluate, EvaluationBuilder, StateValue};
+    use crate::{evaluate, EvalBuilder, LamValue};
 
     const TIMEOUT_THRESHOLD: f32 = 0.01;
 
@@ -291,7 +293,7 @@ mod test {
         let timeout = 1;
 
         let input: &[u8] = &[];
-        let mut e = EvaluationBuilder::new(input, r#"while true do end"#)
+        let mut e = EvalBuilder::new(input, r#"while true do end"#)
             .set_timeout(timeout)
             .build();
         let res = evaluate(&mut e).unwrap();
@@ -305,7 +307,7 @@ mod test {
     #[test]
     fn test_read_all() {
         let input = "lam";
-        let mut e = EvaluationBuilder::new(
+        let mut e = EvalBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); return m.read('*a')"#,
         )
@@ -317,7 +319,7 @@ mod test {
     #[test]
     fn test_read_partial_input() {
         let input = "lam";
-        let mut e = EvaluationBuilder::new(
+        let mut e = EvalBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); return m.read(1)"#,
         )
@@ -329,7 +331,7 @@ mod test {
     #[test]
     fn test_read_more_than_input() {
         let input = "l";
-        let mut e = EvaluationBuilder::new(
+        let mut e = EvalBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); return m.read(3)"#,
         )
@@ -341,7 +343,7 @@ mod test {
     #[test]
     fn test_read_unicode() {
         let input = "你好";
-        let mut e = EvaluationBuilder::new(
+        let mut e = EvalBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); return m.read_unicode(1)"#,
         )
@@ -353,7 +355,7 @@ mod test {
     #[test]
     fn test_read_line() {
         let input = "foo\nbar";
-        let mut e = EvaluationBuilder::new(
+        let mut e = EvalBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); m.read('*l'); return m.read('*l')"#,
         )
@@ -365,7 +367,7 @@ mod test {
     #[test]
     fn test_read_number() {
         let input = "3.1415926";
-        let mut e = EvaluationBuilder::new(
+        let mut e = EvalBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); return m.read('*n')"#,
         )
@@ -377,7 +379,7 @@ mod test {
     #[test]
     fn test_read_integer() {
         let input = "3";
-        let mut e = EvaluationBuilder::new(
+        let mut e = EvalBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); return m.read('*n')"#,
         )
@@ -390,7 +392,7 @@ mod test {
     fn test_reevaluate() {
         let input = "foo\nbar";
 
-        let mut e = EvaluationBuilder::new(
+        let mut e = EvalBuilder::new(
             Cursor::new(input),
             r#"local m = require('@lam'); return m.read('*l')"#,
         )
@@ -406,7 +408,7 @@ mod test {
     #[test]
     fn test_handle_binary() {
         let input: &[u8] = &[1, 2, 3];
-        let mut e = EvaluationBuilder::new(
+        let mut e = EvalBuilder::new(
             input,
             r#"local m = require('@lam'); local a = m.read('*a'); return #a"#,
         )
@@ -420,9 +422,9 @@ mod test {
         let input: &[u8] = &[];
 
         let state = DashMap::new();
-        state.insert("a".to_string(), StateValue::Number(1.23));
+        state.insert("a".to_string(), LamValue::Number(1.23));
 
-        let mut e = EvaluationBuilder::new(
+        let mut e = EvalBuilder::new(
             input,
             r#"local m = require('@lam'); local a = m.get('a'); m.set('a', 4.56); return a"#,
         )
@@ -431,7 +433,7 @@ mod test {
 
         let res = evaluate(&mut e).unwrap();
         assert_eq!("1.23", res.result);
-        assert_eq!(StateValue::Number(4.56), *e.state.get("a").unwrap());
+        assert_eq!(LamValue::Number(4.56), *e.state.get("a").unwrap());
     }
 
     #[test]
@@ -439,9 +441,9 @@ mod test {
         let input: &[u8] = &[];
 
         let state = DashMap::new();
-        state.insert("a".to_string(), StateValue::Number(1f64));
+        state.insert("a".to_string(), LamValue::Number(1f64));
 
-        let mut e = EvaluationBuilder::new(
+        let mut e = EvalBuilder::new(
             input,
             r#"local m = require('@lam'); local a = m.get('a'); m.set('a', a+1); return a"#,
         )
@@ -451,13 +453,13 @@ mod test {
         {
             let res = evaluate(&mut e).unwrap();
             assert_eq!("1", res.result);
-            assert_eq!(StateValue::Number(2f64), *e.state.get("a").unwrap());
+            assert_eq!(LamValue::Number(2f64), *e.state.get("a").unwrap());
         }
 
         {
             let res = evaluate(&mut e).unwrap();
             assert_eq!("2", res.result);
-            assert_eq!(StateValue::Number(3f64), *e.state.get("a").unwrap());
+            assert_eq!(LamValue::Number(3f64), *e.state.get("a").unwrap());
         }
     }
 
@@ -471,7 +473,7 @@ mod test {
         for _ in 0..=1000 {
             let state = state.clone();
             threads.push(thread::spawn(move || {
-                let mut e = EvaluationBuilder::new(
+                let mut e = EvalBuilder::new(
                     input,
                     r#"local m = require('@lam'); m.get_set('a', function(v) return v+1 end, 0)"#,
                 )
@@ -483,6 +485,6 @@ mod test {
         for t in threads {
             let _ = t.join();
         }
-        assert_eq!(StateValue::Number(1000f64), *state.get("a").unwrap());
+        assert_eq!(LamValue::Number(1000f64), *state.get("a").unwrap());
     }
 }
