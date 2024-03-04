@@ -70,7 +70,8 @@ where
                     if count == 0 {
                         return Ok(mlua::Value::Nil);
                     }
-                    return Ok(mlua::Value::String(vm.create_string(buf)?));
+                    // in Lua, *l doesn't include newline character
+                    return Ok(mlua::Value::String(vm.create_string(buf.trim_end())?));
                 }
                 if f == "*n" || f == "*number" {
                     // accepts *n or *number
@@ -101,12 +102,12 @@ where
             Err(mlua::Error::RuntimeError(s))
         });
 
-        methods.add_method("read_unicode", |_, this, i: u64| {
+        methods.add_method("read_unicode", |_, this, i: Option<u64>| {
             let mut input = this
                 .input
                 .lock()
                 .expect("failed to lock input for read_unicode");
-            let mut expected_read = i;
+            let mut expected_read = i.unwrap_or(1);
             let mut buf = Vec::new();
             let mut byte_buf = vec![0; 1];
             loop {
@@ -316,13 +317,36 @@ where
 
 #[cfg(test)]
 mod test {
-    use std::{io::Cursor, sync::Arc, thread};
+    use std::{fs, io::Cursor, sync::Arc, thread};
 
     use dashmap::DashMap;
 
     use crate::{evaluate, EvalBuilder, LamValue};
 
     const TIMEOUT_THRESHOLD: f32 = 0.01;
+
+    #[test]
+    fn test_evaluate_examples() {
+        let cases = [
+            ["01-hello.lua", "", ""],
+            ["02-input.lua", "lua", ""],
+            ["03-algebra.lua", "2", "4"],
+            ["04-echo.lua", "a", "a"],
+            ["05-state.lua", "", "0"],
+        ];
+        for case in cases {
+            let [filename, input, expected] = case;
+            let script = fs::read_to_string(format!("./lua-examples/{filename}")).unwrap();
+            let e = EvalBuilder::new(Cursor::new(input), &script)
+                .build()
+                .unwrap();
+            let res = evaluate(&e).unwrap();
+            assert_eq!(
+                expected, res.result,
+                "expect result of {script} to equal to {expected}"
+            );
+        }
+    }
 
     #[test]
     fn test_evaluate_infinite_loop() {
@@ -342,33 +366,90 @@ mod test {
     }
 
     #[test]
-    fn test_read_all() {
-        let input = "lam";
-        let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read('*a')"#)
-            .build()
-            .unwrap();
-        let res = evaluate(&e).unwrap();
-        assert_eq!(input, res.result);
+    fn test_evaluate_scripts() {
+        let cases = [
+            ["return 1+1", "2"],
+            ["return 'a'..1", "a1"],
+            ["return require('@lam')._VERSION", "0.1.0"],
+        ];
+        for case in cases {
+            let [script, expected] = case;
+            let e = EvalBuilder::new(Cursor::new(""), script).build().unwrap();
+            let res = evaluate(&e).unwrap();
+            assert_eq!(
+                expected, res.result,
+                "expect result of {script} to equal to {expected}"
+            );
+        }
     }
 
     #[test]
-    fn test_read_partial_input() {
-        let input = "lam";
-        let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read(1)"#)
-            .build()
-            .unwrap();
-        let res = evaluate(&e).unwrap();
-        assert_eq!("l", res.result);
+    fn test_read() {
+        let cases = [
+            [r#"return require('@lam'):read('*a')"#, "foo\nbar"],
+            [r#"return require('@lam'):read('*l')"#, "foo"],
+            [r#"return require('@lam'):read(1)"#, "f"],
+            [r#"return require('@lam'):read(4)"#, "foo\n"],
+        ];
+        for case in cases {
+            let input = "foo\nbar";
+            let [script, expected] = case;
+            let e = EvalBuilder::new(Cursor::new(input), script)
+                .build()
+                .unwrap();
+            let res = evaluate(&e).unwrap();
+            assert_eq!(
+                expected, res.result,
+                "expect result of {script} to equal to {expected}"
+            );
+        }
+
+        let script = r#"return require('@lam'):read('*n')"#;
+        let cases = [
+            ["1", "1"],
+            ["1.2", "1.2"],
+            ["1.23e-10", "1.23e-10"],
+            ["3.1415926", "3.1415926"],
+            ["", ""],
+            ["NaN", "nan"],
+            ["InvalidNumber", ""],
+        ];
+        for case in cases {
+            let [input, expected] = case;
+            let e = EvalBuilder::new(Cursor::new(input), script)
+                .build()
+                .unwrap();
+            let res = evaluate(&e).unwrap();
+            assert_eq!(
+                expected, res.result,
+                "expect result of {script} to equal to {expected}"
+            );
+        }
     }
 
     #[test]
-    fn test_read_more_than_input() {
-        let input = "l";
-        let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read(3)"#)
+    fn test_read_binary() {
+        let input: &[u8] = &[1, 2, 3];
+        let e = EvalBuilder::new(input, r#"return #require('@lam'):read('*a')"#)
             .build()
             .unwrap();
         let res = evaluate(&e).unwrap();
-        assert_eq!("l", res.result);
+        assert_eq!("3", res.result);
+    }
+
+    #[test]
+    fn test_read_empty() {
+        let scripts = [
+            r#"assert(not require('@lam'):read('*a'))"#,
+            r#"assert(not require('@lam'):read('*l'))"#,
+            r#"assert(not require('@lam'):read('*n'))"#,
+            r#"assert(not require('@lam'):read(1))"#,
+        ];
+        for script in scripts {
+            let input: &[u8] = &[];
+            let e = EvalBuilder::new(input, script).build().unwrap();
+            let _ = evaluate(&e).unwrap();
+        }
     }
 
     #[test]
@@ -382,68 +463,16 @@ mod test {
         .unwrap();
         let res = evaluate(&e).unwrap();
         assert_eq!("你", res.result);
-    }
 
-    #[test]
-    fn test_read_line() {
-        let input = "foo\nbar";
+        let input = r#"{"key":"你好"}"#;
         let e = EvalBuilder::new(
             Cursor::new(input),
-            r#"local m = require('@lam'); m:read('*l'); return m:read('*l')"#,
+            r#"return require('@lam'):read_unicode(12)"#,
         )
         .build()
         .unwrap();
         let res = evaluate(&e).unwrap();
-        assert_eq!("bar", res.result);
-    }
-
-    #[test]
-    fn test_read_number() {
-        let input = "3.1415926";
-        let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read('*n')"#)
-            .build()
-            .unwrap();
-        let res = evaluate(&e).unwrap();
-        assert_eq!("3.1415926", res.result);
-    }
-
-    #[test]
-    fn test_read_integer() {
-        let input = "3";
-        let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read('*n')"#)
-            .build()
-            .unwrap();
-        let res = evaluate(&e).unwrap();
-        assert_eq!("3", res.result);
-    }
-
-    #[test]
-    fn test_read_empty() {
-        let input: &[u8] = &[];
-        {
-            let e = EvalBuilder::new(input, r#"assert(not require('@lam'):read('*a'))"#)
-                .build()
-                .unwrap();
-            let _ = evaluate(&e).unwrap();
-        }
-        {
-            let e = EvalBuilder::new(input, r#"assert(not require('@lam'):read('*l'))"#)
-                .build()
-                .unwrap();
-            let _ = evaluate(&e).unwrap();
-        }
-        {
-            let e = EvalBuilder::new(input, r#"assert(not require('@lam'):read('*n'))"#)
-                .build()
-                .unwrap();
-            let _ = evaluate(&e).unwrap();
-        }
-        {
-            let e = EvalBuilder::new(input, r#"assert(not require('@lam'):read(1))"#)
-                .build()
-                .unwrap();
-            let _ = evaluate(&e).unwrap();
-        }
+        assert_eq!(input, res.result);
     }
 
     #[test]
@@ -455,40 +484,10 @@ mod test {
             .unwrap();
 
         let res = evaluate(&e).unwrap();
-        assert_eq!("foo\n", res.result);
+        assert_eq!("foo", res.result);
 
         let res = evaluate(&e).unwrap();
         assert_eq!("bar", res.result);
-    }
-
-    #[test]
-    fn test_handle_binary() {
-        let input: &[u8] = &[1, 2, 3];
-        let e = EvalBuilder::new(input, r#"return #require('@lam'):read('*a')"#)
-            .build()
-            .unwrap();
-        let res = evaluate(&e).unwrap();
-        assert_eq!("3", res.result);
-    }
-
-    #[test]
-    fn test_state() {
-        let input: &[u8] = &[];
-
-        let state = DashMap::new();
-        state.insert("a".to_string(), LamValue::Number(1.23));
-
-        let e = EvalBuilder::new(
-            input,
-            r#"local m = require('@lam'); local a = m:get('a'); m:set('a', 4.56); return a"#,
-        )
-        .set_state(Arc::new(state))
-        .build()
-        .unwrap();
-
-        let res = evaluate(&e).unwrap();
-        assert_eq!("1.23", res.result);
-        assert_eq!(LamValue::Number(4.56), *e.state.get("a").unwrap());
     }
 
     #[test]
@@ -517,6 +516,26 @@ mod test {
             assert_eq!("2", res.result);
             assert_eq!(LamValue::Number(3f64), *e.state.get("a").unwrap());
         }
+    }
+
+    #[test]
+    fn test_state() {
+        let input: &[u8] = &[];
+
+        let state = DashMap::new();
+        state.insert("a".to_string(), LamValue::Number(1.23));
+
+        let e = EvalBuilder::new(
+            input,
+            r#"local m = require('@lam'); local a = m:get('a'); m:set('a', 4.56); return a"#,
+        )
+        .set_state(Arc::new(state))
+        .build()
+        .unwrap();
+
+        let res = evaluate(&e).unwrap();
+        assert_eq!("1.23", res.result);
+        assert_eq!(LamValue::Number(4.56), *e.state.get("a").unwrap());
     }
 
     #[test]
