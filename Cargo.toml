@@ -20,13 +20,6 @@ tower-http = { version = "0.5.0", features = ["trace"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
-[dev-dependencies]
-cucumber = "0.20.0"
-
-[[test]]
-name = "lam"
-harness = false
-
 # https://github.com/EmbarkStudios/rust-ecosystem/blob/732513edfd9172f4eda358b2d0cefc6cad1585ee/lints.rs
 [lints.rust]
 future_incompatible = "warn"
