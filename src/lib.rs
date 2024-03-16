@@ -26,7 +26,6 @@ pub struct Evaluation<R>
 where
     R: Read,
 {
-    pub vm: mlua::Lua,
     pub input: Arc<Mutex<BufReader<R>>>,
     pub script: String,
     pub state: Arc<DashMap<String, LamValue>>,
@@ -258,10 +257,7 @@ where
     }
 
     pub fn build(self) -> LamResult<Evaluation<R>> {
-        let vm = mlua::Lua::new();
-        vm.sandbox(true)?;
         Ok(Evaluation {
-            vm,
             input: Arc::new(Mutex::new(BufReader::new(self.input))),
             script: self.script,
             state: self.state.unwrap_or_default(),
@@ -280,7 +276,8 @@ pub fn evaluate<R>(e: &Evaluation<R>) -> LamResult<EvalResult>
 where
     R: Read + 'static,
 {
-    let vm = &e.vm;
+    let vm = mlua::Lua::new();
+    vm.sandbox(true)?;
 
     let start = Instant::now();
     let timeout = e.timeout as f64;
