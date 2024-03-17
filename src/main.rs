@@ -3,7 +3,7 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use dashmap::DashMap;
-use lam::{evaluate, EvalBuilder, LamState};
+use lam::{evaluate, EvalBuilder, LamKV};
 use std::{
     fs,
     io::{self, Cursor, Read},
@@ -77,16 +77,17 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[derive(Clone)]
 struct AppState {
     script: String,
-    state: LamState,
+    store: LamKV,
     timeout: u64,
 }
 
-async fn index_route(State(state): State<Arc<AppState>>, body: Bytes) -> impl IntoResponse {
+async fn index_route(State(state): State<AppState>, body: Bytes) -> impl IntoResponse {
     let e = match EvalBuilder::new(Cursor::new(body), state.script.clone())
         .set_timeout(state.timeout)
-        .set_state(state.state.clone())
+        .set_store(state.store.clone())
         .build()
     {
         Ok(e) => e,
@@ -113,11 +114,11 @@ async fn serve_file(file: &path::PathBuf, bind: &str, timeout: u64) -> anyhow::R
 
     let script = fs::read_to_string(file)?;
     let state = Arc::new(DashMap::new());
-    let app_state = Arc::new(AppState {
+    let app_state = AppState {
         script,
-        state,
+        store: state,
         timeout,
-    });
+    };
 
     let app = Router::new()
         .route("/", post(index_route))

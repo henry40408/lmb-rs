@@ -19,8 +19,8 @@ pub enum LamError {
 }
 
 pub type LamInput<R> = Arc<Mutex<BufReader<R>>>;
+pub type LamKV = Arc<DashMap<String, LamValue>>;
 pub type LamResult<T> = Result<T, LamError>;
-pub type LamState = Arc<DashMap<String, LamValue>>;
 
 pub struct Evaluation<R>
 where
@@ -28,7 +28,7 @@ where
 {
     pub input: Arc<Mutex<BufReader<R>>>,
     pub script: String,
-    pub state: Arc<DashMap<String, LamValue>>,
+    pub store: LamKV,
     pub timeout: u64,
 }
 
@@ -37,7 +37,7 @@ where
     R: Read,
 {
     input: LamInput<R>,
-    state: LamState,
+    store: LamKV,
 }
 
 impl<R> UserData for LuaLam<R>
@@ -132,7 +132,7 @@ where
         });
 
         methods.add_method("get", |vm, this, key: String| {
-            if let Some(v) = this.state.get(key.as_str()) {
+            if let Some(v) = this.store.get(key.as_str()) {
                 return v.clone().into_lua(vm);
             }
             Ok(mlua::Value::Nil)
@@ -142,7 +142,7 @@ where
             "set",
             |vm, this, (key, value): (String, mlua::Value<'lua>)| {
                 let v = LamValue::from_lua(value.clone(), vm)?;
-                this.state.insert(key, v);
+                this.store.insert(key, v);
                 Ok(value)
             },
         );
@@ -151,12 +151,12 @@ where
             "get_set",
             |vm, this, (key, f, default_v): (String, mlua::Function<'lua>, mlua::Value<'lua>)| {
                 Ok(this
-                    .state
+                    .store
                     .entry(key)
                     .and_modify(|v| match f.call(v.clone().into_lua(vm)) {
                         Ok(ret_v) => match LamValue::from_lua(ret_v, vm) {
-                            Ok(state_v) => {
-                                *v = state_v;
+                            Ok(store_v) => {
+                                *v = store_v;
                             }
                             Err(e) => {
                                 error!("failed to convert lua value {:?}", e);
@@ -178,8 +178,8 @@ impl<R> LuaLam<R>
 where
     R: Read,
 {
-    pub fn new(input: LamInput<R>, state: LamState) -> Self {
-        Self { input, state }
+    pub fn new(input: LamInput<R>, store: LamKV) -> Self {
+        Self { input, store }
     }
 }
 
@@ -229,7 +229,7 @@ where
 {
     pub input: R,
     pub script: String,
-    pub state: Option<LamState>,
+    pub store: LamKV,
     pub timeout: Option<u64>,
 }
 
@@ -241,7 +241,7 @@ where
         Self {
             input,
             script: script.as_ref().to_string(),
-            state: None,
+            store: LamKV::default(),
             timeout: None,
         }
     }
@@ -251,8 +251,8 @@ where
         self
     }
 
-    pub fn set_state(mut self, state: LamState) -> Self {
-        self.state = Some(state);
+    pub fn set_store(mut self, store: LamKV) -> Self {
+        self.store = store;
         self
     }
 
@@ -260,7 +260,7 @@ where
         Ok(Evaluation {
             input: Arc::new(Mutex::new(BufReader::new(self.input))),
             script: self.script,
-            state: self.state.unwrap_or_default(),
+            store: self.store,
             timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
         })
     }
@@ -291,7 +291,7 @@ where
     let r = vm.scope(|_| {
         let loaded = vm.named_registry_value::<Table<'_>>(K_LOADED)?;
 
-        let lua_lam = LuaLam::new(e.input.clone(), e.state.clone());
+        let lua_lam = LuaLam::new(e.input.clone(), e.store.clone());
         loaded.set("@lam", lua_lam)?;
 
         vm.set_named_registry_value(K_LOADED, loaded)?;
@@ -488,68 +488,68 @@ mod test {
     }
 
     #[test]
-    fn test_reuse_state() {
+    fn test_reuse_store() {
         let input: &[u8] = &[];
 
-        let state = DashMap::new();
-        state.insert("a".to_string(), LamValue::Number(1f64));
+        let store = DashMap::new();
+        store.insert("a".to_string(), LamValue::Number(1f64));
 
         let e = EvalBuilder::new(
             input,
             r#"local m = require('@lam'); local a = m:get('a'); m:set('a', a+1); return a"#,
         )
-        .set_state(Arc::new(state))
+        .set_store(Arc::new(store))
         .build()
         .unwrap();
 
         {
             let res = evaluate(&e).unwrap();
             assert_eq!("1", res.result);
-            assert_eq!(LamValue::Number(2f64), *e.state.get("a").unwrap());
+            assert_eq!(LamValue::Number(2f64), *e.store.get("a").unwrap());
         }
 
         {
             let res = evaluate(&e).unwrap();
             assert_eq!("2", res.result);
-            assert_eq!(LamValue::Number(3f64), *e.state.get("a").unwrap());
+            assert_eq!(LamValue::Number(3f64), *e.store.get("a").unwrap());
         }
     }
 
     #[test]
-    fn test_state() {
+    fn test_store() {
         let input: &[u8] = &[];
 
-        let state = DashMap::new();
-        state.insert("a".to_string(), LamValue::Number(1.23));
+        let store = DashMap::new();
+        store.insert("a".to_string(), LamValue::Number(1.23));
 
         let e = EvalBuilder::new(
             input,
             r#"local m = require('@lam'); local a = m:get('a'); m:set('a', 4.56); return a"#,
         )
-        .set_state(Arc::new(state))
+        .set_store(Arc::new(store))
         .build()
         .unwrap();
 
         let res = evaluate(&e).unwrap();
         assert_eq!("1.23", res.result);
-        assert_eq!(LamValue::Number(4.56), *e.state.get("a").unwrap());
+        assert_eq!(LamValue::Number(4.56), *e.store.get("a").unwrap());
     }
 
     #[test]
-    fn test_state_concurrency() {
+    fn test_store_concurrency() {
         let input: &[u8] = &[];
 
-        let state = Arc::new(DashMap::new());
+        let store = Arc::new(DashMap::new());
 
         let mut threads = vec![];
         for _ in 0..=1000 {
-            let state = state.clone();
+            let store = store.clone();
             threads.push(thread::spawn(move || {
                 let e = EvalBuilder::new(
                     input,
                     r#"return require('@lam'):get_set('a', function(v) return v+1 end, 0)"#,
                 )
-                .set_state(state)
+                .set_store(store)
                 .build()
                 .unwrap();
                 let _ = evaluate(&e);
@@ -558,6 +558,6 @@ mod test {
         for t in threads {
             let _ = t.join();
         }
-        assert_eq!(LamValue::Number(1000f64), *state.get("a").unwrap());
+        assert_eq!(LamValue::Number(1000f64), *store.get("a").unwrap());
     }
 }
