@@ -1,6 +1,7 @@
+use parking_lot::Mutex;
 use std::{
     io::{BufRead as _, BufReader, Read},
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -50,7 +51,7 @@ where
 
     fn add_methods<'lua, M: mlua::prelude::LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method("read", |vm, this, f: mlua::Value<'lua>| {
-            let mut input = this.input.lock().expect("failed to lock input for read");
+            let mut input = this.input.lock();
             if let Some(f) = f.as_str() {
                 if f == "*a" || f == "*all" {
                     // accepts *a or *all
@@ -102,10 +103,7 @@ where
         });
 
         methods.add_method("read_unicode", |_, this, i: Option<u64>| {
-            let mut input = this
-                .input
-                .lock()
-                .expect("failed to lock input for read_unicode");
+            let mut input = this.input.lock();
             let mut expected_read = i.unwrap_or(1);
             let mut buf = Vec::new();
             let mut byte_buf = vec![0; 1];
@@ -158,12 +156,12 @@ where
                             Ok(store_v) => {
                                 *v = store_v;
                             }
-                            Err(e) => {
-                                error!("failed to convert lua value {:?}", e);
+                            Err(err) => {
+                                error!(%err, "failed to convert lua value");
                             }
                         },
-                        Err(e) => {
-                            error!("failed to run lua function {:?}", e);
+                        Err(err) => {
+                            error!(%err,"failed to run lua function");
                         }
                     })
                     .or_insert(LamValue::from_lua(default_v, vm)?)
