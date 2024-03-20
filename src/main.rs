@@ -62,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
             };
             let e = EvalBuilder::new(io::stdin(), script)
                 .set_timeout(timeout)
-                .build()?;
+                .build();
             let res = evaluate(&e)?;
             print!("{}", res.result);
         }
@@ -85,22 +85,15 @@ struct AppState {
 }
 
 async fn index_route(State(state): State<AppState>, body: Bytes) -> impl IntoResponse {
-    let e = match EvalBuilder::new(Cursor::new(body), state.script.clone())
+    let e = EvalBuilder::new(Cursor::new(body), state.script.clone())
         .set_timeout(state.timeout)
         .set_store(state.store.clone())
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            error!("{:?}", err);
-            return (StatusCode::BAD_REQUEST, "".to_string());
-        }
-    };
+        .build();
     let res = evaluate(&e);
     match res {
         Ok(res) => (StatusCode::OK, res.result),
         Err(err) => {
-            error!("{:?}", err);
+            error!(%err, "failed to run Lua script");
             (StatusCode::BAD_REQUEST, "".to_string())
         }
     }
@@ -113,10 +106,10 @@ async fn serve_file(file: &path::PathBuf, bind: &str, timeout: u64) -> anyhow::R
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
 
     let script = fs::read_to_string(file)?;
-    let state = Arc::new(DashMap::new());
+    let store = Arc::new(DashMap::new());
     let app_state = AppState {
         script,
-        store: state,
+        store,
         timeout,
     };
 
@@ -129,7 +122,7 @@ async fn serve_file(file: &path::PathBuf, bind: &str, timeout: u64) -> anyhow::R
         )
         .with_state(app_state);
     let listener = tokio::net::TcpListener::bind(bind).await?;
-    info!("serving lua script on {bind}");
+    info!(%bind, "serving lua script");
     axum::serve(listener, app).await?;
 
     Ok(())
