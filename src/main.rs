@@ -17,6 +17,14 @@ use tracing_subscriber::EnvFilter;
 #[derive(Parser, Debug)]
 #[command(author,version,about,long_about=None)]
 struct Cli {
+    /// Debug mode
+    #[arg(long, short = 'd', env = "DEBUG")]
+    debug: bool,
+
+    /// No color https://no-color.org/
+    #[arg(long, env = "NO_COLOR")]
+    no_color: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -49,6 +57,21 @@ enum Commands {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+
+    let level = if cli.debug {
+        Level::DEBUG.into()
+    } else {
+        Level::INFO.into()
+    };
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(level)
+        .from_env_lossy();
+    tracing_subscriber::fmt()
+        .with_ansi(!cli.no_color)
+        .with_env_filter(env_filter)
+        .compact()
+        .init();
+
     match cli.command {
         Commands::Eval { file, timeout } => {
             let script = if let Some(f) = file {
@@ -100,11 +123,6 @@ async fn index_route(State(state): State<AppState>, body: Bytes) -> impl IntoRes
 }
 
 async fn serve_file(file: &path::PathBuf, bind: &str, timeout: u64) -> anyhow::Result<()> {
-    let env_filter = EnvFilter::builder()
-        .with_default_directive(Level::INFO.into())
-        .from_env_lossy();
-    tracing_subscriber::fmt().with_env_filter(env_filter).init();
-
     let script = fs::read_to_string(file)?;
     let store = Arc::new(DashMap::new());
     let app_state = AppState {
@@ -112,7 +130,6 @@ async fn serve_file(file: &path::PathBuf, bind: &str, timeout: u64) -> anyhow::R
         store,
         timeout,
     };
-
     let app = Router::new()
         .route("/", post(index_route))
         .layer(
@@ -124,6 +141,5 @@ async fn serve_file(file: &path::PathBuf, bind: &str, timeout: u64) -> anyhow::R
     let listener = tokio::net::TcpListener::bind(bind).await?;
     info!(%bind, "serving lua script");
     axum::serve(listener, app).await?;
-
     Ok(())
 }
