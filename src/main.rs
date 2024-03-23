@@ -3,7 +3,7 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use dashmap::DashMap;
-use lam::{evaluate, EvalBuilder, LamState};
+use lam::{evaluate, EvalBuilder, LamKV};
 use std::{
     fs,
     io::{self, Cursor, Read},
@@ -17,6 +17,14 @@ use tracing_subscriber::EnvFilter;
 #[derive(Parser, Debug)]
 #[command(author,version,about,long_about=None)]
 struct Cli {
+    /// Debug mode
+    #[arg(long, short = 'd', env = "DEBUG")]
+    debug: bool,
+
+    /// No color https://no-color.org/
+    #[arg(long, env = "NO_COLOR")]
+    no_color: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -49,6 +57,21 @@ enum Commands {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+
+    let level = if cli.debug {
+        Level::DEBUG.into()
+    } else {
+        Level::INFO.into()
+    };
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(level)
+        .from_env_lossy();
+    tracing_subscriber::fmt()
+        .with_ansi(!cli.no_color)
+        .with_env_filter(env_filter)
+        .compact()
+        .init();
+
     match cli.command {
         Commands::Eval { file, timeout } => {
             let script = if let Some(f) = file {
@@ -62,7 +85,7 @@ async fn main() -> anyhow::Result<()> {
             };
             let e = EvalBuilder::new(io::stdin(), script)
                 .set_timeout(timeout)
-                .build()?;
+                .build();
             let res = evaluate(&e)?;
             print!("{}", res.result);
         }
@@ -77,48 +100,36 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[derive(Clone)]
 struct AppState {
     script: String,
-    state: LamState,
+    store: LamKV,
     timeout: u64,
 }
 
-async fn index_route(State(state): State<Arc<AppState>>, body: Bytes) -> impl IntoResponse {
-    let e = match EvalBuilder::new(Cursor::new(body), state.script.clone())
+async fn index_route(State(state): State<AppState>, body: Bytes) -> impl IntoResponse {
+    let e = EvalBuilder::new(Cursor::new(body), state.script.clone())
         .set_timeout(state.timeout)
-        .set_state(state.state.clone())
-        .build()
-    {
-        Ok(e) => e,
-        Err(err) => {
-            error!("{:?}", err);
-            return (StatusCode::BAD_REQUEST, "".to_string());
-        }
-    };
+        .set_store(state.store.clone())
+        .build();
     let res = evaluate(&e);
     match res {
         Ok(res) => (StatusCode::OK, res.result),
         Err(err) => {
-            error!("{:?}", err);
+            error!(%err, "failed to run Lua script");
             (StatusCode::BAD_REQUEST, "".to_string())
         }
     }
 }
 
 async fn serve_file(file: &path::PathBuf, bind: &str, timeout: u64) -> anyhow::Result<()> {
-    let env_filter = EnvFilter::builder()
-        .with_default_directive(Level::INFO.into())
-        .from_env_lossy();
-    tracing_subscriber::fmt().with_env_filter(env_filter).init();
-
     let script = fs::read_to_string(file)?;
-    let state = Arc::new(DashMap::new());
-    let app_state = Arc::new(AppState {
+    let store = Arc::new(DashMap::new());
+    let app_state = AppState {
         script,
-        state,
+        store,
         timeout,
-    });
-
+    };
     let app = Router::new()
         .route("/", post(index_route))
         .layer(
@@ -128,8 +139,7 @@ async fn serve_file(file: &path::PathBuf, bind: &str, timeout: u64) -> anyhow::R
         )
         .with_state(app_state);
     let listener = tokio::net::TcpListener::bind(bind).await?;
-    info!("serving lua script on {bind}");
+    info!(%bind, "serving lua script");
     axum::serve(listener, app).await?;
-
     Ok(())
 }

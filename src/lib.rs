@@ -1,13 +1,14 @@
+use parking_lot::Mutex;
 use std::{
     io::{BufRead as _, BufReader, Read},
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use dashmap::DashMap;
 use mlua::{FromLua, IntoLua, Lua, Table, ThreadStatus, UserData, VmState};
 use thiserror::Error;
-use tracing::error;
+use tracing::{debug, error};
 
 const DEFAULT_TIMEOUT: u64 = 30;
 const K_LOADED: &str = "_LOADED";
@@ -19,17 +20,16 @@ pub enum LamError {
 }
 
 pub type LamInput<R> = Arc<Mutex<BufReader<R>>>;
+pub type LamKV = Arc<DashMap<String, LamValue>>;
 pub type LamResult<T> = Result<T, LamError>;
-pub type LamState = Arc<DashMap<String, LamValue>>;
 
 pub struct Evaluation<R>
 where
-    R: Read,
+    for<'lua> R: Read + 'lua,
 {
-    pub vm: mlua::Lua,
     pub input: Arc<Mutex<BufReader<R>>>,
     pub script: String,
-    pub state: Arc<DashMap<String, LamValue>>,
+    pub store: LamKV,
     pub timeout: u64,
 }
 
@@ -38,7 +38,7 @@ where
     R: Read,
 {
     input: LamInput<R>,
-    state: LamState,
+    store: LamKV,
 }
 
 impl<R> UserData for LuaLam<R>
@@ -51,7 +51,7 @@ where
 
     fn add_methods<'lua, M: mlua::prelude::LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method("read", |vm, this, f: mlua::Value<'lua>| {
-            let mut input = this.input.lock().expect("failed to lock input for read");
+            let mut input = this.input.lock();
             if let Some(f) = f.as_str() {
                 if f == "*a" || f == "*all" {
                     // accepts *a or *all
@@ -103,10 +103,7 @@ where
         });
 
         methods.add_method("read_unicode", |_, this, i: Option<u64>| {
-            let mut input = this
-                .input
-                .lock()
-                .expect("failed to lock input for read_unicode");
+            let mut input = this.input.lock();
             let mut expected_read = i.unwrap_or(1);
             let mut buf = Vec::new();
             let mut byte_buf = vec![0; 1];
@@ -133,7 +130,7 @@ where
         });
 
         methods.add_method("get", |vm, this, key: String| {
-            if let Some(v) = this.state.get(key.as_str()) {
+            if let Some(v) = this.store.get(key.as_str()) {
                 return v.clone().into_lua(vm);
             }
             Ok(mlua::Value::Nil)
@@ -143,31 +140,41 @@ where
             "set",
             |vm, this, (key, value): (String, mlua::Value<'lua>)| {
                 let v = LamValue::from_lua(value.clone(), vm)?;
-                this.state.insert(key, v);
+                this.store.insert(key, v);
                 Ok(value)
             },
         );
 
         methods.add_method(
-            "get_set",
+            "update",
             |vm, this, (key, f, default_v): (String, mlua::Function<'lua>, mlua::Value<'lua>)| {
                 Ok(this
-                    .state
+                    .store
                     .entry(key)
-                    .and_modify(|v| match f.call(v.clone().into_lua(vm)) {
-                        Ok(ret_v) => match LamValue::from_lua(ret_v, vm) {
-                            Ok(state_v) => {
-                                *v = state_v;
+                    .and_modify(|old| match f.call(old.clone().into_lua(vm)) {
+                        Ok(ret) => match LamValue::from_lua(ret, vm) {
+                            Ok(new) => {
+                                debug!(?old, ?new, "update value in store");
+                                *old = new;
                             }
-                            Err(e) => {
-                                error!("failed to convert lua value {:?}", e);
+                            Err(err) => {
+                                error!(%err, "failed to convert lua value");
                             }
                         },
-                        Err(e) => {
-                            error!("failed to run lua function {:?}", e);
+                        Err(err) => {
+                            error!(%err, "failed to run lua function");
                         }
                     })
-                    .or_insert(LamValue::from_lua(default_v, vm)?)
+                    .or_insert_with(|| match LamValue::from_lua(default_v, vm) {
+                        Ok(default) => {
+                            debug!(?default, "insert default value into store");
+                            default
+                        }
+                        Err(err) => {
+                            error!(%err,"failed to insert default value into store");
+                            LamValue::None
+                        }
+                    })
                     .value()
                     .clone())
             },
@@ -179,8 +186,8 @@ impl<R> LuaLam<R>
 where
     R: Read,
 {
-    pub fn new(input: LamInput<R>, state: LamState) -> Self {
-        Self { input, state }
+    pub fn new(input: LamInput<R>, store: LamKV) -> Self {
+        Self { input, store }
     }
 }
 
@@ -230,19 +237,19 @@ where
 {
     pub input: R,
     pub script: String,
-    pub state: Option<LamState>,
+    pub store: LamKV,
     pub timeout: Option<u64>,
 }
 
 impl<R> EvalBuilder<R>
 where
-    R: Read,
+    for<'lua> R: Read + 'lua,
 {
     pub fn new<S: AsRef<str>>(input: R, script: S) -> Self {
         Self {
             input,
             script: script.as_ref().to_string(),
-            state: None,
+            store: LamKV::default(),
             timeout: None,
         }
     }
@@ -252,21 +259,18 @@ where
         self
     }
 
-    pub fn set_state(mut self, state: LamState) -> Self {
-        self.state = Some(state);
+    pub fn set_store(mut self, store: LamKV) -> Self {
+        self.store = store;
         self
     }
 
-    pub fn build(self) -> LamResult<Evaluation<R>> {
-        let vm = mlua::Lua::new();
-        vm.sandbox(true)?;
-        Ok(Evaluation {
-            vm,
+    pub fn build(self) -> Evaluation<R> {
+        Evaluation {
             input: Arc::new(Mutex::new(BufReader::new(self.input))),
             script: self.script,
-            state: self.state.unwrap_or_default(),
+            store: self.store,
             timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
-        })
+        }
     }
 }
 
@@ -278,12 +282,17 @@ pub struct EvalResult {
 
 pub fn evaluate<R>(e: &Evaluation<R>) -> LamResult<EvalResult>
 where
-    R: Read + 'static,
+    for<'lua> R: Read + 'lua,
 {
-    let vm = &e.vm;
+    let vm = mlua::Lua::new();
+    vm.sandbox(true)?;
 
     let start = Instant::now();
+
     let timeout = e.timeout as f64;
+    let script = &e.script;
+    debug!(%timeout, %script, "load script");
+
     vm.set_interrupt(move |_| {
         if start.elapsed().as_secs_f64() > timeout {
             return Ok(VmState::Yield);
@@ -294,7 +303,7 @@ where
     let r = vm.scope(|_| {
         let loaded = vm.named_registry_value::<Table<'_>>(K_LOADED)?;
 
-        let lua_lam = LuaLam::new(e.input.clone(), e.state.clone());
+        let lua_lam = LuaLam::new(e.input.clone(), e.store.clone());
         loaded.set("@lam", lua_lam)?;
 
         vm.set_named_registry_value(K_LOADED, loaded)?;
@@ -305,10 +314,10 @@ where
             if co.status() != ThreadStatus::Resumable
                 || start.elapsed().as_secs_f64() > e.timeout as f64
             {
-                return Ok(EvalResult {
-                    duration: start.elapsed(),
-                    result: res.unwrap_or(String::new()),
-                });
+                let duration = start.elapsed();
+                let result = res.unwrap_or(String::new());
+                debug!(?duration, %result, "evaluation finished");
+                return Ok(EvalResult { duration, result });
             }
         }
     })?;
@@ -337,9 +346,7 @@ mod test {
         for case in cases {
             let [filename, input, expected] = case;
             let script = fs::read_to_string(format!("./lua-examples/{filename}")).unwrap();
-            let e = EvalBuilder::new(Cursor::new(input), &script)
-                .build()
-                .unwrap();
+            let e = EvalBuilder::new(Cursor::new(input), &script).build();
             let res = evaluate(&e).unwrap();
             assert_eq!(
                 expected, res.result,
@@ -355,8 +362,7 @@ mod test {
         let input: &[u8] = &[];
         let e = EvalBuilder::new(input, r#"while true do end"#)
             .set_timeout(timeout)
-            .build()
-            .unwrap();
+            .build();
         let res = evaluate(&e).unwrap();
         assert_eq!("", res.result);
 
@@ -374,7 +380,7 @@ mod test {
         ];
         for case in cases {
             let [script, expected] = case;
-            let e = EvalBuilder::new(Cursor::new(""), script).build().unwrap();
+            let e = EvalBuilder::new(Cursor::new(""), script).build();
             let res = evaluate(&e).unwrap();
             assert_eq!(
                 expected, res.result,
@@ -394,9 +400,7 @@ mod test {
         for case in cases {
             let input = "foo\nbar";
             let [script, expected] = case;
-            let e = EvalBuilder::new(Cursor::new(input), script)
-                .build()
-                .unwrap();
+            let e = EvalBuilder::new(Cursor::new(input), script).build();
             let res = evaluate(&e).unwrap();
             assert_eq!(
                 expected, res.result,
@@ -416,9 +420,7 @@ mod test {
         ];
         for case in cases {
             let [input, expected] = case;
-            let e = EvalBuilder::new(Cursor::new(input), script)
-                .build()
-                .unwrap();
+            let e = EvalBuilder::new(Cursor::new(input), script).build();
             let res = evaluate(&e).unwrap();
             assert_eq!(
                 expected, res.result,
@@ -430,9 +432,7 @@ mod test {
     #[test]
     fn test_read_binary() {
         let input: &[u8] = &[1, 2, 3];
-        let e = EvalBuilder::new(input, r#"return #require('@lam'):read('*a')"#)
-            .build()
-            .unwrap();
+        let e = EvalBuilder::new(input, r#"return #require('@lam'):read('*a')"#).build();
         let res = evaluate(&e).unwrap();
         assert_eq!("3", res.result);
     }
@@ -447,7 +447,7 @@ mod test {
         ];
         for script in scripts {
             let input: &[u8] = &[];
-            let e = EvalBuilder::new(input, script).build().unwrap();
+            let e = EvalBuilder::new(input, script).build();
             let _ = evaluate(&e).unwrap();
         }
     }
@@ -459,8 +459,7 @@ mod test {
             Cursor::new(input),
             r#"return require('@lam'):read_unicode(1)"#,
         )
-        .build()
-        .unwrap();
+        .build();
         let res = evaluate(&e).unwrap();
         assert_eq!("你", res.result);
 
@@ -469,8 +468,7 @@ mod test {
             Cursor::new(input),
             r#"return require('@lam'):read_unicode(12)"#,
         )
-        .build()
-        .unwrap();
+        .build();
         let res = evaluate(&e).unwrap();
         assert_eq!(input, res.result);
     }
@@ -479,9 +477,8 @@ mod test {
     fn test_reevaluate() {
         let input = "foo\nbar";
 
-        let e = EvalBuilder::new(Cursor::new(input), r#"return require('@lam'):read('*l')"#)
-            .build()
-            .unwrap();
+        let script = r#"return require('@lam'):read('*l')"#;
+        let e = EvalBuilder::new(Cursor::new(input), script).build();
 
         let res = evaluate(&e).unwrap();
         assert_eq!("foo", res.result);
@@ -491,76 +488,98 @@ mod test {
     }
 
     #[test]
-    fn test_reuse_state() {
+    fn test_reuse_store() {
         let input: &[u8] = &[];
 
-        let state = DashMap::new();
-        state.insert("a".to_string(), LamValue::Number(1f64));
+        let store = Arc::new(DashMap::new());
+        store.insert("a".to_string(), LamValue::Number(1f64));
 
         let e = EvalBuilder::new(
             input,
             r#"local m = require('@lam'); local a = m:get('a'); m:set('a', a+1); return a"#,
         )
-        .set_state(Arc::new(state))
-        .build()
-        .unwrap();
+        .set_store(store)
+        .build();
 
         {
             let res = evaluate(&e).unwrap();
             assert_eq!("1", res.result);
-            assert_eq!(LamValue::Number(2f64), *e.state.get("a").unwrap());
+            assert_eq!(LamValue::Number(2f64), *e.store.get("a").unwrap());
         }
 
         {
             let res = evaluate(&e).unwrap();
             assert_eq!("2", res.result);
-            assert_eq!(LamValue::Number(3f64), *e.state.get("a").unwrap());
+            assert_eq!(LamValue::Number(3f64), *e.store.get("a").unwrap());
         }
     }
 
     #[test]
-    fn test_state() {
+    fn test_store() {
         let input: &[u8] = &[];
 
-        let state = DashMap::new();
-        state.insert("a".to_string(), LamValue::Number(1.23));
+        let store = Arc::new(DashMap::new());
+        store.insert("a".to_string(), LamValue::Number(1.23));
 
         let e = EvalBuilder::new(
             input,
             r#"local m = require('@lam'); local a = m:get('a'); m:set('a', 4.56); return a"#,
         )
-        .set_state(Arc::new(state))
-        .build()
-        .unwrap();
+        .set_store(store)
+        .build();
 
         let res = evaluate(&e).unwrap();
         assert_eq!("1.23", res.result);
-        assert_eq!(LamValue::Number(4.56), *e.state.get("a").unwrap());
+        assert_eq!(LamValue::Number(4.56), *e.store.get("a").unwrap());
     }
 
     #[test]
-    fn test_state_concurrency() {
+    fn test_rollback_when_update() {
         let input: &[u8] = &[];
 
-        let state = Arc::new(DashMap::new());
+        let store = Arc::new(DashMap::new());
+        store.insert("a".to_string(), LamValue::Number(1f64));
+
+        let e = EvalBuilder::new(
+            input,
+            r#"return require('@lam'):update('a', function(v)
+              if v == 1 then
+                error('something went wrong')
+              else
+                return v+1
+              end
+            end, 0)"#,
+        )
+        .set_store(store)
+        .build();
+
+        let res = evaluate(&e).unwrap();
+        assert_eq!("1", res.result);
+        assert_eq!(LamValue::Number(1f64), *e.store.get("a").unwrap());
+    }
+
+    #[test]
+    fn test_store_concurrency() {
+        let input: &[u8] = &[];
+
+        let store = Arc::new(DashMap::new());
 
         let mut threads = vec![];
         for _ in 0..=1000 {
-            let state = state.clone();
+            let store = store.clone();
             threads.push(thread::spawn(move || {
                 let e = EvalBuilder::new(
                     input,
-                    r#"return require('@lam'):get_set('a', function(v) return v+1 end, 0)"#,
+                    r#"return require('@lam'):update('a', function(v) return v+1 end, 0)"#,
                 )
-                .set_state(state)
-                .build()
-                .unwrap();
-                let _ = evaluate(&e);
+                .set_store(store)
+                .build();
+                evaluate(&e).unwrap();
             }));
         }
         for t in threads {
             let _ = t.join();
         }
-        assert_eq!(LamValue::Number(1000f64), *state.get("a").unwrap());
+        assert_eq!(LamValue::Number(1000f64), *store.get("a").unwrap());
     }
 }
