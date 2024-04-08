@@ -10,7 +10,7 @@ anyhow = "1.0.75"
 axum = "0.7.2"
 clap = { version = "4.4.8", features = ["derive", "env"] }
 dashmap = "5.5.3"
-mlua = { version = "0.9.1", features = ["luau"] }
+mlua = { version = "0.9.7", features = ["luau"] }
 parking_lot = "0.12.1"
 thiserror = "1.0.49"
 tokio = { version = "1.32.0", default-features = false, features = [
