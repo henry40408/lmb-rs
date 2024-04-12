@@ -1,4 +1,6 @@
 use parking_lot::Mutex;
+use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 use std::{
     io::{BufRead as _, BufReader, Read},
     sync::Arc,
@@ -13,10 +15,61 @@ use tracing::{debug, error};
 const DEFAULT_TIMEOUT: u64 = 30;
 const K_LOADED: &str = "_LOADED";
 
+pub struct LamStore {
+    pub conn: Connection,
+}
+
+impl LamStore {
+    pub fn migrate(&self) -> LamResult<()> {
+        self.conn.execute(
+            r#"
+            CREATE TABLE IF NOT EXISTS store (
+              id    INTEGER PRIMARY KEY AUTOINCREMENT,
+              name  TEXT NOT NULL UNIQUE,
+              value BLOB,
+              type  VARCHAR(255)
+            );
+            "#,
+            (),
+        )?;
+        Ok(())
+    }
+
+    pub fn set<S: AsRef<str>>(&self, name: S, value: &LamValue) -> LamResult<()> {
+        let name = name.as_ref();
+        let value = bincode::serialize(value)?;
+        self.conn.execute(
+            r#"
+            INSERT INTO store (name, value) VALUES (?1, ?2)
+            ON CONFLICT(name) DO UPDATE SET value = ?2
+            "#,
+            (name, value),
+        )?;
+        Ok(())
+    }
+
+    pub fn get<S: AsRef<str>>(&self, name: S) -> LamResult<LamValue> {
+        let name = name.as_ref();
+        let v: Vec<u8> = match self.conn.query_row(
+            r#"SELECT value FROM store WHERE name = ?1"#,
+            (name,),
+            |row| row.get(0),
+        ) {
+            Err(_) => return Ok(LamValue::None),
+            Ok(v) => v,
+        };
+        Ok(bincode::deserialize::<LamValue>(&v)?)
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum LamError {
     #[error("lua error: {0}")]
     Lua(#[from] mlua::Error),
+    #[error("bincode error: {0}")]
+    Bincode(#[from] bincode::Error),
+    #[error("sqlite error: {0}")]
+    SQLite(#[from] rusqlite::Error),
 }
 
 pub type LamInput<R> = Arc<Mutex<BufReader<R>>>;
@@ -191,7 +244,7 @@ where
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum LamValue {
     None,
     Boolean(bool),
@@ -329,8 +382,9 @@ mod test {
     use std::{fs, io::Cursor, sync::Arc, thread};
 
     use dashmap::DashMap;
+    use rusqlite::Connection;
 
-    use crate::{evaluate, EvalBuilder, LamValue};
+    use crate::{evaluate, EvalBuilder, LamStore, LamValue};
 
     const TIMEOUT_THRESHOLD: f32 = 0.01;
 
@@ -581,5 +635,52 @@ mod test {
             let _ = t.join();
         }
         assert_eq!(LamValue::Number(1000f64), *store.get("a").unwrap());
+    }
+
+    #[test]
+    fn test_migrate() {
+        let conn = Connection::open_in_memory().unwrap();
+        let store = LamStore { conn };
+        store.migrate().unwrap();
+        store.migrate().unwrap(); // duplicated
+    }
+
+    #[test]
+    fn test_store_set_get() {
+        let conn = Connection::open_in_memory().unwrap();
+        let store = LamStore { conn };
+        store.migrate().unwrap();
+
+        assert_eq!(store.get("x").unwrap(), LamValue::None);
+
+        let ni = LamValue::None;
+        store.set("nil", &ni).unwrap();
+        assert_eq!(store.get("nil").unwrap(), ni);
+
+        let b = LamValue::Boolean(true);
+        store.set("b", &b).unwrap();
+        assert_eq!(store.get("b").unwrap(), b);
+
+        store.set("b", &LamValue::Boolean(false)).unwrap();
+        assert_eq!(store.get("b").unwrap(), LamValue::Boolean(false));
+
+        let n = LamValue::Number(1f64);
+        store.set("n", &n).unwrap();
+        assert_eq!(store.get("n").unwrap(), n);
+
+        store.set("n", &LamValue::Number(2f64)).unwrap();
+        assert_eq!(store.get("n").unwrap(), LamValue::Number(2f64));
+
+        let s = LamValue::String("hello".to_string());
+        store.set("s", &s).unwrap();
+        assert_eq!(store.get("s").unwrap(), s);
+
+        store
+            .set("s", &LamValue::String("world".to_string()))
+            .unwrap();
+        assert_eq!(
+            store.get("s").unwrap(),
+            LamValue::String("world".to_string())
+        );
     }
 }
