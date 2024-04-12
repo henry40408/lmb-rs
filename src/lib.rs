@@ -1,6 +1,6 @@
+use bitcode::{Decode, Encode};
 use parking_lot::Mutex;
 use rusqlite::Connection;
-use serde::{Deserialize, Serialize};
 use std::{
     io::{BufRead as _, BufReader, Read},
     sync::Arc,
@@ -37,7 +37,7 @@ impl LamStore {
 
     pub fn set<S: AsRef<str>>(&self, name: S, value: &LamValue) -> LamResult<()> {
         let name = name.as_ref();
-        let value = bincode::serialize(value)?;
+        let value = bitcode::encode(value);
         self.conn.execute(
             r#"
             INSERT INTO store (name, value) VALUES (?1, ?2)
@@ -58,7 +58,7 @@ impl LamStore {
             Err(_) => return Ok(LamValue::None),
             Ok(v) => v,
         };
-        Ok(bincode::deserialize::<LamValue>(&v)?)
+        Ok(bitcode::decode::<LamValue>(&v)?)
     }
 }
 
@@ -66,8 +66,8 @@ impl LamStore {
 pub enum LamError {
     #[error("lua error: {0}")]
     Lua(#[from] mlua::Error),
-    #[error("bincode error: {0}")]
-    Bincode(#[from] bincode::Error),
+    #[error("bitcode error: {0}")]
+    Bitcode(#[from] bitcode::Error),
     #[error("sqlite error: {0}")]
     SQLite(#[from] rusqlite::Error),
 }
@@ -244,7 +244,7 @@ where
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Encode, Decode)]
 pub enum LamValue {
     None,
     Boolean(bool),
