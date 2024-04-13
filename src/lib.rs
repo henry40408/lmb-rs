@@ -1,6 +1,7 @@
 use bitcode::{Decode, Encode};
 use parking_lot::Mutex;
 use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 use std::{
     io::{BufRead as _, BufReader, Read},
     sync::Arc,
@@ -8,7 +9,8 @@ use std::{
 };
 
 use dashmap::DashMap;
-use mlua::{FromLua, IntoLua, Lua, Table, ThreadStatus, UserData, VmState};
+use mlua::LuaSerdeExt as _;
+use mlua::{Table, ThreadStatus, UserData, VmState};
 use thiserror::Error;
 use tracing::{debug, error};
 
@@ -184,7 +186,7 @@ where
 
         methods.add_method("get", |vm, this, key: String| {
             if let Some(v) = this.store.get(key.as_str()) {
-                return v.clone().into_lua(vm);
+                return vm.to_value(&v.clone());
             }
             Ok(mlua::Value::Nil)
         });
@@ -192,8 +194,7 @@ where
         methods.add_method(
             "set",
             |vm, this, (key, value): (String, mlua::Value<'lua>)| {
-                let v = LamValue::from_lua(value.clone(), vm)?;
-                this.store.insert(key, v);
+                this.store.insert(key, vm.from_value(value.clone())?);
                 Ok(value)
             },
         );
@@ -201,35 +202,34 @@ where
         methods.add_method(
             "update",
             |vm, this, (key, f, default_v): (String, mlua::Function<'lua>, mlua::Value<'lua>)| {
-                Ok(this
+                let new_v = this
                     .store
                     .entry(key)
-                    .and_modify(|old| match f.call(old.clone().into_lua(vm)) {
-                        Ok(ret) => match LamValue::from_lua(ret, vm) {
-                            Ok(new) => {
-                                debug!(?old, ?new, "update value in store");
-                                *old = new;
-                            }
+                    .and_modify(|old| match vm.to_value(old) {
+                        Ok(old_v) => match f.call(old_v) {
+                            Ok(ret) => match vm.from_value(ret) {
+                                Ok(new) => {
+                                    *old = new;
+                                }
+                                Err(err) => {
+                                    error!(?err, "failed to convert returned value");
+                                }
+                            },
                             Err(err) => {
-                                error!(%err, "failed to convert lua value");
+                                error!(?err, "failed to run the function");
                             }
                         },
                         Err(err) => {
-                            error!(%err, "failed to run lua function");
+                            error!(?err, "failed to convert store value");
                         }
                     })
-                    .or_insert_with(|| match LamValue::from_lua(default_v, vm) {
-                        Ok(default) => {
-                            debug!(?default, "insert default value into store");
-                            default
-                        }
-                        Err(err) => {
-                            error!(%err,"failed to insert default value into store");
-                            LamValue::None
-                        }
+                    .or_insert_with(|| match vm.from_value(default_v) {
+                        Ok(v) => v,
+                        Err(_) => LamValue::None,
                     })
                     .value()
-                    .clone())
+                    .clone();
+                vm.to_value(&new_v)
             },
         );
     }
@@ -244,7 +244,8 @@ where
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Encode, Decode)]
+#[derive(Clone, Debug, PartialEq, Encode, Decode, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum LamValue {
     None,
     Boolean(bool),
@@ -252,37 +253,7 @@ pub enum LamValue {
     String(String),
 }
 
-impl<'lua> IntoLua<'lua> for LamValue {
-    fn into_lua(self, lua: &'lua Lua) -> mlua::prelude::LuaResult<mlua::prelude::LuaValue<'lua>> {
-        match self {
-            Self::None => Ok(mlua::Value::Nil),
-            Self::Boolean(b) => b.into_lua(lua),
-            Self::Number(n) => n.into_lua(lua),
-            Self::String(s) => s.into_lua(lua),
-        }
-    }
-}
-
-impl<'lua> FromLua<'lua> for LamValue {
-    fn from_lua(
-        value: mlua::prelude::LuaValue<'lua>,
-        _lua: &'lua Lua,
-    ) -> mlua::prelude::LuaResult<Self> {
-        if let Some(b) = value.as_boolean() {
-            return Ok(Self::Boolean(b));
-        }
-        if let Some(n) = value.as_i64() {
-            return Ok(Self::Number(n as f64));
-        }
-        if let Some(n) = value.as_f64() {
-            return Ok(Self::Number(n));
-        }
-        if let Some(s) = value.as_str() {
-            return Ok(Self::String(s.to_string()));
-        }
-        Ok(Self::None)
-    }
-}
+impl UserData for LamValue {}
 
 pub struct EvalBuilder<R>
 where
