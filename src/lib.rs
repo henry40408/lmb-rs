@@ -9,7 +9,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use dashmap::DashMap;
 use mlua::LuaSerdeExt as _;
 use mlua::{Table, ThreadStatus, UserData, VmState};
 use thiserror::Error;
@@ -20,39 +19,46 @@ const K_LOADED: &str = "_LOADED";
 
 static MIGRATIONS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/migrations");
 
+#[derive(Clone, Debug)]
 pub struct LamStore {
-    pub conn: Connection,
+    pub conn: Arc<Mutex<Connection>>,
 }
 
 impl LamStore {
     pub fn migrate(&self) -> LamResult<()> {
+        let conn = self.conn.lock();
         for e in MIGRATIONS_DIR.entries() {
             let sql = e
                 .as_file()
                 .expect("invalid file")
                 .contents_utf8()
                 .expect("invalid contents");
-            self.conn.execute(sql, ())?;
+            conn.execute(sql, ())?;
         }
         Ok(())
     }
 
-    pub fn set<S: AsRef<str>>(&self, name: S, value: &LamValue) -> LamResult<()> {
+    pub fn insert<S: AsRef<str>>(&self, name: S, value: &LamValue) -> LamResult<()> {
+        let conn = self.conn.lock();
+
         let name = name.as_ref();
         let value = bitcode::encode(value);
-        self.conn.execute(
+        conn.execute(
             r#"
             INSERT INTO store (name, value) VALUES (?1, ?2)
             ON CONFLICT(name) DO UPDATE SET value = ?2
             "#,
             (name, value),
         )?;
+
         Ok(())
     }
 
     pub fn get<S: AsRef<str>>(&self, name: S) -> LamResult<LamValue> {
+        let conn = self.conn.lock();
+
         let name = name.as_ref();
-        let v: Vec<u8> = match self.conn.query_row(
+        let v: Vec<u8> = match conn.query_row(
             r#"SELECT value FROM store WHERE name = ?1"#,
             (name,),
             |row| row.get(0),
@@ -60,7 +66,54 @@ impl LamStore {
             Err(_) => return Ok(LamValue::None),
             Ok(v) => v,
         };
+
         Ok(bitcode::decode::<LamValue>(&v)?)
+    }
+
+    pub fn update<S: AsRef<str>>(
+        &self,
+        name: S,
+        f: impl FnOnce(&mut LamValue),
+        default_v: &LamValue,
+    ) -> LamResult<LamValue> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+
+        let name = name.as_ref();
+
+        let v: Vec<u8> = match tx.query_row(
+            r#"SELECT value FROM store WHERE name = ?1"#,
+            (name,),
+            |row| row.get(0),
+        ) {
+            Err(_) => bitcode::encode(default_v),
+            Ok(v) => v,
+        };
+
+        let mut decoded_v = bitcode::decode::<LamValue>(&v)?;
+        f(&mut decoded_v);
+        let encoded = bitcode::encode(&decoded_v);
+
+        tx.execute(
+            r#"
+            INSERT INTO store (name, value) VALUES (?1, ?2)
+            ON CONFLICT(name) DO UPDATE SET value = ?2
+            "#,
+            (name, encoded),
+        )?;
+        tx.commit()?;
+
+        Ok(decoded_v)
+    }
+}
+
+impl Default for LamStore {
+    fn default() -> Self {
+        Self {
+            conn: Arc::new(Mutex::new(
+                Connection::open_in_memory().expect("failed to open sqlite in memory"),
+            )),
+        }
     }
 }
 
@@ -75,7 +128,6 @@ pub enum LamError {
 }
 
 pub type LamInput<R> = Arc<Mutex<BufReader<R>>>;
-pub type LamKV = Arc<DashMap<String, LamValue>>;
 pub type LamResult<T> = Result<T, LamError>;
 
 pub struct Evaluation<R>
@@ -84,7 +136,7 @@ where
 {
     pub input: Arc<Mutex<BufReader<R>>>,
     pub script: String,
-    pub store: LamKV,
+    pub store: LamStore,
     pub timeout: u64,
 }
 
@@ -93,7 +145,7 @@ where
     R: Read,
 {
     input: LamInput<R>,
-    store: LamKV,
+    store: LamStore,
 }
 
 impl<R> UserData for LuaLam<R>
@@ -185,7 +237,7 @@ where
         });
 
         methods.add_method("get", |vm, this, key: String| {
-            if let Some(v) = this.store.get(key.as_str()) {
+            if let Ok(v) = this.store.get(key.as_str()) {
                 return vm.to_value(&v.clone());
             }
             Ok(mlua::Value::Nil)
@@ -193,21 +245,28 @@ where
 
         methods.add_method(
             "set",
-            |vm, this, (key, value): (String, mlua::Value<'lua>)| {
-                this.store.insert(key, vm.from_value(value.clone())?);
-                Ok(value)
+            |vm, this, (key, value): (String, mlua::Value<'lua>)| match this
+                .store
+                .insert(key, &vm.from_value(value.clone())?)
+            {
+                Ok(_) => Ok(value),
+                Err(err) => {
+                    error!(?err, "failed to insert value");
+                    Err(mlua::Error::RuntimeError(
+                        "failed to insert value".to_string(),
+                    ))
+                }
             },
         );
 
         methods.add_method(
             "update",
             |vm, this, (key, f, default_v): (String, mlua::Function<'lua>, mlua::Value<'lua>)| {
-                let new_v = this
-                    .store
-                    .entry(key)
-                    .and_modify(|old| match vm.to_value(old) {
+                match this.store.update(
+                    key,
+                    |old| match vm.to_value(old) {
                         Ok(old_v) => match f.call(old_v) {
-                            Ok(ret) => match vm.from_value(ret) {
+                            Ok(new_v) => match vm.from_value(new_v) {
                                 Ok(new) => {
                                     *old = new;
                                 }
@@ -222,14 +281,25 @@ where
                         Err(err) => {
                             error!(?err, "failed to convert store value");
                         }
-                    })
-                    .or_insert_with(|| match vm.from_value(default_v) {
-                        Ok(v) => v,
-                        Err(_) => LamValue::None,
-                    })
-                    .value()
-                    .clone();
-                vm.to_value(&new_v)
+                    },
+                    &vm.from_value(default_v)?,
+                ) {
+                    Ok(v) => match vm.to_value(&v) {
+                        Ok(v) => Ok(v),
+                        Err(err) => {
+                            error!(?err, "failed to convert new value");
+                            Err(mlua::Error::RuntimeError(
+                                "failed to convert new value".to_string(),
+                            ))
+                        }
+                    },
+                    Err(err) => {
+                        error!(?err, "failed to update value");
+                        Err(mlua::Error::RuntimeError(
+                            "failed to update value".to_string(),
+                        ))
+                    }
+                }
             },
         );
     }
@@ -239,7 +309,7 @@ impl<R> LuaLam<R>
 where
     R: Read,
 {
-    pub fn new(input: LamInput<R>, store: LamKV) -> Self {
+    pub fn new(input: LamInput<R>, store: LamStore) -> Self {
         Self { input, store }
     }
 }
@@ -261,7 +331,7 @@ where
 {
     pub input: R,
     pub script: String,
-    pub store: LamKV,
+    pub store: LamStore,
     pub timeout: Option<u64>,
 }
 
@@ -273,7 +343,7 @@ where
         Self {
             input,
             script: script.as_ref().to_string(),
-            store: LamKV::default(),
+            store: LamStore::default(),
             timeout: None,
         }
     }
@@ -283,7 +353,7 @@ where
         self
     }
 
-    pub fn set_store(mut self, store: LamKV) -> Self {
+    pub fn set_store(mut self, store: LamStore) -> Self {
         self.store = store;
         self
     }
@@ -350,14 +420,17 @@ where
 
 #[cfg(test)]
 mod test {
-    use std::{fs, io::Cursor, sync::Arc, thread};
-
-    use dashmap::DashMap;
-    use rusqlite::Connection;
+    use std::{fs, io::Cursor, thread};
 
     use crate::{evaluate, EvalBuilder, LamStore, LamValue};
 
     const TIMEOUT_THRESHOLD: f32 = 0.01;
+
+    fn new_store() -> LamStore {
+        let store = LamStore::default();
+        store.migrate().unwrap();
+        store
+    }
 
     #[test]
     fn test_evaluate_examples() {
@@ -366,12 +439,15 @@ mod test {
             ["02-input.lua", "lua", ""],
             ["03-algebra.lua", "2", "4"],
             ["04-echo.lua", "a", "a"],
-            ["05-state.lua", "", "0"],
+            ["05-state.lua", "", "1"],
         ];
         for case in cases {
+            let store = new_store();
             let [filename, input, expected] = case;
             let script = fs::read_to_string(format!("./lua-examples/{filename}")).unwrap();
-            let e = EvalBuilder::new(Cursor::new(input), &script).build();
+            let e = EvalBuilder::new(Cursor::new(input), &script)
+                .set_store(store)
+                .build();
             let res = evaluate(&e).unwrap();
             assert_eq!(
                 expected, res.result,
@@ -516,8 +592,8 @@ mod test {
     fn test_reuse_store() {
         let input: &[u8] = &[];
 
-        let store = Arc::new(DashMap::new());
-        store.insert("a".to_string(), LamValue::Number(1f64));
+        let store = new_store();
+        store.insert("a", &LamValue::Number(1f64)).unwrap();
 
         let e = EvalBuilder::new(
             input,
@@ -529,13 +605,13 @@ mod test {
         {
             let res = evaluate(&e).unwrap();
             assert_eq!("1", res.result);
-            assert_eq!(LamValue::Number(2f64), *e.store.get("a").unwrap());
+            assert_eq!(LamValue::Number(2f64), e.store.get("a").unwrap());
         }
 
         {
             let res = evaluate(&e).unwrap();
             assert_eq!("2", res.result);
-            assert_eq!(LamValue::Number(3f64), *e.store.get("a").unwrap());
+            assert_eq!(LamValue::Number(3f64), e.store.get("a").unwrap());
         }
     }
 
@@ -543,8 +619,8 @@ mod test {
     fn test_store() {
         let input: &[u8] = &[];
 
-        let store = Arc::new(DashMap::new());
-        store.insert("a".to_string(), LamValue::Number(1.23));
+        let store = new_store();
+        store.insert("a", &LamValue::Number(1.23)).unwrap();
 
         let e = EvalBuilder::new(
             input,
@@ -555,15 +631,15 @@ mod test {
 
         let res = evaluate(&e).unwrap();
         assert_eq!("1.23", res.result);
-        assert_eq!(LamValue::Number(4.56), *e.store.get("a").unwrap());
+        assert_eq!(LamValue::Number(4.56), e.store.get("a").unwrap());
     }
 
     #[test]
     fn test_rollback_when_update() {
         let input: &[u8] = &[];
 
-        let store = Arc::new(DashMap::new());
-        store.insert("a".to_string(), LamValue::Number(1f64));
+        let store = new_store();
+        store.insert("a", &LamValue::Number(1f64)).unwrap();
 
         let e = EvalBuilder::new(
             input,
@@ -580,14 +656,14 @@ mod test {
 
         let res = evaluate(&e).unwrap();
         assert_eq!("1", res.result);
-        assert_eq!(LamValue::Number(1f64), *e.store.get("a").unwrap());
+        assert_eq!(LamValue::Number(1f64), e.store.get("a").unwrap());
     }
 
     #[test]
     fn test_store_concurrency() {
         let input: &[u8] = &[];
 
-        let store = Arc::new(DashMap::new());
+        let store = new_store();
 
         let mut threads = vec![];
         for _ in 0..=1000 {
@@ -605,49 +681,46 @@ mod test {
         for t in threads {
             let _ = t.join();
         }
-        assert_eq!(LamValue::Number(1000f64), *store.get("a").unwrap());
+        assert_eq!(LamValue::Number(1001f64), store.get("a").unwrap());
     }
 
     #[test]
     fn test_migrate() {
-        let conn = Connection::open_in_memory().unwrap();
-        let store = LamStore { conn };
-        store.migrate().unwrap();
+        let store = new_store();
         store.migrate().unwrap(); // duplicated
     }
 
     #[test]
     fn test_store_set_get() {
-        let conn = Connection::open_in_memory().unwrap();
-        let store = LamStore { conn };
+        let store = new_store();
         store.migrate().unwrap();
 
         assert_eq!(store.get("x").unwrap(), LamValue::None);
 
         let ni = LamValue::None;
-        store.set("nil", &ni).unwrap();
+        store.insert("nil", &ni).unwrap();
         assert_eq!(store.get("nil").unwrap(), ni);
 
         let b = LamValue::Boolean(true);
-        store.set("b", &b).unwrap();
+        store.insert("b", &b).unwrap();
         assert_eq!(store.get("b").unwrap(), b);
 
-        store.set("b", &LamValue::Boolean(false)).unwrap();
+        store.insert("b", &LamValue::Boolean(false)).unwrap();
         assert_eq!(store.get("b").unwrap(), LamValue::Boolean(false));
 
         let n = LamValue::Number(1f64);
-        store.set("n", &n).unwrap();
+        store.insert("n", &n).unwrap();
         assert_eq!(store.get("n").unwrap(), n);
 
-        store.set("n", &LamValue::Number(2f64)).unwrap();
+        store.insert("n", &LamValue::Number(2f64)).unwrap();
         assert_eq!(store.get("n").unwrap(), LamValue::Number(2f64));
 
         let s = LamValue::String("hello".to_string());
-        store.set("s", &s).unwrap();
+        store.insert("s", &s).unwrap();
         assert_eq!(store.get("s").unwrap(), s);
 
         store
-            .set("s", &LamValue::String("world".to_string()))
+            .insert("s", &LamValue::String("world".to_string()))
             .unwrap();
         assert_eq!(
             store.get("s").unwrap(),

@@ -2,13 +2,11 @@ use axum::{
     body::Bytes, extract::State, http::StatusCode, response::IntoResponse, routing::post, Router,
 };
 use clap::{Parser, Subcommand};
-use dashmap::DashMap;
-use lam::{evaluate, EvalBuilder, LamKV};
+use lam::{evaluate, EvalBuilder, LamStore};
 use std::{
     fs,
     io::{self, Cursor, Read},
     path,
-    sync::Arc,
 };
 use tower_http::trace::{self, TraceLayer};
 use tracing::{error, info, Level};
@@ -103,7 +101,7 @@ async fn main() -> anyhow::Result<()> {
 #[derive(Clone)]
 struct AppState {
     script: String,
-    store: LamKV,
+    store: LamStore,
     timeout: u64,
 }
 
@@ -124,7 +122,10 @@ async fn index_route(State(state): State<AppState>, body: Bytes) -> impl IntoRes
 
 async fn serve_file(file: &path::PathBuf, bind: &str, timeout: u64) -> anyhow::Result<()> {
     let script = fs::read_to_string(file)?;
-    let store = Arc::new(DashMap::new());
+
+    let store = LamStore::default();
+    store.migrate()?; // TODO migrate if necessary
+
     let app_state = AppState {
         script,
         store,
