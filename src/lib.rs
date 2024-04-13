@@ -1,4 +1,5 @@
 use bitcode::{Decode, Encode};
+use include_dir::{include_dir, Dir};
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -17,23 +18,22 @@ use tracing::{debug, error};
 const DEFAULT_TIMEOUT: u64 = 30;
 const K_LOADED: &str = "_LOADED";
 
+static MIGRATIONS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/migrations");
+
 pub struct LamStore {
     pub conn: Connection,
 }
 
 impl LamStore {
     pub fn migrate(&self) -> LamResult<()> {
-        self.conn.execute(
-            r#"
-            CREATE TABLE IF NOT EXISTS store (
-              id    INTEGER PRIMARY KEY AUTOINCREMENT,
-              name  TEXT NOT NULL UNIQUE,
-              value BLOB,
-              type  VARCHAR(255)
-            );
-            "#,
-            (),
-        )?;
+        for e in MIGRATIONS_DIR.entries() {
+            let sql = e
+                .as_file()
+                .expect("invalid file")
+                .contents_utf8()
+                .expect("invalid contents");
+            self.conn.execute(sql, ())?;
+        }
         Ok(())
     }
 
