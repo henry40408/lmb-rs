@@ -1,9 +1,9 @@
-use bitcode::{Decode, Encode};
 use include_dir::{include_dir, Dir};
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     io::{BufRead as _, BufReader, Read},
     path::Path,
     sync::Arc,
@@ -27,14 +27,21 @@ pub struct LamStore {
 
 impl LamStore {
     pub fn new(path: &Path) -> LamResult<Self> {
+        let conn = Connection::open(path)?;
+        conn.pragma_update(None, "busy_timeout", 5000)?;
+        conn.pragma_update(None, "foreign_keys", "OFF")?;
+        conn.pragma_update(None, "journal_mode", "wal")?;
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
         Ok(Self {
-            conn: Arc::new(Mutex::new(Connection::open(path)?)),
+            conn: Arc::new(Mutex::new(conn)),
         })
     }
 
     pub fn migrate(&self) -> LamResult<()> {
         let conn = self.conn.lock();
         for e in MIGRATIONS_DIR.entries() {
+            let path = e.path();
+            debug!(?path, "open migration file");
             let sql = e
                 .as_file()
                 .expect("invalid file")
@@ -50,7 +57,7 @@ impl LamStore {
         let conn = self.conn.lock();
 
         let name = name.as_ref();
-        let value = bitcode::encode(value);
+        let value = rmp_serde::to_vec(&value)?;
         conn.execute(
             r#"
             INSERT INTO store (name, value) VALUES (?1, ?2)
@@ -75,7 +82,7 @@ impl LamStore {
             Ok(v) => v,
         };
 
-        Ok(bitcode::decode::<LamValue>(&v)?)
+        Ok(rmp_serde::from_slice::<LamValue>(&v)?)
     }
 
     pub fn update<S: AsRef<str>>(
@@ -94,24 +101,24 @@ impl LamStore {
             (name,),
             |row| row.get(0),
         ) {
-            Err(_) => bitcode::encode(default_v),
+            Err(_) => rmp_serde::to_vec(default_v)?,
             Ok(v) => v,
         };
 
-        let mut decoded_v = bitcode::decode::<LamValue>(&v)?;
-        f(&mut decoded_v);
-        let encoded = bitcode::encode(&decoded_v);
+        let mut deserialized = rmp_serde::from_slice(&v)?;
+        f(&mut deserialized);
+        let serialized = rmp_serde::to_vec(&deserialized)?;
 
         tx.execute(
             r#"
             INSERT INTO store (name, value) VALUES (?1, ?2)
             ON CONFLICT(name) DO UPDATE SET value = ?2
             "#,
-            (name, encoded),
+            (name, serialized),
         )?;
         tx.commit()?;
 
-        Ok(decoded_v)
+        Ok(deserialized)
     }
 }
 
@@ -129,8 +136,10 @@ impl Default for LamStore {
 pub enum LamError {
     #[error("lua error: {0}")]
     Lua(#[from] mlua::Error),
-    #[error("bitcode error: {0}")]
-    Bitcode(#[from] bitcode::Error),
+    #[error("RMP decode error: {0}")]
+    RMPDecode(#[from] rmp_serde::decode::Error),
+    #[error("RMP encode error: {0}")]
+    RMPEncode(#[from] rmp_serde::encode::Error),
     #[error("sqlite error: {0}")]
     SQLite(#[from] rusqlite::Error),
 }
@@ -317,13 +326,27 @@ where
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Encode, Decode, Serialize, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum LamValue {
     None,
     Boolean(bool),
     Number(f64), // represent float and integer
     String(String),
+    List(Vec<LamValue>),
+    Table(HashMap<String, LamValue>),
+}
+
+impl std::fmt::Display for LamValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LamValue::None => write!(f, ""),
+            LamValue::Boolean(b) => write!(f, "{}", if *b { "true" } else { "false" }),
+            LamValue::Number(n) => write!(f, "{}", n),
+            LamValue::String(s) => write!(f, r#"{}"#, s),
+            LamValue::List(_) | LamValue::Table(_) => write!(f, "table: 0x0"),
+        }
+    }
 }
 
 impl UserData for LamValue {}
@@ -374,7 +397,7 @@ where
 #[derive(Debug)]
 pub struct EvalResult {
     pub duration: Duration,
-    pub result: String,
+    pub result: LamValue,
 }
 
 pub fn evaluate<R>(e: &Evaluation<R>) -> LamResult<EvalResult>
@@ -407,13 +430,13 @@ where
 
         let co = vm.create_thread(vm.load(&e.script).into_function()?)?;
         loop {
-            let res = co.resume::<_, Option<String>>(())?;
+            let result = co.resume::<_, mlua::Value<'_>>(())?;
             if co.status() != ThreadStatus::Resumable
                 || start.elapsed().as_secs_f64() > e.timeout as f64
             {
                 let duration = start.elapsed();
-                let result = res.unwrap_or(String::new());
-                debug!(?duration, %result, "evaluation finished");
+                let result = vm.from_value::<LamValue>(result)?;
+                debug!(?duration, ?result, "evaluation finished");
                 return Ok(EvalResult { duration, result });
             }
         }
@@ -451,9 +474,10 @@ mod test {
             let e = EvalBuilder::new(Cursor::new(input), &script)
                 .set_store(store)
                 .build();
-            let res = evaluate(&e).unwrap();
+            let res = evaluate(&e).expect(&script);
             assert_eq!(
-                expected, res.result,
+                expected,
+                res.result.to_string(),
                 "expect result of {script} to equal to {expected}"
             );
         }
@@ -478,7 +502,7 @@ mod test {
             .set_timeout(timeout)
             .build();
         let res = evaluate(&e).unwrap();
-        assert_eq!("", res.result);
+        assert_eq!("", res.result.to_string());
 
         let secs = res.duration.as_secs_f32();
         let to = timeout as f32;
@@ -495,9 +519,10 @@ mod test {
         for case in cases {
             let [script, expected] = case;
             let e = EvalBuilder::new(Cursor::new(""), script).build();
-            let res = evaluate(&e).unwrap();
+            let res = evaluate(&e).expect(script);
             assert_eq!(
-                expected, res.result,
+                expected,
+                res.result.to_string(),
                 "expect result of {script} to equal to {expected}"
             );
         }
@@ -515,9 +540,10 @@ mod test {
             let input = "foo\nbar";
             let [script, expected] = case;
             let e = EvalBuilder::new(Cursor::new(input), script).build();
-            let res = evaluate(&e).unwrap();
+            let res = evaluate(&e).expect(script);
             assert_eq!(
-                expected, res.result,
+                expected,
+                res.result.to_string(),
                 "expect result of {script} to equal to {expected}"
             );
         }
@@ -526,18 +552,19 @@ mod test {
         let cases = [
             ["1", "1"],
             ["1.2", "1.2"],
-            ["1.23e-10", "1.23e-10"],
+            ["1.23e-10", "0.000000000123"],
             ["3.1415926", "3.1415926"],
             ["", ""],
-            ["NaN", "nan"],
+            ["NaN", "NaN"],
             ["InvalidNumber", ""],
         ];
         for case in cases {
             let [input, expected] = case;
             let e = EvalBuilder::new(Cursor::new(input), script).build();
-            let res = evaluate(&e).unwrap();
+            let res = evaluate(&e).expect(input);
             assert_eq!(
-                expected, res.result,
+                expected,
+                res.result.to_string(),
                 "expect result of {script} to equal to {expected}"
             );
         }
@@ -548,7 +575,7 @@ mod test {
         let input: &[u8] = &[1, 2, 3];
         let e = EvalBuilder::new(input, r#"return #require('@lam'):read('*a')"#).build();
         let res = evaluate(&e).unwrap();
-        assert_eq!("3", res.result);
+        assert_eq!(LamValue::Number(3f64), res.result);
     }
 
     #[test]
@@ -562,7 +589,7 @@ mod test {
         for script in scripts {
             let input: &[u8] = &[];
             let e = EvalBuilder::new(input, script).build();
-            let _ = evaluate(&e).unwrap();
+            let _ = evaluate(&e).expect(script);
         }
     }
 
@@ -575,7 +602,7 @@ mod test {
         )
         .build();
         let res = evaluate(&e).unwrap();
-        assert_eq!("你", res.result);
+        assert_eq!(LamValue::String("你".to_string()), res.result);
 
         let input = r#"{"key":"你好"}"#;
         let e = EvalBuilder::new(
@@ -584,7 +611,7 @@ mod test {
         )
         .build();
         let res = evaluate(&e).unwrap();
-        assert_eq!(input, res.result);
+        assert_eq!(input, res.result.to_string());
     }
 
     #[test]
@@ -595,10 +622,10 @@ mod test {
         let e = EvalBuilder::new(Cursor::new(input), script).build();
 
         let res = evaluate(&e).unwrap();
-        assert_eq!("foo", res.result);
+        assert_eq!("foo", res.result.to_string());
 
         let res = evaluate(&e).unwrap();
-        assert_eq!("bar", res.result);
+        assert_eq!("bar", res.result.to_string());
     }
 
     #[test]
@@ -610,21 +637,47 @@ mod test {
 
         let e = EvalBuilder::new(
             input,
-            r#"local m = require('@lam'); local a = m:get('a'); m:set('a', a+1); return a"#,
+            r#"
+            local m = require('@lam')
+            local a = m:get('a')
+            m:set('a', a+1)
+            return a
+            "#,
         )
         .set_store(store)
         .build();
 
         {
             let res = evaluate(&e).unwrap();
-            assert_eq!("1", res.result);
+            assert_eq!("1", res.result.to_string());
             assert_eq!(LamValue::Number(2f64), e.store.get("a").unwrap());
         }
 
         {
             let res = evaluate(&e).unwrap();
-            assert_eq!("2", res.result);
+            assert_eq!("2", res.result.to_string());
             assert_eq!(LamValue::Number(3f64), e.store.get("a").unwrap());
+        }
+    }
+
+    #[test]
+    fn test_return() {
+        let scripts = [
+            [r#""#, ""],
+            [r#"return nil"#, ""],
+            [r#"return true"#, "true"],
+            [r#"return false"#, "false"],
+            [r#"return 1"#, "1"],
+            [r#"return 1.23"#, "1.23"],
+            [r#"return 'hello'"#, "hello"],
+            [r#"return {a=true,b=1.23,c="hello"}"#, "table: 0x0"],
+            [r#"return {true,1.23,"hello"}"#, "table: 0x0"],
+        ];
+        for [script, expected] in scripts {
+            let input: &[u8] = &[];
+            let e = EvalBuilder::new(input, script).build();
+            let res = evaluate(&e).expect(script);
+            assert_eq!(expected, res.result.to_string());
         }
     }
 
@@ -637,13 +690,18 @@ mod test {
 
         let e = EvalBuilder::new(
             input,
-            r#"local m = require('@lam'); local a = m:get('a'); m:set('a', 4.56); return a"#,
+            r#"
+            local m = require('@lam')
+            local a = m:get('a')
+            m:set('a', 4.56)
+            return a
+            "#,
         )
         .set_store(store)
         .build();
 
         let res = evaluate(&e).unwrap();
-        assert_eq!("1.23", res.result);
+        assert_eq!("1.23", res.result.to_string());
         assert_eq!(LamValue::Number(4.56), e.store.get("a").unwrap());
     }
 
@@ -668,7 +726,7 @@ mod test {
         .build();
 
         let res = evaluate(&e).unwrap();
-        assert_eq!("1", res.result);
+        assert_eq!("1", res.result.to_string());
         assert_eq!(LamValue::Number(1f64), e.store.get("a").unwrap());
     }
 
@@ -684,7 +742,11 @@ mod test {
             threads.push(thread::spawn(move || {
                 let e = EvalBuilder::new(
                     input,
-                    r#"return require('@lam'):update('a', function(v) return v+1 end, 0)"#,
+                    r#"
+                    return require('@lam'):update('a', function(v)
+                      return v+1
+                    end, 0)
+                    "#,
                 )
                 .set_store(store)
                 .build();
@@ -698,7 +760,7 @@ mod test {
     }
 
     #[test]
-    fn test_migrate() {
+    fn test_store_migrate() {
         let store = new_store();
         store.migrate().unwrap(); // duplicated
     }

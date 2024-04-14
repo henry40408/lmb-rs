@@ -1,7 +1,7 @@
 use axum::{
     body::Bytes, extract::State, http::StatusCode, response::IntoResponse, routing::post, Router,
 };
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use lam::{evaluate, EvalBuilder, LamStore};
 use std::{
     fs,
@@ -35,6 +35,14 @@ struct Cli {
     command: Commands,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+enum OutputFormat {
+    /// Plain text
+    Text,
+    /// JSON
+    Json,
+}
+
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// Evaluate a script file
@@ -45,6 +53,9 @@ enum Commands {
         /// Timeout
         #[arg(long, default_value_t = 30)]
         timeout: u64,
+        /// Output format
+        #[arg(long, value_enum, default_value = "text")]
+        output_format: OutputFormat,
     },
     /// Handle request with a script file
     Serve {
@@ -79,7 +90,11 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     match cli.command {
-        Commands::Eval { file, timeout } => {
+        Commands::Eval {
+            file,
+            timeout,
+            output_format,
+        } => {
             let script = if let Some(f) = file {
                 fs::read_to_string(f)?
             } else {
@@ -93,7 +108,11 @@ async fn main() -> anyhow::Result<()> {
                 .set_timeout(timeout)
                 .build();
             let res = evaluate(&e)?;
-            print!("{}", res.result);
+            let res = match output_format {
+                OutputFormat::Text => res.result.to_string(),
+                OutputFormat::Json => serde_json::to_string(&res.result)?,
+            };
+            print!("{}", res);
         }
         Commands::Serve {
             bind,
@@ -122,7 +141,7 @@ async fn index_route(State(state): State<AppState>, body: Bytes) -> impl IntoRes
         .build();
     let res = evaluate(&e);
     match res {
-        Ok(res) => (StatusCode::OK, res.result),
+        Ok(res) => (StatusCode::OK, res.result.to_string()),
         Err(err) => {
             error!(%err, "failed to run Lua script");
             (StatusCode::BAD_REQUEST, "".to_string())
