@@ -15,7 +15,7 @@
     {
       devShells = forAllSystems ({ pkgs }: {
         default = pkgs.mkShellNoCC {
-          packages = with pkgs; [ pkg-config sqlite zsh ];
+          packages = with pkgs; [ cargo-cross pkg-config sqlite zsh ];
           shellHook = ''
             exec zsh
           '';
