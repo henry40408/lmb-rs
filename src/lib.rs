@@ -5,6 +5,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::{
     io::{BufRead as _, BufReader, Read},
+    path::Path,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -25,6 +26,12 @@ pub struct LamStore {
 }
 
 impl LamStore {
+    pub fn new(path: &Path) -> LamResult<Self> {
+        Ok(Self {
+            conn: Arc::new(Mutex::new(Connection::open(path)?)),
+        })
+    }
+
     pub fn migrate(&self) -> LamResult<()> {
         let conn = self.conn.lock();
         for e in MIGRATIONS_DIR.entries() {
@@ -33,6 +40,7 @@ impl LamStore {
                 .expect("invalid file")
                 .contents_utf8()
                 .expect("invalid contents");
+            debug!(?sql, "run migration SQL");
             conn.execute(sql, ())?;
         }
         Ok(())
@@ -385,7 +393,7 @@ where
 
     let timeout = e.timeout as f64;
     let script = &e.script;
-    debug!(%timeout, %script, "load script");
+    debug!(%timeout, ?script, "load script");
 
     vm.set_interrupt(move |_| {
         if start.elapsed().as_secs_f64() > timeout {

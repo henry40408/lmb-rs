@@ -6,10 +6,10 @@ use lam::{evaluate, EvalBuilder, LamStore};
 use std::{
     fs,
     io::{self, Cursor, Read},
-    path,
+    path::{self, PathBuf},
 };
 use tower_http::trace::{self, TraceLayer};
-use tracing::{error, info, Level};
+use tracing::{error, info, warn, Level};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
@@ -22,6 +22,14 @@ struct Cli {
     /// No color https://no-color.org/
     #[arg(long, env = "NO_COLOR")]
     no_color: bool,
+
+    /// Run migrations
+    #[arg(long, env = "RUN_MIGRATIONS")]
+    run_migrations: bool,
+
+    /// Store path
+    #[arg(long, env = "STORE_PATH")]
+    store_path: Option<PathBuf>,
 
     #[command(subcommand)]
     command: Commands,
@@ -40,15 +48,15 @@ enum Commands {
     },
     /// Handle request with a script file
     Serve {
+        /// Bind
+        #[arg(long, default_value = "127.0.0.1:3000")]
+        bind: String,
         /// Script path
         #[arg(long)]
         file: path::PathBuf,
         /// Timeout
         #[arg(long, default_value_t = 60)]
         timeout: u64,
-        /// Bind
-        #[arg(long, default_value = "127.0.0.1:3000")]
-        bind: String,
     },
 }
 
@@ -92,7 +100,9 @@ async fn main() -> anyhow::Result<()> {
             file,
             timeout,
         } => {
-            serve_file(&file, &bind, timeout).await?;
+            let run_migrations = cli.run_migrations;
+            let store_path = cli.store_path.as_ref();
+            serve_file(&file, &bind, timeout, store_path, run_migrations).await?;
         }
     }
     Ok(())
@@ -120,11 +130,28 @@ async fn index_route(State(state): State<AppState>, body: Bytes) -> impl IntoRes
     }
 }
 
-async fn serve_file(file: &path::PathBuf, bind: &str, timeout: u64) -> anyhow::Result<()> {
+async fn serve_file(
+    file: &path::PathBuf,
+    bind: &str,
+    timeout: u64,
+    store_path: Option<&PathBuf>,
+    run_migrations: bool,
+) -> anyhow::Result<()> {
     let script = fs::read_to_string(file)?;
 
-    let store = LamStore::default();
-    store.migrate()?; // TODO migrate if necessary
+    let store = if let Some(path) = store_path {
+        let store = LamStore::new(path)?;
+        if run_migrations {
+            store.migrate()?;
+        }
+        info!(?path, "open store");
+        store
+    } else {
+        let store = LamStore::default();
+        store.migrate()?;
+        warn!("no store path is specified, an in-memory store will be used and values will be lost when process ends");
+        store
+    };
 
     let app_state = AppState {
         script,
