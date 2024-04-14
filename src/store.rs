@@ -105,7 +105,7 @@ impl Default for LamStore {
 
 #[cfg(test)]
 mod test {
-    use std::thread;
+    use std::{collections::HashMap, thread};
 
     use crate::{evaluate, EvalBuilder, LamStore, LamValue};
 
@@ -113,6 +113,26 @@ mod test {
         let store = LamStore::default();
         store.migrate().unwrap();
         store
+    }
+
+    #[test]
+    fn test_complicated_types() {
+        let store = new_store();
+
+        let l = LamValue::List(vec![
+            LamValue::Boolean(true),
+            LamValue::Number(1f64),
+            LamValue::String("hello".to_string()),
+        ]);
+        store.insert("list", &l).unwrap();
+        assert_eq!("table: 0x0", store.get("list").unwrap().to_string());
+
+        let mut h = HashMap::new();
+        h.insert("b".into(), LamValue::Boolean(true));
+        h.insert("n".into(), LamValue::Number(1f64));
+        h.insert("s".into(), LamValue::String("hello".to_string()));
+        store.insert("table", &LamValue::Table(h)).unwrap();
+        assert_eq!("table: 0x0", store.get("table").unwrap().to_string());
     }
 
     #[test]
@@ -145,44 +165,6 @@ mod test {
     }
 
     #[test]
-    fn test_data_types() {
-        let store = new_store();
-        store.migrate().unwrap();
-
-        assert_eq!(store.get("x").unwrap(), LamValue::None);
-
-        let ni = LamValue::None;
-        store.insert("nil", &ni).unwrap();
-        assert_eq!(store.get("nil").unwrap(), ni);
-
-        let b = LamValue::Boolean(true);
-        store.insert("b", &b).unwrap();
-        assert_eq!(store.get("b").unwrap(), b);
-
-        store.insert("b", &LamValue::Boolean(false)).unwrap();
-        assert_eq!(store.get("b").unwrap(), LamValue::Boolean(false));
-
-        let n = LamValue::Number(1f64);
-        store.insert("n", &n).unwrap();
-        assert_eq!(store.get("n").unwrap(), n);
-
-        store.insert("n", &LamValue::Number(2f64)).unwrap();
-        assert_eq!(store.get("n").unwrap(), LamValue::Number(2f64));
-
-        let s = LamValue::String("hello".to_string());
-        store.insert("s", &s).unwrap();
-        assert_eq!(store.get("s").unwrap(), s);
-
-        store
-            .insert("s", &LamValue::String("world".to_string()))
-            .unwrap();
-        assert_eq!(
-            store.get("s").unwrap(),
-            LamValue::String("world".to_string())
-        );
-    }
-
-    #[test]
     fn test_lua() {
         let input: &[u8] = &[];
 
@@ -210,6 +192,26 @@ mod test {
     fn test_migrate() {
         let store = new_store();
         store.migrate().unwrap(); // duplicated
+    }
+
+    #[test]
+    fn test_primitive_types() {
+        let store = new_store();
+
+        assert_eq!(store.get("x").unwrap(), LamValue::None);
+
+        let data = [
+            ("nil", LamValue::None),
+            ("bt", LamValue::Boolean(true)),
+            ("bf", LamValue::Boolean(false)),
+            ("ni", LamValue::Number(1f64)),
+            ("nf", LamValue::Number(1.23f64)),
+            ("s", LamValue::String("hello".to_string())),
+        ];
+        for (name, value) in data {
+            store.insert(name, &value).unwrap();
+            assert_eq!(value, store.get(name).unwrap());
+        }
     }
 
     #[test]
