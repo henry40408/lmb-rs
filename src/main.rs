@@ -1,17 +1,15 @@
 use axum::{
     body::Bytes, extract::State, http::StatusCode, response::IntoResponse, routing::post, Router,
 };
-use clap::{Parser, Subcommand};
-use dashmap::DashMap;
-use lam::{evaluate, EvalBuilder, LamKV};
+use clap::{Parser, Subcommand, ValueEnum};
+use lam::{evaluate, EvalBuilder, LamStore};
 use std::{
     fs,
     io::{self, Cursor, Read},
-    path,
-    sync::Arc,
+    path::{self, PathBuf},
 };
 use tower_http::trace::{self, TraceLayer};
-use tracing::{error, info, Level};
+use tracing::{error, info, warn, Level};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
@@ -25,8 +23,24 @@ struct Cli {
     #[arg(long, env = "NO_COLOR")]
     no_color: bool,
 
+    /// Run migrations
+    #[arg(long, env = "RUN_MIGRATIONS")]
+    run_migrations: bool,
+
+    /// Store path
+    #[arg(long, env = "STORE_PATH")]
+    store_path: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Commands,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+enum OutputFormat {
+    /// Plain text
+    Text,
+    /// JSON
+    Json,
 }
 
 #[derive(Debug, Subcommand)]
@@ -39,18 +53,21 @@ enum Commands {
         /// Timeout
         #[arg(long, default_value_t = 30)]
         timeout: u64,
+        /// Output format
+        #[arg(long, value_enum, default_value = "text")]
+        output_format: OutputFormat,
     },
     /// Handle request with a script file
     Serve {
+        /// Bind
+        #[arg(long, default_value = "127.0.0.1:3000")]
+        bind: String,
         /// Script path
         #[arg(long)]
         file: path::PathBuf,
         /// Timeout
         #[arg(long, default_value_t = 60)]
         timeout: u64,
-        /// Bind
-        #[arg(long, default_value = "127.0.0.1:3000")]
-        bind: String,
     },
 }
 
@@ -73,7 +90,11 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     match cli.command {
-        Commands::Eval { file, timeout } => {
+        Commands::Eval {
+            file,
+            timeout,
+            output_format,
+        } => {
             let script = if let Some(f) = file {
                 fs::read_to_string(f)?
             } else {
@@ -87,14 +108,20 @@ async fn main() -> anyhow::Result<()> {
                 .set_timeout(timeout)
                 .build();
             let res = evaluate(&e)?;
-            print!("{}", res.result);
+            let res = match output_format {
+                OutputFormat::Text => res.result.to_string(),
+                OutputFormat::Json => serde_json::to_string(&res.result)?,
+            };
+            print!("{}", res);
         }
         Commands::Serve {
             bind,
             file,
             timeout,
         } => {
-            serve_file(&file, &bind, timeout).await?;
+            let run_migrations = cli.run_migrations;
+            let store_path = cli.store_path.as_ref();
+            serve_file(&file, &bind, timeout, store_path, run_migrations).await?;
         }
     }
     Ok(())
@@ -103,7 +130,7 @@ async fn main() -> anyhow::Result<()> {
 #[derive(Clone)]
 struct AppState {
     script: String,
-    store: LamKV,
+    store: LamStore,
     timeout: u64,
 }
 
@@ -114,7 +141,7 @@ async fn index_route(State(state): State<AppState>, body: Bytes) -> impl IntoRes
         .build();
     let res = evaluate(&e);
     match res {
-        Ok(res) => (StatusCode::OK, res.result),
+        Ok(res) => (StatusCode::OK, res.result.to_string()),
         Err(err) => {
             error!(%err, "failed to run Lua script");
             (StatusCode::BAD_REQUEST, "".to_string())
@@ -122,9 +149,29 @@ async fn index_route(State(state): State<AppState>, body: Bytes) -> impl IntoRes
     }
 }
 
-async fn serve_file(file: &path::PathBuf, bind: &str, timeout: u64) -> anyhow::Result<()> {
+async fn serve_file(
+    file: &path::PathBuf,
+    bind: &str,
+    timeout: u64,
+    store_path: Option<&PathBuf>,
+    run_migrations: bool,
+) -> anyhow::Result<()> {
     let script = fs::read_to_string(file)?;
-    let store = Arc::new(DashMap::new());
+
+    let store = if let Some(path) = store_path {
+        let store = LamStore::new(path)?;
+        if run_migrations {
+            store.migrate()?;
+        }
+        info!(?path, "open store");
+        store
+    } else {
+        let store = LamStore::default();
+        store.migrate()?;
+        warn!("no store path is specified, an in-memory store will be used and values will be lost when process ends");
+        store
+    };
+
     let app_state = AppState {
         script,
         store,
