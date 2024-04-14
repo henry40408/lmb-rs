@@ -270,44 +270,39 @@ where
         methods.add_method(
             "update",
             |vm, this, (key, f, default_v): (String, mlua::Function<'lua>, mlua::Value<'lua>)| {
-                match this.store.update(
-                    key,
-                    |old| match vm.to_value(old) {
-                        Ok(old_v) => match f.call(old_v) {
-                            Ok(new_v) => match vm.from_value(new_v) {
-                                Ok(new) => {
-                                    *old = new;
-                                }
-                                Err(err) => {
-                                    error!(?err, "failed to convert returned value");
-                                }
-                            },
-                            Err(err) => {
-                                error!(?err, "failed to run the function");
-                            }
-                        },
+                let g = |old: &mut LamValue| {
+                    let old_v = match vm.to_value(old) {
+                        Ok(v) => v,
                         Err(err) => {
                             error!(?err, "failed to convert store value");
+                            return;
                         }
-                    },
-                    &vm.from_value(default_v)?,
-                ) {
-                    Ok(v) => match vm.to_value(&v) {
-                        Ok(v) => Ok(v),
+                    };
+                    let new_v = match f.call(old_v) {
+                        Ok(v) => v,
+                        Err(err) => {
+                            error!(?err, "failed to run the function");
+                            return;
+                        }
+                    };
+                    let new = match vm.from_value(new_v) {
+                        Ok(v) => v,
                         Err(err) => {
                             error!(?err, "failed to convert new value");
-                            Err(mlua::Error::RuntimeError(
-                                "failed to convert new value".to_string(),
-                            ))
+                            return;
                         }
-                    },
-                    Err(err) => {
+                    };
+                    *old = new;
+                };
+
+                let v = this
+                    .store
+                    .update(key, g, &vm.from_value(default_v)?)
+                    .map_err(|err| {
                         error!(?err, "failed to update value");
-                        Err(mlua::Error::RuntimeError(
-                            "failed to update value".to_string(),
-                        ))
-                    }
-                }
+                        mlua::Error::RuntimeError("failed to update value".to_string())
+                    })?;
+                vm.to_value(&v)
             },
         );
     }
@@ -462,6 +457,16 @@ mod test {
                 "expect result of {script} to equal to {expected}"
             );
         }
+    }
+
+    #[test]
+    fn test_error_in_script() {
+        let store = new_store();
+        let script = fs::read_to_string("./lua-examples/07-error.lua").unwrap();
+        let e = EvalBuilder::new(Cursor::new(""), &script)
+            .set_store(store)
+            .build();
+        assert!(evaluate(&e).is_err());
     }
 
     #[test]
@@ -642,7 +647,7 @@ mod test {
         assert_eq!(LamValue::Number(4.56), e.store.get("a").unwrap());
     }
 
-    #[test]
+    #[test_log::test]
     fn test_rollback_when_update() {
         let input: &[u8] = &[];
 
