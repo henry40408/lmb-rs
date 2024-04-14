@@ -204,13 +204,13 @@ where
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::io::Cursor;
 
     use crate::{evaluate, EvalBuilder, LamValue};
 
     #[test]
-    fn test_read() {
+    fn read() {
         let cases = [
             [r#"return require('@lam'):read('*a')"#, "foo\nbar"],
             [r#"return require('@lam'):read('*l')"#, "foo"],
@@ -252,7 +252,7 @@ mod test {
     }
 
     #[test]
-    fn test_read_binary() {
+    fn read_binary() {
         let input: &[u8] = &[1, 2, 3];
         let e = EvalBuilder::new(input, r#"return #require('@lam'):read('*a')"#).build();
         let res = evaluate(&e).unwrap();
@@ -260,7 +260,7 @@ mod test {
     }
 
     #[test]
-    fn test_read_empty() {
+    fn read_empty() {
         let scripts = [
             r#"assert(not require('@lam'):read('*a'))"#,
             r#"assert(not require('@lam'):read('*l'))"#,
@@ -275,7 +275,7 @@ mod test {
     }
 
     #[test]
-    fn test_read_unicode() {
+    fn read_unicode() {
         let input = "你好";
         let e = EvalBuilder::new(
             Cursor::new(input),

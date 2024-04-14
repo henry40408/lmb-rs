@@ -104,7 +104,7 @@ impl Default for LamStore {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::{collections::HashMap, thread};
 
     use crate::{evaluate, EvalBuilder, LamStore, LamValue};
@@ -116,7 +116,7 @@ mod test {
     }
 
     #[test]
-    fn test_complicated_types() {
+    fn complicated_types() {
         let store = new_store();
 
         let l = LamValue::List(vec![
@@ -136,7 +136,7 @@ mod test {
     }
 
     #[test]
-    fn test_concurrency() {
+    fn concurrency() {
         let input: &[u8] = &[];
 
         let store = new_store();
@@ -165,7 +165,7 @@ mod test {
     }
 
     #[test]
-    fn test_lua() {
+    fn lua() {
         let input: &[u8] = &[];
 
         let store = new_store();
@@ -189,13 +189,13 @@ mod test {
     }
 
     #[test]
-    fn test_migrate() {
+    fn migrate() {
         let store = new_store();
         store.migrate().unwrap(); // duplicated
     }
 
     #[test]
-    fn test_primitive_types() {
+    fn primitive_types() {
         let store = new_store();
 
         assert_eq!(store.get("x").unwrap(), LamValue::None);
@@ -215,7 +215,7 @@ mod test {
     }
 
     #[test]
-    fn test_reuse() {
+    fn reuse() {
         let input: &[u8] = &[];
 
         let store = new_store();
@@ -247,7 +247,7 @@ mod test {
     }
 
     #[test_log::test]
-    fn test_rollback_when_error() {
+    fn rollback_when_error() {
         let input: &[u8] = &[];
 
         let store = new_store();

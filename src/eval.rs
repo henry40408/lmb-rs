@@ -128,7 +128,7 @@ where
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::{fs, io::Cursor};
 
     use crate::{evaluate, EvalBuilder, LamStore};
@@ -142,7 +142,7 @@ mod test {
     }
 
     #[test]
-    fn test_error_in_script() {
+    fn error_in_script() {
         let store = new_store();
         let script = fs::read_to_string("./lua-examples/07-error.lua").unwrap();
         let e = EvalBuilder::new(Cursor::new(""), &script)
@@ -152,7 +152,7 @@ mod test {
     }
 
     #[test]
-    fn test_evaluate_examples() {
+    fn evaluate_examples() {
         let cases = [
             ["01-hello.lua", "", ""],
             ["02-input.lua", "lua", ""],
@@ -177,7 +177,7 @@ mod test {
     }
 
     #[test]
-    fn test_evaluate_infinite_loop() {
+    fn evaluate_infinite_loop() {
         let timeout = 1;
 
         let input: &[u8] = &[];
@@ -193,7 +193,7 @@ mod test {
     }
 
     #[test]
-    fn test_evaluate_scripts() {
+    fn evaluate_scripts() {
         let cases = [
             ["return 1+1", "2"],
             ["return 'a'..1", "a1"],
@@ -212,7 +212,7 @@ mod test {
     }
 
     #[test]
-    fn test_reevaluate() {
+    fn reevaluate() {
         let input = "foo\nbar";
 
         let script = r#"return require('@lam'):read('*l')"#;
@@ -226,7 +226,7 @@ mod test {
     }
 
     #[test]
-    fn test_return() {
+    fn return_to_string() {
         let scripts = [
             [r#""#, ""],
             [r#"return nil"#, ""],
