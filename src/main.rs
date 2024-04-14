@@ -95,7 +95,12 @@ async fn main() -> anyhow::Result<()> {
             timeout,
             output_format,
         } => {
-            let script = if let Some(f) = file {
+            let name = if let Some(ref f) = file {
+                f.to_string_lossy().to_string()
+            } else {
+                "(stdin)".to_string()
+            };
+            let script = if let Some(ref f) = file {
                 fs::read_to_string(f)?
             } else {
                 let mut buf = String::new();
@@ -105,6 +110,7 @@ async fn main() -> anyhow::Result<()> {
                 buf
             };
             let e = EvalBuilder::new(io::stdin(), script)
+                .set_name(name)
                 .set_timeout(timeout)
                 .build();
             let res = evaluate(&e)?;

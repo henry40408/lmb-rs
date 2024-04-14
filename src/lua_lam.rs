@@ -75,8 +75,7 @@ where
         return Ok(mlua::Value::String(s));
     }
 
-    let s = format!("unexpected format {f:?}");
-    Err(mlua::Error::RuntimeError(s))
+    Err(mlua::Error::runtime(format!("unexpected format {f:?}")))
 }
 
 fn lua_lam_read_unicode<'lua, R>(
@@ -139,9 +138,7 @@ where
         Ok(_) => Ok(value),
         Err(err) => {
             error!(?err, "failed to insert value");
-            Err(mlua::Error::RuntimeError(
-                "failed to insert value".to_string(),
-            ))
+            Err(mlua::Error::runtime("failed to insert value"))
         }
     }
 }
@@ -184,7 +181,7 @@ where
         .update(key, g, &vm.from_value(default_v)?)
         .map_err(|err| {
             error!(?err, "failed to update value");
-            mlua::Error::RuntimeError("failed to update value".to_string())
+            mlua::Error::runtime("failed to update value")
         })?;
     vm.to_value(&v)
 }

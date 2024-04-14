@@ -26,6 +26,7 @@ pub struct Evaluation<R>
 where
     for<'lua> R: Read + 'lua,
 {
+    pub name: String,
     pub input: Arc<Mutex<BufReader<R>>>,
     pub script: String,
     pub store: LamStore,
@@ -37,6 +38,7 @@ where
     R: Read,
 {
     pub input: R,
+    pub name: Option<String>,
     pub script: String,
     pub store: LamStore,
     pub timeout: Option<u64>,
@@ -49,10 +51,16 @@ where
     pub fn new<S: AsRef<str>>(input: R, script: S) -> Self {
         Self {
             input,
+            name: None,
             script: script.as_ref().to_string(),
             store: LamStore::default(),
             timeout: None,
         }
+    }
+
+    pub fn set_name(mut self, name: String) -> Self {
+        self.name = Some(name);
+        self
     }
 
     pub fn set_timeout(mut self, timeout: u64) -> Self {
@@ -68,6 +76,7 @@ where
     pub fn build(self) -> Evaluation<R> {
         Evaluation {
             input: Arc::new(Mutex::new(BufReader::new(self.input))),
+            name: self.name.unwrap_or_default(),
             script: self.script,
             store: self.store,
             timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
@@ -90,9 +99,10 @@ where
 
     let start = Instant::now();
 
+    let name = &e.name;
     let timeout = e.timeout as f64;
     let script = &e.script;
-    debug!(%timeout, ?script, "load script");
+    debug!(%timeout, ?name,?script, "load script");
 
     vm.set_interrupt(move |_| {
         if start.elapsed().as_secs_f64() > timeout {
@@ -109,19 +119,22 @@ where
 
         vm.set_named_registry_value(K_LOADED, loaded)?;
 
-        let co = vm.create_thread(vm.load(&e.script).into_function()?)?;
+        let chunk = vm.load(&e.script).set_name(name);
+        let co = vm.create_thread(chunk.into_function()?)?;
         loop {
             let result = co.resume::<_, mlua::Value<'_>>(())?;
-            if co.status() != ThreadStatus::Resumable
-                || start.elapsed().as_secs_f64() > e.timeout as f64
-            {
+            let unresumable = co.status() != ThreadStatus::Resumable;
+            let timed_out = start.elapsed().as_secs_f64() > e.timeout as f64;
+            if unresumable || timed_out {
                 let duration = start.elapsed();
                 let result = vm.from_value::<LamValue>(result)?;
-                debug!(?duration, ?result, "evaluation finished");
+                let used_memory = vm.used_memory();
+                debug!(?duration, ?result, used_memory, "evaluation finished");
                 return Ok(EvalResult { duration, result });
             }
         }
     })?;
+
     Ok(r)
 }
 
