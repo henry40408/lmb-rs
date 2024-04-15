@@ -2,7 +2,7 @@ use axum::{
     body::Bytes, extract::State, http::StatusCode, response::IntoResponse, routing::post, Router,
 };
 use clap::{Parser, Subcommand, ValueEnum};
-use lam::{evaluate, EvalBuilder, LamStore};
+use lam::{lam_evaluate, EvalBuilder, LamStore};
 use std::{
     fs,
     io::{self, Cursor, Read},
@@ -113,7 +113,7 @@ async fn main() -> anyhow::Result<()> {
                 .set_name(name)
                 .set_timeout(timeout)
                 .build();
-            let res = evaluate(&e)?;
+            let res = lam_evaluate(&e)?;
             let res = match output_format {
                 OutputFormat::Text => res.result.to_string(),
                 OutputFormat::Json => serde_json::to_string(&res.result)?,
@@ -145,7 +145,7 @@ async fn index_route(State(state): State<AppState>, body: Bytes) -> impl IntoRes
         .set_timeout(state.timeout)
         .set_store(state.store.clone())
         .build();
-    let res = evaluate(&e);
+    let res = lam_evaluate(&e);
     match res {
         Ok(res) => (StatusCode::OK, res.result.to_string()),
         Err(err) => {

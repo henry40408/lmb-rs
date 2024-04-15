@@ -1,4 +1,4 @@
-use crate::{LamResult, LamValue};
+use crate::*;
 use include_dir::{include_dir, Dir};
 use parking_lot::Mutex;
 use rusqlite::Connection;
@@ -105,9 +105,8 @@ impl Default for LamStore {
 
 #[cfg(test)]
 mod tests {
+    use crate::*;
     use std::{collections::HashMap, thread};
-
-    use crate::{evaluate, EvalBuilder, LamStore, LamValue};
 
     fn new_store() -> LamStore {
         let store = LamStore::default();
@@ -155,7 +154,7 @@ mod tests {
                 )
                 .set_store(store)
                 .build();
-                evaluate(&e).unwrap();
+                lam_evaluate(&e).unwrap();
             }));
         }
         for t in threads {
@@ -183,7 +182,7 @@ mod tests {
         .set_store(store)
         .build();
 
-        let res = evaluate(&e).unwrap();
+        let res = lam_evaluate(&e).unwrap();
         assert_eq!("1.23", res.result.to_string());
         assert_eq!(LamValue::Number(4.56), e.store.get("a").unwrap());
     }
@@ -234,13 +233,13 @@ mod tests {
         .build();
 
         {
-            let res = evaluate(&e).unwrap();
+            let res = lam_evaluate(&e).unwrap();
             assert_eq!("1", res.result.to_string());
             assert_eq!(LamValue::Number(2f64), e.store.get("a").unwrap());
         }
 
         {
-            let res = evaluate(&e).unwrap();
+            let res = lam_evaluate(&e).unwrap();
             assert_eq!("2", res.result.to_string());
             assert_eq!(LamValue::Number(3f64), e.store.get("a").unwrap());
         }
@@ -266,7 +265,7 @@ mod tests {
         .set_store(store)
         .build();
 
-        let res = evaluate(&e).unwrap();
+        let res = lam_evaluate(&e).unwrap();
         assert_eq!("1", res.result.to_string());
         assert_eq!(LamValue::Number(1f64), e.store.get("a").unwrap());
     }

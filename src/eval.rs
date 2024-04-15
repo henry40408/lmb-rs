@@ -1,4 +1,4 @@
-use crate::{lua_lam::LuaLam, LamResult, LamStore, LamValue};
+use crate::*;
 use mlua::{LuaSerdeExt as _, Table, ThreadStatus, VmState};
 use parking_lot::Mutex;
 use std::{
@@ -79,7 +79,7 @@ pub struct EvalResult {
     pub result: LamValue,
 }
 
-pub fn evaluate<R>(e: &Evaluation<R>) -> LamResult<EvalResult>
+pub fn lam_evaluate<R>(e: &Evaluation<R>) -> LamResult<EvalResult>
 where
     for<'lua> R: Read + 'lua,
 {
@@ -129,9 +129,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::*;
     use std::{fs, io::Cursor};
-
-    use crate::{evaluate, EvalBuilder, LamStore};
 
     const TIMEOUT_THRESHOLD: f32 = 0.01;
 
@@ -148,7 +147,7 @@ mod tests {
         let e = EvalBuilder::new(Cursor::new(""), &script)
             .set_store(store)
             .build();
-        assert!(evaluate(&e).is_err());
+        assert!(lam_evaluate(&e).is_err());
     }
 
     #[test]
@@ -167,7 +166,7 @@ mod tests {
             let e = EvalBuilder::new(Cursor::new(input), &script)
                 .set_store(store)
                 .build();
-            let res = evaluate(&e).expect(&script);
+            let res = lam_evaluate(&e).expect(&script);
             assert_eq!(
                 expected,
                 res.result.to_string(),
@@ -184,7 +183,7 @@ mod tests {
         let e = EvalBuilder::new(input, r#"while true do end"#)
             .set_timeout(timeout)
             .build();
-        let res = evaluate(&e).unwrap();
+        let res = lam_evaluate(&e).unwrap();
         assert_eq!("", res.result.to_string());
 
         let secs = res.duration.as_secs_f32();
@@ -202,7 +201,7 @@ mod tests {
         for case in cases {
             let [script, expected] = case;
             let e = EvalBuilder::new(Cursor::new(""), script).build();
-            let res = evaluate(&e).expect(script);
+            let res = lam_evaluate(&e).expect(script);
             assert_eq!(
                 expected,
                 res.result.to_string(),
@@ -218,10 +217,10 @@ mod tests {
         let script = r#"return require('@lam'):read('*l')"#;
         let e = EvalBuilder::new(Cursor::new(input), script).build();
 
-        let res = evaluate(&e).unwrap();
+        let res = lam_evaluate(&e).unwrap();
         assert_eq!("foo", res.result.to_string());
 
-        let res = evaluate(&e).unwrap();
+        let res = lam_evaluate(&e).unwrap();
         assert_eq!("bar", res.result.to_string());
     }
 
@@ -241,7 +240,7 @@ mod tests {
         for [script, expected] in scripts {
             let input: &[u8] = &[];
             let e = EvalBuilder::new(input, script).build();
-            let res = evaluate(&e).expect(script);
+            let res = lam_evaluate(&e).expect(script);
             assert_eq!(expected, res.result.to_string());
         }
     }

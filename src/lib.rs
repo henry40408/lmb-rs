@@ -1,9 +1,11 @@
-pub use error::LamError;
-pub use eval::{evaluate, EvalBuilder};
 use parking_lot::Mutex;
 use std::{io::BufReader, sync::Arc};
-pub use store::LamStore;
-pub use value::LamValue;
+
+pub use error::*;
+pub use eval::*;
+pub use lua_lam::*;
+pub use store::*;
+pub use value::*;
 
 mod error;
 mod eval;
