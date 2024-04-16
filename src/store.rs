@@ -154,7 +154,7 @@ mod tests {
                 )
                 .set_store(store)
                 .build();
-                lam_evaluate(&e).unwrap();
+                e.evaluate().unwrap();
             }));
         }
         for t in threads {
@@ -182,7 +182,7 @@ mod tests {
         .set_store(store)
         .build();
 
-        let res = lam_evaluate(&e).unwrap();
+        let res = e.evaluate().unwrap();
         assert_eq!("1.23", res.result.to_string());
         assert_eq!(LamValue::Number(4.56), e.store.get("a").unwrap());
     }
@@ -233,13 +233,13 @@ mod tests {
         .build();
 
         {
-            let res = lam_evaluate(&e).unwrap();
+            let res = e.evaluate().unwrap();
             assert_eq!("1", res.result.to_string());
             assert_eq!(LamValue::Number(2f64), e.store.get("a").unwrap());
         }
 
         {
-            let res = lam_evaluate(&e).unwrap();
+            let res = e.evaluate().unwrap();
             assert_eq!("2", res.result.to_string());
             assert_eq!(LamValue::Number(3f64), e.store.get("a").unwrap());
         }
@@ -265,7 +265,7 @@ mod tests {
         .set_store(store)
         .build();
 
-        let res = lam_evaluate(&e).unwrap();
+        let res = e.evaluate().unwrap();
         assert_eq!("1", res.result.to_string());
         assert_eq!(LamValue::Number(1f64), e.store.get("a").unwrap());
     }

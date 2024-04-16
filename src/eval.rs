@@ -11,17 +11,6 @@ use tracing::debug;
 const DEFAULT_TIMEOUT: u64 = 30;
 const K_LOADED: &str = "_LOADED";
 
-pub struct Evaluation<R>
-where
-    for<'lua> R: Read + 'lua,
-{
-    pub name: String,
-    pub input: Arc<Mutex<BufReader<R>>>,
-    pub script: String,
-    pub store: LamStore,
-    pub timeout: Duration,
-}
-
 pub struct EvalBuilder<R>
 where
     R: Read,
@@ -79,52 +68,65 @@ pub struct EvalResult {
     pub result: LamValue,
 }
 
-pub fn lam_evaluate<R>(e: &Evaluation<R>) -> LamResult<EvalResult>
+pub struct Evaluation<R>
 where
     for<'lua> R: Read + 'lua,
 {
-    let vm = mlua::Lua::new();
-    vm.sandbox(true)?;
+    pub name: String,
+    pub input: Arc<Mutex<BufReader<R>>>,
+    pub script: String,
+    pub store: LamStore,
+    pub timeout: Duration,
+}
 
-    let start = Instant::now();
+impl<R> Evaluation<R>
+where
+    for<'lua> R: Read + 'lua,
+{
+    pub fn evaluate(&self) -> LamResult<EvalResult> {
+        let vm = mlua::Lua::new();
+        vm.sandbox(true)?;
 
-    let name = &e.name;
-    let timeout = e.timeout;
-    let script = &e.script;
-    debug!(?timeout, ?name, ?script, "load script");
+        let start = Instant::now();
 
-    vm.set_interrupt(move |_| {
-        if start.elapsed() > timeout {
-            return Ok(VmState::Yield);
-        }
-        Ok(VmState::Continue)
-    });
+        let name = &self.name;
+        let timeout = self.timeout;
+        let script = &self.script;
+        debug!(?timeout, ?name, ?script, "load script");
 
-    let r = vm.scope(|_| {
-        let loaded = vm.named_registry_value::<Table<'_>>(K_LOADED)?;
-
-        let lua_lam = LuaLam::new(e.input.clone(), e.store.clone());
-        loaded.set("@lam", lua_lam)?;
-
-        vm.set_named_registry_value(K_LOADED, loaded)?;
-
-        let chunk = vm.load(&e.script).set_name(name);
-        let co = vm.create_thread(chunk.into_function()?)?;
-        loop {
-            let result = co.resume::<_, mlua::Value<'_>>(())?;
-            let unresumable = co.status() != ThreadStatus::Resumable;
-            let timed_out = start.elapsed() > e.timeout;
-            if unresumable || timed_out {
-                let duration = start.elapsed();
-                let result = vm.from_value::<LamValue>(result)?;
-                let used_memory = vm.used_memory();
-                debug!(?duration, ?result, used_memory, "evaluation finished");
-                return Ok(EvalResult { duration, result });
+        vm.set_interrupt(move |_| {
+            if start.elapsed() > timeout {
+                return Ok(VmState::Yield);
             }
-        }
-    })?;
+            Ok(VmState::Continue)
+        });
 
-    Ok(r)
+        let r = vm.scope(|_| {
+            let loaded = vm.named_registry_value::<Table<'_>>(K_LOADED)?;
+
+            let lua_lam = LuaLam::new(self.input.clone(), self.store.clone());
+            loaded.set("@lam", lua_lam)?;
+
+            vm.set_named_registry_value(K_LOADED, loaded)?;
+
+            let chunk = vm.load(&self.script).set_name(name);
+            let co = vm.create_thread(chunk.into_function()?)?;
+            loop {
+                let result = co.resume::<_, mlua::Value<'_>>(())?;
+                let unresumable = co.status() != ThreadStatus::Resumable;
+                let timed_out = start.elapsed() > self.timeout;
+                if unresumable || timed_out {
+                    let duration = start.elapsed();
+                    let result = vm.from_value::<LamValue>(result)?;
+                    let used_memory = vm.used_memory();
+                    debug!(?duration, ?result, used_memory, "evaluation finished");
+                    return Ok(EvalResult { duration, result });
+                }
+            }
+        })?;
+
+        Ok(r)
+    }
 }
 
 #[cfg(test)]
@@ -143,7 +145,7 @@ mod tests {
         let store = new_store();
         let script = fs::read_to_string("./lua-examples/07-error.lua").unwrap();
         let e = EvalBuilder::new(&b""[..], &script).set_store(store).build();
-        assert!(lam_evaluate(&e).is_err());
+        assert!(e.evaluate().is_err());
     }
 
     #[test]
@@ -162,7 +164,7 @@ mod tests {
             let e = EvalBuilder::new(input.as_bytes(), &script)
                 .set_store(store)
                 .build();
-            let res = lam_evaluate(&e).expect(&script);
+            let res = e.evaluate().expect(&script);
             assert_eq!(
                 expected,
                 res.result.to_string(),
@@ -179,7 +181,7 @@ mod tests {
         let e = EvalBuilder::new(input, r#"while true do end"#)
             .set_timeout(timeout)
             .build();
-        let res = lam_evaluate(&e).unwrap();
+        let res = e.evaluate().unwrap();
         assert_eq!(LamValue::None, res.result);
 
         let duration = res.duration;
@@ -196,7 +198,7 @@ mod tests {
         for case in cases {
             let [script, expected] = case;
             let e = EvalBuilder::new(&b""[..], script).build();
-            let res = lam_evaluate(&e).expect(script);
+            let res = e.evaluate().expect(script);
             assert_eq!(
                 expected,
                 res.result.to_string(),
@@ -212,10 +214,10 @@ mod tests {
         let script = r#"return require('@lam'):read('*l')"#;
         let e = EvalBuilder::new(input.as_bytes(), script).build();
 
-        let res = lam_evaluate(&e).unwrap();
+        let res = e.evaluate().unwrap();
         assert_eq!("foo", res.result.to_string());
 
-        let res = lam_evaluate(&e).unwrap();
+        let res = e.evaluate().unwrap();
         assert_eq!("bar", res.result.to_string());
     }
 
@@ -235,7 +237,7 @@ mod tests {
         for [script, expected] in scripts {
             let input: &[u8] = &[];
             let e = EvalBuilder::new(input, script).build();
-            let res = lam_evaluate(&e).expect(script);
+            let res = e.evaluate().expect(script);
             assert_eq!(expected, res.result.to_string());
         }
     }

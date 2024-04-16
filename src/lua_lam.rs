@@ -219,7 +219,7 @@ mod tests {
             let input = "foo\nbar";
             let [script, expected] = case;
             let e = EvalBuilder::new(input.as_bytes(), script).build();
-            let res = lam_evaluate(&e).expect(script);
+            let res = e.evaluate().expect(script);
             assert_eq!(
                 expected,
                 res.result.to_string(),
@@ -240,7 +240,7 @@ mod tests {
         for case in cases {
             let [input, expected] = case;
             let e = EvalBuilder::new(input.as_bytes(), script).build();
-            let res = lam_evaluate(&e).expect(input);
+            let res = e.evaluate().expect(input);
             assert_eq!(
                 expected,
                 res.result.to_string(),
@@ -253,7 +253,7 @@ mod tests {
     fn read_binary() {
         let input: &[u8] = &[1, 2, 3];
         let e = EvalBuilder::new(input, r#"return #require('@lam'):read('*a')"#).build();
-        let res = lam_evaluate(&e).unwrap();
+        let res = e.evaluate().unwrap();
         assert_eq!(LamValue::Number(3f64), res.result);
     }
 
@@ -268,7 +268,7 @@ mod tests {
         for script in scripts {
             let input: &[u8] = &[];
             let e = EvalBuilder::new(input, script).build();
-            let _ = lam_evaluate(&e).expect(script);
+            let _ = e.evaluate().expect(script);
         }
     }
 
@@ -280,7 +280,7 @@ mod tests {
             r#"return require('@lam'):read_unicode(1)"#,
         )
         .build();
-        let res = lam_evaluate(&e).unwrap();
+        let res = e.evaluate().unwrap();
         assert_eq!(LamValue::String("你".to_string()), res.result);
 
         let input = r#"{"key":"你好"}"#;
@@ -289,7 +289,7 @@ mod tests {
             r#"return require('@lam'):read_unicode(12)"#,
         )
         .build();
-        let res = lam_evaluate(&e).unwrap();
+        let res = e.evaluate().unwrap();
         assert_eq!(input, res.result.to_string());
     }
 }
