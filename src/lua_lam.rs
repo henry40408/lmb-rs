@@ -206,7 +206,6 @@ where
 #[cfg(test)]
 mod tests {
     use crate::*;
-    use std::io::Cursor;
 
     #[test]
     fn read() {
@@ -219,7 +218,7 @@ mod tests {
         for case in cases {
             let input = "foo\nbar";
             let [script, expected] = case;
-            let e = EvalBuilder::new(Cursor::new(input), script).build();
+            let e = EvalBuilder::new(input.as_bytes(), script).build();
             let res = lam_evaluate(&e).expect(script);
             assert_eq!(
                 expected,
@@ -240,7 +239,7 @@ mod tests {
         ];
         for case in cases {
             let [input, expected] = case;
-            let e = EvalBuilder::new(Cursor::new(input), script).build();
+            let e = EvalBuilder::new(input.as_bytes(), script).build();
             let res = lam_evaluate(&e).expect(input);
             assert_eq!(
                 expected,
@@ -277,7 +276,7 @@ mod tests {
     fn read_unicode() {
         let input = "你好";
         let e = EvalBuilder::new(
-            Cursor::new(input),
+            input.as_bytes(),
             r#"return require('@lam'):read_unicode(1)"#,
         )
         .build();
@@ -286,7 +285,7 @@ mod tests {
 
         let input = r#"{"key":"你好"}"#;
         let e = EvalBuilder::new(
-            Cursor::new(input),
+            input.as_bytes(),
             r#"return require('@lam'):read_unicode(12)"#,
         )
         .build();

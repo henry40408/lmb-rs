@@ -19,7 +19,7 @@ where
     pub input: Arc<Mutex<BufReader<R>>>,
     pub script: String,
     pub store: LamStore,
-    pub timeout: u64,
+    pub timeout: Duration,
 }
 
 pub struct EvalBuilder<R>
@@ -68,7 +68,7 @@ where
             name: self.name.unwrap_or_default(),
             script: self.script,
             store: self.store,
-            timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
+            timeout: Duration::from_secs(self.timeout.unwrap_or(DEFAULT_TIMEOUT)),
         }
     }
 }
@@ -89,12 +89,12 @@ where
     let start = Instant::now();
 
     let name = &e.name;
-    let timeout = e.timeout as f64;
+    let timeout = e.timeout;
     let script = &e.script;
-    debug!(%timeout, ?name,?script, "load script");
+    debug!(?timeout, ?name, ?script, "load script");
 
     vm.set_interrupt(move |_| {
-        if start.elapsed().as_secs_f64() > timeout {
+        if start.elapsed() > timeout {
             return Ok(VmState::Yield);
         }
         Ok(VmState::Continue)
@@ -113,7 +113,7 @@ where
         loop {
             let result = co.resume::<_, mlua::Value<'_>>(())?;
             let unresumable = co.status() != ThreadStatus::Resumable;
-            let timed_out = start.elapsed().as_secs_f64() > e.timeout as f64;
+            let timed_out = start.elapsed() > e.timeout;
             if unresumable || timed_out {
                 let duration = start.elapsed();
                 let result = vm.from_value::<LamValue>(result)?;
@@ -130,9 +130,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::*;
-    use std::{fs, io::Cursor};
-
-    const TIMEOUT_THRESHOLD: f32 = 0.01;
+    use std::fs;
 
     fn new_store() -> LamStore {
         let store = LamStore::default();
@@ -144,9 +142,7 @@ mod tests {
     fn error_in_script() {
         let store = new_store();
         let script = fs::read_to_string("./lua-examples/07-error.lua").unwrap();
-        let e = EvalBuilder::new(Cursor::new(""), &script)
-            .set_store(store)
-            .build();
+        let e = EvalBuilder::new(&b""[..], &script).set_store(store).build();
         assert!(lam_evaluate(&e).is_err());
     }
 
@@ -163,7 +159,7 @@ mod tests {
             let store = new_store();
             let [filename, input, expected] = case;
             let script = fs::read_to_string(format!("./lua-examples/{filename}")).unwrap();
-            let e = EvalBuilder::new(Cursor::new(input), &script)
+            let e = EvalBuilder::new(input.as_bytes(), &script)
                 .set_store(store)
                 .build();
             let res = lam_evaluate(&e).expect(&script);
@@ -184,11 +180,10 @@ mod tests {
             .set_timeout(timeout)
             .build();
         let res = lam_evaluate(&e).unwrap();
-        assert_eq!("", res.result.to_string());
+        assert_eq!(LamValue::None, res.result);
 
-        let secs = res.duration.as_secs_f32();
-        let to = timeout as f32;
-        assert!((secs - to) / to < TIMEOUT_THRESHOLD, "timed out {}s", secs);
+        let duration = res.duration;
+        assert_eq!(timeout, duration.as_secs());
     }
 
     #[test]
@@ -200,7 +195,7 @@ mod tests {
         ];
         for case in cases {
             let [script, expected] = case;
-            let e = EvalBuilder::new(Cursor::new(""), script).build();
+            let e = EvalBuilder::new(&b""[..], script).build();
             let res = lam_evaluate(&e).expect(script);
             assert_eq!(
                 expected,
@@ -215,7 +210,7 @@ mod tests {
         let input = "foo\nbar";
 
         let script = r#"return require('@lam'):read('*l')"#;
-        let e = EvalBuilder::new(Cursor::new(input), script).build();
+        let e = EvalBuilder::new(input.as_bytes(), script).build();
 
         let res = lam_evaluate(&e).unwrap();
         assert_eq!("foo", res.result.to_string());
