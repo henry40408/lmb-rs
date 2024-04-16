@@ -2,6 +2,7 @@
 mod tests {
     use assert_cmd::Command;
     use serde_json::{json, Value};
+    use tempfile::NamedTempFile;
 
     #[test]
     fn eval_stdin() {
@@ -37,5 +38,24 @@ mod tests {
         assert_eq!(json!(true), *parsed.get("a").unwrap());
         assert_eq!(json!(1.23f64), *parsed.get("b").unwrap());
         assert_eq!(json!("hello"), *parsed.get("c").unwrap());
+    }
+
+    #[test]
+    fn eval_store_migrate() {
+        let store = NamedTempFile::new().unwrap();
+        let store_path = store.path().to_string_lossy().to_string();
+        let mut cmd = Command::cargo_bin("lam").unwrap();
+        cmd.write_stdin("return true");
+        cmd.args(["eval", "--store-path", &store_path, "--run-migrations"]);
+        cmd.assert().success();
+    }
+
+    #[test]
+    fn store_migrate() {
+        let store = NamedTempFile::new().unwrap();
+        let store_path = store.path().to_string_lossy().to_string();
+        let mut cmd = Command::cargo_bin("lam").unwrap();
+        cmd.args(["store", "migrate", "--store-path", &store_path]);
+        cmd.assert().success();
     }
 }

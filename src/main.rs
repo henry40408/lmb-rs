@@ -13,7 +13,7 @@ use tracing::{error, info, warn, Level};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
-#[command(author,version,about,long_about=None)]
+#[command(about, author, long_about=None, version)]
 struct Cli {
     /// Debug mode
     #[arg(long, short = 'd', env = "DEBUG")]
@@ -22,14 +22,6 @@ struct Cli {
     /// No color https://no-color.org/
     #[arg(long, env = "NO_COLOR")]
     no_color: bool,
-
-    /// Run migrations
-    #[arg(long, env = "RUN_MIGRATIONS")]
-    run_migrations: bool,
-
-    /// Store path
-    #[arg(long, env = "STORE_PATH")]
-    store_path: Option<PathBuf>,
 
     #[command(subcommand)]
     command: Commands,
@@ -43,10 +35,23 @@ enum OutputFormat {
     Json,
 }
 
+#[derive(Debug, Parser)]
+struct StoreOptions {
+    /// Run migrations
+    #[arg(long, env = "RUN_MIGRATIONS")]
+    run_migrations: bool,
+
+    /// Store path
+    #[arg(long, env = "STORE_PATH")]
+    store_path: Option<PathBuf>,
+}
+
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// Evaluate a script file
     Eval {
+        #[command(flatten)]
+        store_options: StoreOptions,
         /// Script path
         #[arg(long)]
         file: Option<path::PathBuf>,
@@ -59,6 +64,8 @@ enum Commands {
     },
     /// Handle request with a script file
     Serve {
+        #[command(flatten)]
+        store_options: StoreOptions,
         /// Bind
         #[arg(long, default_value = "127.0.0.1:3000")]
         bind: String,
@@ -68,6 +75,19 @@ enum Commands {
         /// Timeout
         #[arg(long, default_value_t = 60)]
         timeout: u64,
+    },
+    /// Store commands
+    #[command(subcommand)]
+    Store(StoreCommands),
+}
+
+#[derive(Debug, Parser)]
+enum StoreCommands {
+    /// Run migrations on the store
+    Migrate {
+        /// Store path
+        #[arg(long)]
+        store_path: PathBuf,
     },
 }
 
@@ -92,8 +112,9 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Eval {
             file,
-            timeout,
             output_format,
+            timeout,
+            ..
         } => {
             let name = if let Some(ref f) = file {
                 f.to_string_lossy().to_string()
@@ -123,12 +144,19 @@ async fn main() -> anyhow::Result<()> {
         Commands::Serve {
             bind,
             file,
+            store_options,
             timeout,
         } => {
-            let run_migrations = cli.run_migrations;
-            let store_path = cli.store_path.as_ref();
+            let run_migrations = store_options.run_migrations;
+            let store_path = store_options.store_path.as_ref();
             serve_file(&file, &bind, timeout, store_path, run_migrations).await?;
         }
+        Commands::Store(c) => match c {
+            StoreCommands::Migrate { store_path } => {
+                let store = LamStore::new(&store_path)?;
+                store.migrate()?;
+            }
+        },
     }
     Ok(())
 }
