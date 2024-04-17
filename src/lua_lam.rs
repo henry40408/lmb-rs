@@ -1,7 +1,8 @@
 use crate::*;
 use mlua::{LuaSerdeExt as _, UserData};
-use std::io::{BufRead as _, Read};
+use std::io::{BufRead, Read};
 use tracing::error;
+use unicode_segmentation::UnicodeSegmentation;
 
 pub struct LuaLam<R>
 where
@@ -28,12 +29,11 @@ fn lua_lam_read<'lua, R>(
 where
     R: Read + 'lua,
 {
-    let mut input = lam.input.lock();
     if let Some(f) = f.as_str() {
         if f == "*a" || f == "*all" {
             // accepts *a or *all
             let mut buf = Vec::new();
-            let count = input.read_to_end(&mut buf)?;
+            let count = lam.input.lock().read_to_end(&mut buf)?;
             if count == 0 {
                 return Ok(mlua::Value::Nil);
             }
@@ -43,7 +43,7 @@ where
         if f == "*l" || f == "*line" {
             // accepts *l or *line
             let mut buf = String::new();
-            let count = input.read_line(&mut buf)?;
+            let count = lam.input.lock().read_line(&mut buf)?;
             if count == 0 {
                 return Ok(mlua::Value::Nil);
             }
@@ -53,7 +53,7 @@ where
         if f == "*n" || f == "*number" {
             // accepts *n or *number
             let mut buf = String::new();
-            let count = input.read_to_string(&mut buf)?;
+            let count = lam.input.lock().read_to_string(&mut buf)?;
             if count == 0 {
                 return Ok(mlua::Value::Nil);
             }
@@ -65,8 +65,13 @@ where
     }
 
     if let Some(i) = f.as_usize() {
-        let mut buf = vec![0; i];
-        let count = input.read(&mut buf)?;
+        let mut buf = Vec::with_capacity(i);
+        let count = lam
+            .input
+            .lock()
+            .by_ref()
+            .take(i as u64)
+            .read_to_end(&mut buf)?;
         if count == 0 {
             return Ok(mlua::Value::Nil);
         }
@@ -75,41 +80,47 @@ where
         return Ok(mlua::Value::String(s));
     }
 
-    Err(mlua::Error::runtime(format!("unexpected format {f:?}")))
+    let f = f.as_str().unwrap_or("?");
+    Err(mlua::Error::runtime(format!("unexpected format {f}")))
 }
 
 fn lua_lam_read_unicode<'lua, R>(
-    _: &mlua::Lua,
+    vm: &'lua mlua::Lua,
     lam: &LuaLam<R>,
-    i: Option<u64>,
-) -> mlua::Result<Option<String>>
+    i: Option<usize>,
+) -> mlua::Result<mlua::Value<'lua>>
 where
     R: Read + 'lua,
 {
-    let mut input = lam.input.lock();
-    let mut expected_read = i.unwrap_or(1);
-    let mut buf = Vec::new();
-    let mut byte_buf = vec![0; 1];
-    loop {
-        if expected_read == 0 {
-            let s = String::from_utf8(buf).unwrap_or_default();
-            return Ok(Some(s));
-        }
-        let read_bytes = input.read(&mut byte_buf)?;
-        if read_bytes == 0 {
-            if buf.is_empty() {
-                return Ok(None);
+    let mut locked = lam.input.lock();
+    let mut s = String::new();
+    let mut remaining = i.unwrap_or(1);
+    while let Ok(buffer) = locked.fill_buf() {
+        let (input, to_consume) = match std::str::from_utf8(buffer) {
+            Ok(input) => (input, input.len()),
+            Err(e) => {
+                let to_consume = e.valid_up_to();
+                if to_consume == 0 {
+                    break;
+                }
+                let input = std::str::from_utf8(&buffer[..to_consume])?;
+                (input, to_consume)
             }
-            let s = String::from_utf8(buf).unwrap_or_default();
-            return Ok(Some(s));
+        };
+        if to_consume == 0 {
+            break;
         }
-        if read_bytes > 0 {
-            buf.extend_from_slice(&byte_buf);
+
+        let part = input.chars().take(remaining).collect::<String>();
+        remaining -= part.graphemes(true).count();
+        s.push_str(&part);
+        if remaining == 0 {
+            break;
         }
-        if std::str::from_utf8(&buf).is_ok() {
-            expected_read -= 1;
-        }
+
+        locked.consume(to_consume);
     }
+    vm.to_value(&s)
 }
 
 fn lua_lam_get<'lua, R>(
@@ -274,15 +285,40 @@ mod tests {
 
     #[test]
     fn read_unicode() {
-        let input = "你好";
-        let e = EvalBuilder::new(
-            input.as_bytes(),
-            r#"return require('@lam'):read_unicode(1)"#,
-        )
-        .build();
-        let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::String("你".to_string()), res.result);
+        // non-CJK characters
+        let input = "ab";
+        let cases = [(1, "a"), (2, "ab"), (3, "ab")];
+        for (count, expected) in cases {
+            let e = EvalBuilder::new(
+                input.as_bytes(),
+                format!("return require('@lam'):read_unicode({count})"),
+            )
+            .build();
+            let res = e.evaluate().unwrap();
+            assert_eq!(LamValue::String(expected.to_string()), res.result);
+        }
 
+        // CJK characters
+        let input = "你好";
+        let cases = [(1, "你"), (2, "你好"), (3, "你好")];
+        for (count, expected) in cases {
+            let e = EvalBuilder::new(
+                input.as_bytes(),
+                format!("return require('@lam'):read_unicode({count})"),
+            )
+            .build();
+            let res = e.evaluate().unwrap();
+            assert_eq!(LamValue::String(expected.to_string()), res.result);
+        }
+
+        // invalid unicode sequence
+        // ref: https://www.php.net/manual/en/reference.pcre.pattern.modifiers.php#54805
+        let input: &[u8] = &[0xf0, 0x28, 0x8c, 0xbc];
+        let e = EvalBuilder::new(input, r#"return require('@lam'):read_unicode(1)"#).build();
+        let res = e.evaluate().unwrap();
+        assert_eq!(LamValue::String(String::new()), res.result);
+
+        // mix CJK and non-CJK characters
         let input = r#"{"key":"你好"}"#;
         let e = EvalBuilder::new(
             input.as_bytes(),

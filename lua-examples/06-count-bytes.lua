@@ -10,8 +10,7 @@ while true do
 	end
 	total = total + #str
 	for b in (str or ""):gmatch(".") do
-		local bb = string.byte(b)
-		local k = tostring(bb)
+		local k = tostring(string.byte(b))
 		if t[k] == nil then
 			t[k] = 1
 		else
