@@ -28,7 +28,9 @@ unicode-segmentation = "1.11.0"
 
 [dev-dependencies]
 assert_cmd = "2.0.14"
+maplit = "1.0.2"
 tempfile = "3.10.1"
+test-case = "3.3.1"
 test-log = "0.2.15"
 
 [profile.release]

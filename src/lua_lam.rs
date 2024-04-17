@@ -204,48 +204,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::*;
-
-    #[test]
-    fn read() {
-        let cases = [
-            [r#"return require('@lam'):read('*a')"#, "foo\nbar"],
-            [r#"return require('@lam'):read('*l')"#, "foo"],
-            [r#"return require('@lam'):read(1)"#, "f"],
-            [r#"return require('@lam'):read(4)"#, "foo\n"],
-        ];
-        for case in cases {
-            let input = "foo\nbar";
-            let [script, expected] = case;
-            let e = EvalBuilder::new(input.as_bytes(), script).build();
-            let res = e.evaluate().expect(script);
-            assert_eq!(
-                expected,
-                res.result.to_string(),
-                "expect result of {script} to equal to {expected}"
-            );
-        }
-
-        let script = r#"return require('@lam'):read('*n')"#;
-        let cases = [
-            ["1", "1"],
-            ["1.2", "1.2"],
-            ["1.23e-10", "0.000000000123"],
-            ["3.1415926", "3.1415926"],
-            ["", ""],
-            ["NaN", "NaN"],
-            ["InvalidNumber", ""],
-        ];
-        for case in cases {
-            let [input, expected] = case;
-            let e = EvalBuilder::new(input.as_bytes(), script).build();
-            let res = e.evaluate().expect(input);
-            assert_eq!(
-                expected,
-                res.result.to_string(),
-                "expect result of {script} to equal to {expected}"
-            );
-        }
-    }
+    use test_case::test_case;
 
     #[test]
     fn read_binary() {
@@ -255,56 +214,81 @@ mod tests {
         assert_eq!(LamValue::Number(3f64), res.result);
     }
 
-    #[test]
-    fn read_empty() {
-        let scripts = [
-            r#"assert(not require('@lam'):read('*a'))"#,
-            r#"assert(not require('@lam'):read('*l'))"#,
-            r#"assert(not require('@lam'):read('*n'))"#,
-            r#"assert(not require('@lam'):read(1))"#,
-        ];
-        for script in scripts {
-            let input: &[u8] = &[];
-            let e = EvalBuilder::new(input, script).build();
-            let _ = e.evaluate().expect(script);
-        }
+    #[test_case(r#"assert(not require('@lam'):read('*a'))"#)]
+    #[test_case(r#"assert(not require('@lam'):read('*l'))"#)]
+    #[test_case(r#"assert(not require('@lam'):read('*n'))"#)]
+    #[test_case(r#"assert(not require('@lam'):read(1))"#)]
+    fn read_empty(script: &'static str) {
+        let input: &[u8] = &[];
+        let e = EvalBuilder::new(input, script).build();
+        let _ = e.evaluate().expect(script);
+    }
+
+    #[test_case("1", 1.into())]
+    #[test_case("1.2", 1.2.into())]
+    #[test_case("1.23e-10", 0.000000000123.into())]
+    #[test_case("", LamValue::None)]
+    #[test_case("x", LamValue::None)]
+    fn read_number(input: &'static str, expected: LamValue) {
+        let script = r#"return require('@lam'):read('*n')"#;
+        let e = EvalBuilder::new(input.as_bytes(), script).build();
+        let res = e.evaluate().expect(input);
+        assert_eq!(expected, res.result);
+    }
+
+    #[test_case(r#"return require('@lam'):read('*a')"#, "foo\nbar".into())]
+    #[test_case(r#"return require('@lam'):read('*l')"#, "foo".into())]
+    #[test_case(r#"return require('@lam'):read(1)"#, "f".into())]
+    #[test_case(r#"return require('@lam'):read(4)"#, "foo\n".into())]
+    fn read_string(script: &str, expected: LamValue) {
+        let input = "foo\nbar";
+        let e = EvalBuilder::new(input.as_bytes(), script).build();
+        let res = e.evaluate().expect(script);
+        assert_eq!(expected, res.result);
+    }
+
+    #[test_case(1, "你")]
+    #[test_case(2, "你好")]
+    #[test_case(3, "你好")]
+    fn read_unicode_cjk_characters(n: usize, expected: &str) {
+        let input = "你好";
+        let e = EvalBuilder::new(
+            input.as_bytes(),
+            format!("return require('@lam'):read_unicode({n})"),
+        )
+        .build();
+        let res = e.evaluate().unwrap();
+        assert_eq!(LamValue::from(expected), res.result);
     }
 
     #[test]
-    fn read_unicode() {
-        // non-CJK characters
-        let input = "ab";
-        let cases = [(1, "a"), (2, "ab"), (3, "ab")];
-        for (count, expected) in cases {
-            let e = EvalBuilder::new(
-                input.as_bytes(),
-                format!("return require('@lam'):read_unicode({count})"),
-            )
-            .build();
-            let res = e.evaluate().unwrap();
-            assert_eq!(LamValue::from(expected), res.result);
-        }
-
-        // CJK characters
+    fn read_unicode_cjk_characters_sequentially() {
         let input = "你好";
-        let cases = [(1, "你"), (2, "你好"), (3, "你好")];
-        for (count, expected) in cases {
-            let e = EvalBuilder::new(
-                input.as_bytes(),
-                format!("return require('@lam'):read_unicode({count})"),
-            )
-            .build();
-            let res = e.evaluate().unwrap();
-            assert_eq!(LamValue::from(expected), res.result);
-        }
+        let script = "return require('@lam'):read_unicode(1)";
 
-        // invalid unicode sequence
+        let e = EvalBuilder::new(input.as_bytes(), script).build();
+
+        let res = e.evaluate().unwrap();
+        assert_eq!(LamValue::from("你"), res.result);
+
+        let res = e.evaluate().unwrap();
+        assert_eq!(LamValue::from("好"), res.result);
+
+        let res = e.evaluate().unwrap();
+        assert_eq!(LamValue::None, res.result);
+    }
+
+    #[test]
+    fn read_unicode_invalid_sequence() {
         // ref: https://www.php.net/manual/en/reference.pcre.pattern.modifiers.php#54805
         let input: &[u8] = &[0xf0, 0x28, 0x8c, 0xbc];
         let e = EvalBuilder::new(input, r#"return require('@lam'):read_unicode(1)"#).build();
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::None, res.result);
+    }
 
+    #[test]
+    fn read_unicode_mixed_characters() {
         // mix CJK and non-CJK characters
         let input = r#"{"key":"你好"}"#;
         let e = EvalBuilder::new(
@@ -314,16 +298,19 @@ mod tests {
         .build();
         let res = e.evaluate().unwrap();
         assert_eq!(input, res.result.to_string());
+    }
 
-        // read CJK characters sequentially
-        let input = "你好";
-        let e =
-            EvalBuilder::new(input.as_bytes(), "return require('@lam'):read_unicode(1)").build();
+    #[test_case(1, "a")]
+    #[test_case(2, "ab")]
+    #[test_case(3, "ab")]
+    fn read_unicode_non_cjk_characters(n: usize, expected: &str) {
+        let input = b"ab";
+        let e = EvalBuilder::new(
+            &input[..],
+            format!("return require('@lam'):read_unicode({n})"),
+        )
+        .build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from("你"), res.result);
-        let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from("好"), res.result);
-        let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::None, res.result);
+        assert_eq!(LamValue::from(expected), res.result);
     }
 }

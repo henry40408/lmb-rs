@@ -106,7 +106,9 @@ impl Default for LamStore {
 #[cfg(test)]
 mod tests {
     use crate::*;
-    use std::{collections::HashMap, thread};
+    use maplit::hashmap;
+    use std::thread;
+    use test_case::test_case;
 
     fn new_store() -> LamStore {
         let store = LamStore::default();
@@ -114,29 +116,22 @@ mod tests {
         store
     }
 
-    #[test]
-    fn complicated_types() {
+    #[test_case(vec![true.into(), 1f64.into(), "hello".into()].into())]
+    #[test_case(hashmap! { "b".into() => true.into() }.into())]
+    fn complicated_types(value: LamValue) {
         let store = new_store();
-
-        let l = LamValue::List(vec![
-            LamValue::Boolean(true),
-            LamValue::Number(1f64),
-            "hello".into(),
-        ]);
-        store.insert("list", &l).unwrap();
-        assert_eq!("table: 0x0", store.get("list").unwrap().to_string());
-
-        let mut h = HashMap::new();
-        h.insert("b".into(), LamValue::Boolean(true));
-        h.insert("n".into(), LamValue::Number(1f64));
-        h.insert("s".into(), "hello".into());
-        store.insert("table", &LamValue::Table(h)).unwrap();
-        assert_eq!("table: 0x0", store.get("table").unwrap().to_string());
+        store.insert("value", &value).unwrap();
+        assert_eq!("table: 0x0", store.get("value").unwrap().to_string());
     }
 
     #[test]
     fn concurrency() {
         let input: &[u8] = &[];
+        let script = r#"
+        return require('@lam'):update('a', function(v)
+            return v+1
+        end, 0)
+        "#;
 
         let store = new_store();
 
@@ -144,16 +139,7 @@ mod tests {
         for _ in 0..=1000 {
             let store = store.clone();
             threads.push(thread::spawn(move || {
-                let e = EvalBuilder::new(
-                    input,
-                    r#"
-                    return require('@lam'):update('a', function(v)
-                      return v+1
-                    end, 0)
-                    "#,
-                )
-                .set_store(store)
-                .build();
+                let e = EvalBuilder::new(input, script).set_store(store).build();
                 e.evaluate().unwrap();
             }));
         }
@@ -164,23 +150,19 @@ mod tests {
     }
 
     #[test]
-    fn lua() {
+    fn get_set() {
         let input: &[u8] = &[];
+        let script = r#"
+        local m = require('@lam')
+        local a = m:get('a')
+        m:set('a', 4.56)
+        return a
+        "#;
 
         let store = new_store();
-        store.insert("a", &LamValue::Number(1.23)).unwrap();
+        store.insert("a", &1.23.into()).unwrap();
 
-        let e = EvalBuilder::new(
-            input,
-            r#"
-            local m = require('@lam')
-            local a = m:get('a')
-            m:set('a', 4.56)
-            return a
-            "#,
-        )
-        .set_store(store)
-        .build();
+        let e = EvalBuilder::new(input, script).set_store(store).build();
 
         let res = e.evaluate().unwrap();
         assert_eq!("1.23", res.result.to_string());
@@ -193,44 +175,32 @@ mod tests {
         store.migrate().unwrap(); // duplicated
     }
 
-    #[test]
-    fn primitive_types() {
+    #[test_case("nil", LamValue::None)]
+    #[test_case("bt", true.into())]
+    #[test_case("bf", false.into())]
+    #[test_case("ni", 1f64.into())]
+    #[test_case("nf", 1.23f64.into())]
+    #[test_case("s", "hello".into())]
+    fn primitive_types(key: &'static str, value: LamValue) {
         let store = new_store();
-
-        assert_eq!(store.get("x").unwrap(), LamValue::None);
-
-        let data = [
-            ("nil", LamValue::None),
-            ("bt", LamValue::Boolean(true)),
-            ("bf", LamValue::Boolean(false)),
-            ("ni", LamValue::Number(1f64)),
-            ("nf", LamValue::Number(1.23f64)),
-            ("s", "hello".into()),
-        ];
-        for (name, value) in data {
-            store.insert(name, &value).unwrap();
-            assert_eq!(value, store.get(name).unwrap());
-        }
+        store.insert(key, &value).unwrap();
+        assert_eq!(value, store.get(key).unwrap());
     }
 
     #[test]
     fn reuse() {
         let input: &[u8] = &[];
+        let script = r#"
+        local m = require('@lam')
+        local a = m:get('a')
+        m:set('a', a+1)
+        return a
+        "#;
 
         let store = new_store();
         store.insert("a", &LamValue::Number(1f64)).unwrap();
 
-        let e = EvalBuilder::new(
-            input,
-            r#"
-            local m = require('@lam')
-            local a = m:get('a')
-            m:set('a', a+1)
-            return a
-            "#,
-        )
-        .set_store(store)
-        .build();
+        let e = EvalBuilder::new(input, script).set_store(store).build();
 
         {
             let res = e.evaluate().unwrap();
@@ -248,22 +218,18 @@ mod tests {
     #[test_log::test]
     fn rollback_when_error() {
         let input: &[u8] = &[];
+        let script = r#"return require('@lam'):update('a', function(v)
+            if v == 1 then
+                error('something went wrong')
+            else
+                return v+1
+            end
+        end, 0)"#;
 
         let store = new_store();
         store.insert("a", &LamValue::Number(1f64)).unwrap();
 
-        let e = EvalBuilder::new(
-            input,
-            r#"return require('@lam'):update('a', function(v)
-              if v == 1 then
-                error('something went wrong')
-              else
-                return v+1
-              end
-            end, 0)"#,
-        )
-        .set_store(store)
-        .build();
+        let e = EvalBuilder::new(input, script).set_store(store).build();
 
         let res = e.evaluate().unwrap();
         assert_eq!("1", res.result.to_string());

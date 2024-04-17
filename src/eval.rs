@@ -147,7 +147,9 @@ where
 #[cfg(test)]
 mod tests {
     use crate::*;
+    use maplit::hashmap;
     use std::fs;
+    use test_case::test_case;
 
     fn new_store() -> LamStore {
         let store = LamStore::default();
@@ -155,37 +157,34 @@ mod tests {
         store
     }
 
-    #[test]
-    fn error_in_script() {
+    #[test_case("./lua-examples/07-error.lua")]
+    fn error_in_script(path: &str) {
         let store = new_store();
-        let script = fs::read_to_string("./lua-examples/07-error.lua").unwrap();
+        let script = fs::read_to_string(path).unwrap();
         let e = EvalBuilder::new(&b""[..], &script).set_store(store).build();
         assert!(e.evaluate().is_err());
     }
 
-    #[test]
-    fn evaluate_examples() {
-        let cases = [
-            ["01-hello.lua", "", ""],
-            ["02-input.lua", "lua", ""],
-            ["03-algebra.lua", "2", "4"],
-            ["04-echo.lua", "a", "a"],
-            ["05-state.lua", "", "1"],
-        ];
-        for case in cases {
-            let store = new_store();
-            let [filename, input, expected] = case;
-            let script = fs::read_to_string(format!("./lua-examples/{filename}")).unwrap();
-            let e = EvalBuilder::new(input.as_bytes(), &script)
-                .set_store(store)
-                .build();
-            let res = e.evaluate().expect(&script);
-            assert_eq!(
-                expected,
-                res.result.to_string(),
-                "expect result of {script} to equal to {expected}"
-            );
-        }
+    #[test_case("01-hello.lua", "", LamValue::None)]
+    #[test_case("02-input.lua", "lua", LamValue::None)]
+    #[test_case("03-algebra.lua", "2", 4.into())]
+    #[test_case("04-echo.lua", "a", "a".into())]
+    #[test_case("05-state.lua", "", 1.into())]
+    #[test_case("06-count-bytes.lua", "A", hashmap!{ "65".into() => 1.into() }.into())]
+    #[test_case("08-return-table.lua", "123", hashmap!{
+        "a".into() => true.into(),
+        "b".into() => 1.23.into(),
+        "c".into() => "hello".into()
+    }.into())]
+    #[test_case("09-read-unicode.lua", "你好，世界", "你好".into())]
+    fn evaluate_examples(filename: &str, input: &'static str, expected: LamValue) {
+        let store = new_store();
+        let script = fs::read_to_string(format!("./lua-examples/{filename}")).unwrap();
+        let e = EvalBuilder::new(input.as_bytes(), &script)
+            .set_store(store)
+            .build();
+        let res = e.evaluate().expect(&script);
+        assert_eq!(expected, res.result);
     }
 
     #[test]
@@ -203,23 +202,13 @@ mod tests {
         assert_eq!(timeout, duration.as_secs());
     }
 
-    #[test]
-    fn evaluate_scripts() {
-        let cases = [
-            ["return 1+1", "2"],
-            ["return 'a'..1", "a1"],
-            ["return require('@lam')._VERSION", "0.1.0"],
-        ];
-        for case in cases {
-            let [script, expected] = case;
-            let e = EvalBuilder::new(&b""[..], script).build();
-            let res = e.evaluate().expect(script);
-            assert_eq!(
-                expected,
-                res.result.to_string(),
-                "expect result of {script} to equal to {expected}"
-            );
-        }
+    #[test_case("return 1+1", "2")]
+    #[test_case("return 'a'..1", "a1")]
+    #[test_case("return require('@lam')._VERSION", "0.1.0")]
+    fn evaluate_scripts(script: &str, expected: &str) {
+        let e = EvalBuilder::new(&b""[..], script).build();
+        let res = e.evaluate().expect(script);
+        assert_eq!(expected, res.result.to_string());
     }
 
     #[test]
@@ -236,24 +225,19 @@ mod tests {
         assert_eq!("bar", res.result.to_string());
     }
 
-    #[test]
-    fn return_to_string() {
-        let scripts = [
-            [r#""#, ""],
-            [r#"return nil"#, ""],
-            [r#"return true"#, "true"],
-            [r#"return false"#, "false"],
-            [r#"return 1"#, "1"],
-            [r#"return 1.23"#, "1.23"],
-            [r#"return 'hello'"#, "hello"],
-            [r#"return {a=true,b=1.23,c="hello"}"#, "table: 0x0"],
-            [r#"return {true,1.23,"hello"}"#, "table: 0x0"],
-        ];
-        for [script, expected] in scripts {
-            let input: &[u8] = &[];
-            let e = EvalBuilder::new(input, script).build();
-            let res = e.evaluate().expect(script);
-            assert_eq!(expected, res.result.to_string());
-        }
+    #[test_case(r#""#, "")]
+    #[test_case(r#"return nil"#, "")]
+    #[test_case(r#"return true"#, "true")]
+    #[test_case(r#"return false"#, "false")]
+    #[test_case(r#"return 1"#, "1")]
+    #[test_case(r#"return 1.23"#, "1.23")]
+    #[test_case(r#"return 'hello'"#, "hello")]
+    #[test_case(r#"return {a=true,b=1.23,c="hello"}"#, "table: 0x0")]
+    #[test_case(r#"return {true,1.23,"hello"}"#, "table: 0x0")]
+    fn return_to_string(script: &str, expected: &str) {
+        let input: &[u8] = &[];
+        let e = EvalBuilder::new(input, script).build();
+        let res = e.evaluate().expect(script);
+        assert_eq!(expected, res.result.to_string());
     }
 }

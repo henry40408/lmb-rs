@@ -13,9 +13,38 @@ pub enum LamValue {
     Table(HashMap<String, LamValue>),
 }
 
+impl From<bool> for LamValue {
+    fn from(value: bool) -> Self {
+        Self::Boolean(value)
+    }
+}
+
 impl From<&str> for LamValue {
     fn from(value: &str) -> Self {
         Self::String(value.into())
+    }
+}
+
+macro_rules! impl_numeric_to_lam_value {
+    ($($t:ty),*) => {
+        $(
+            impl From<$t> for LamValue {
+                fn from(value: $t) -> Self { Self::Number(value as f64) }
+            }
+        )*
+    };
+}
+impl_numeric_to_lam_value!(i8, u8, i16, u16, i32, u32, f32, i64, u64, f64);
+
+impl From<HashMap<String, LamValue>> for LamValue {
+    fn from(value: HashMap<String, LamValue>) -> Self {
+        Self::Table(value)
+    }
+}
+
+impl From<Vec<LamValue>> for LamValue {
+    fn from(value: Vec<LamValue>) -> Self {
+        Self::List(value)
     }
 }
 
