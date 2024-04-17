@@ -1,5 +1,5 @@
 use crate::*;
-use mlua::{LuaSerdeExt as _, Table, ThreadStatus, VmState};
+use mlua::prelude::*;
 use parking_lot::Mutex;
 use std::{
     io::{BufReader, Read},
@@ -88,7 +88,7 @@ where
     for<'lua> R: Read + 'lua,
 {
     pub fn evaluate(&self) -> LamResult<EvalResult> {
-        let vm = mlua::Lua::new();
+        let vm = Lua::new();
         vm.sandbox(true)?;
 
         let start = Instant::now();
@@ -102,13 +102,13 @@ where
             mm_clone.fetch_max(used_memory, Ordering::SeqCst);
             let _ = trace_span!("tick", used_memory).entered();
             if start.elapsed() > timeout {
-                return Ok(VmState::Yield);
+                return Ok(LuaVmState::Yield);
             }
-            Ok(VmState::Continue)
+            Ok(LuaVmState::Continue)
         });
 
         let r = vm.scope(|_| {
-            let loaded = vm.named_registry_value::<Table<'_>>(K_LOADED)?;
+            let loaded = vm.named_registry_value::<LuaTable<'_>>(K_LOADED)?;
 
             let lua_lam = LuaLam::new(self.input.clone(), self.store.clone());
             loaded.set("@lam", lua_lam)?;
@@ -123,8 +123,8 @@ where
             let co = vm.create_thread(chunk.into_function()?)?;
             let _ = trace_span!("evaluate", script).entered();
             loop {
-                let result = co.resume::<_, mlua::Value<'_>>(())?;
-                let unresumable = co.status() != ThreadStatus::Resumable;
+                let result = co.resume::<_, LuaValue<'_>>(())?;
+                let unresumable = co.status() != LuaThreadStatus::Resumable;
                 let timed_out = start.elapsed() > self.timeout;
                 if unresumable || timed_out {
                     let result = vm.from_value::<LamValue>(result)?;
