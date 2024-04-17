@@ -3,6 +3,8 @@ use mlua::prelude::*;
 use std::io::{BufRead, Read};
 use tracing::error;
 
+const K_LOADED: &str = "_LOADED";
+
 pub struct LuaLam<R>
 where
     R: Read,
@@ -13,10 +15,17 @@ where
 
 impl<R> LuaLam<R>
 where
-    R: Read,
+    for<'lua> R: Read + 'lua,
 {
     pub fn new(input: LamInput<R>, store: LamStore) -> Self {
         Self { input, store }
+    }
+
+    pub fn register(vm: &Lua, input: LamInput<R>, store: LamStore) -> LamResult<()> {
+        let loaded = vm.named_registry_value::<LuaTable<'_>>(K_LOADED)?;
+        loaded.set("@lam", LuaLam::new(input, store))?;
+        vm.set_named_registry_value(K_LOADED, loaded)?;
+        Ok(())
     }
 }
 
