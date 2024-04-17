@@ -55,12 +55,15 @@ where
     }
 
     pub fn build(self) -> Evaluation<R> {
+        let vm = Lua::new();
+        vm.sandbox(true).expect("failed to enable sandbox");
         Evaluation {
             input: Arc::new(Mutex::new(BufReader::new(self.input))),
             name: self.name.unwrap_or_default(),
             script: self.script,
             store: self.store,
             timeout: Duration::from_secs(self.timeout.unwrap_or(DEFAULT_TIMEOUT)),
+            vm,
         }
     }
 }
@@ -81,6 +84,7 @@ where
     pub script: String,
     pub store: LamStore,
     pub timeout: Duration,
+    pub vm: Lua,
 }
 
 impl<R> Evaluation<R>
@@ -88,16 +92,14 @@ where
     for<'lua> R: Read + 'lua,
 {
     pub fn evaluate(&self) -> LamResult<EvalResult> {
-        let vm = Lua::new();
-        vm.sandbox(true)?;
-
+        let vm = &self.vm;
         let start = Instant::now();
 
         let timeout = self.timeout;
         let max_memory = Arc::new(AtomicUsize::new(0));
 
         let mm_clone = max_memory.clone();
-        vm.set_interrupt(move |vm| {
+        self.vm.set_interrupt(move |vm| {
             let used_memory = vm.used_memory();
             mm_clone.fetch_max(used_memory, Ordering::SeqCst);
             let _ = trace_span!("tick", used_memory).entered();
@@ -107,40 +109,35 @@ where
             Ok(LuaVmState::Continue)
         });
 
-        let r = vm.scope(|_| {
-            let loaded = vm.named_registry_value::<LuaTable<'_>>(K_LOADED)?;
+        let loaded = vm.named_registry_value::<LuaTable<'_>>(K_LOADED)?;
 
-            let lua_lam = LuaLam::new(self.input.clone(), self.store.clone());
-            loaded.set("@lam", lua_lam)?;
+        let lua_lam = LuaLam::new(self.input.clone(), self.store.clone());
+        loaded.set("@lam", lua_lam)?;
 
-            vm.set_named_registry_value(K_LOADED, loaded)?;
+        vm.set_named_registry_value(K_LOADED, loaded)?;
 
-            let script = &self.script;
-            let chunk = {
-                let _ = debug_span!("load script", script).entered();
-                vm.load(&self.script).set_name(&self.name)
-            };
-            let co = vm.create_thread(chunk.into_function()?)?;
-            let _ = trace_span!("evaluate", script).entered();
-            loop {
-                let result = co.resume::<_, LuaValue<'_>>(())?;
-                let unresumable = co.status() != LuaThreadStatus::Resumable;
-                let timed_out = start.elapsed() > self.timeout;
-                if unresumable || timed_out {
-                    let result = vm.from_value::<LamValue>(result)?;
-                    let duration = start.elapsed();
-                    let max_memory = max_memory.load(Ordering::SeqCst);
-                    debug!(?duration, ?script, ?max_memory, "evaluated");
-                    return Ok(EvalResult {
-                        duration,
-                        max_memory,
-                        result,
-                    });
-                }
+        let script = &self.script;
+        let chunk = {
+            let _ = debug_span!("load script", script).entered();
+            vm.load(&self.script).set_name(&self.name)
+        };
+        let co = vm.create_thread(chunk.into_function()?)?;
+        let _ = trace_span!("evaluate", script).entered();
+        loop {
+            let result_value = co.resume::<_, LuaValue<'_>>(())?;
+            let unresumable = co.status() != LuaThreadStatus::Resumable;
+            let timed_out = start.elapsed() > self.timeout;
+            if unresumable || timed_out {
+                let duration = start.elapsed();
+                let max_memory = max_memory.load(Ordering::SeqCst);
+                debug!(?duration, ?script, ?max_memory, "evaluated");
+                return Ok(EvalResult {
+                    duration,
+                    max_memory,
+                    result: vm.from_value::<LamValue>(result_value)?,
+                });
             }
-        })?;
-
-        Ok(r)
+        }
     }
 }
 
