@@ -1,8 +1,7 @@
 use crate::*;
-use mlua::{LuaSerdeExt as _, UserData};
+use mlua::{LuaSerdeExt, UserData};
 use std::io::{BufRead, Read};
 use tracing::error;
-use unicode_segmentation::UnicodeSegmentation;
 
 pub struct LuaLam<R>
 where
@@ -92,35 +91,23 @@ fn lua_lam_read_unicode<'lua, R>(
 where
     R: Read + 'lua,
 {
-    let mut locked = lam.input.lock();
-    let mut s = String::new();
-    let mut remaining = i.unwrap_or(1);
-    while let Ok(buffer) = locked.fill_buf() {
-        let (input, to_consume) = match std::str::from_utf8(buffer) {
-            Ok(input) => (input, input.len()),
-            Err(e) => {
-                let to_consume = e.valid_up_to();
-                if to_consume == 0 {
-                    break;
-                }
-                let input = std::str::from_utf8(&buffer[..to_consume])?;
-                (input, to_consume)
-            }
-        };
-        if to_consume == 0 {
+    let mut buf = vec![];
+    let mut remaining = i.unwrap_or(0);
+    let mut single = 0;
+    while remaining > 0 {
+        let count = lam.input.lock().read(std::slice::from_mut(&mut single))?;
+        if count == 0 {
             break;
         }
-
-        let part = input.chars().take(remaining).collect::<String>();
-        remaining -= part.graphemes(true).count();
-        s.push_str(&part);
-        if remaining == 0 {
-            break;
+        buf.extend_from_slice(std::slice::from_ref(&single));
+        if std::str::from_utf8(&buf).is_ok() {
+            remaining -= 1;
         }
-
-        locked.consume(to_consume);
     }
-    vm.to_value(&s)
+    if buf.is_empty() {
+        return vm.to_value(&LamValue::None);
+    }
+    vm.to_value(&std::str::from_utf8(&buf).ok())
 }
 
 fn lua_lam_get<'lua, R>(
@@ -295,7 +282,7 @@ mod tests {
             )
             .build();
             let res = e.evaluate().unwrap();
-            assert_eq!(LamValue::String(expected.to_string()), res.result);
+            assert_eq!(LamValue::from(expected), res.result);
         }
 
         // CJK characters
@@ -308,7 +295,7 @@ mod tests {
             )
             .build();
             let res = e.evaluate().unwrap();
-            assert_eq!(LamValue::String(expected.to_string()), res.result);
+            assert_eq!(LamValue::from(expected), res.result);
         }
 
         // invalid unicode sequence
@@ -316,7 +303,7 @@ mod tests {
         let input: &[u8] = &[0xf0, 0x28, 0x8c, 0xbc];
         let e = EvalBuilder::new(input, r#"return require('@lam'):read_unicode(1)"#).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::String(String::new()), res.result);
+        assert_eq!(LamValue::None, res.result);
 
         // mix CJK and non-CJK characters
         let input = r#"{"key":"你好"}"#;
@@ -327,5 +314,16 @@ mod tests {
         .build();
         let res = e.evaluate().unwrap();
         assert_eq!(input, res.result.to_string());
+
+        // read CJK characters sequentially
+        let input = "你好";
+        let e =
+            EvalBuilder::new(input.as_bytes(), "return require('@lam'):read_unicode(1)").build();
+        let res = e.evaluate().unwrap();
+        assert_eq!(LamValue::from("你"), res.result);
+        let res = e.evaluate().unwrap();
+        assert_eq!(LamValue::from("好"), res.result);
+        let res = e.evaluate().unwrap();
+        assert_eq!(LamValue::None, res.result);
     }
 }

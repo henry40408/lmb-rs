@@ -13,6 +13,12 @@ pub enum LamValue {
     Table(HashMap<String, LamValue>),
 }
 
+impl From<&str> for LamValue {
+    fn from(value: &str) -> Self {
+        Self::String(value.into())
+    }
+}
+
 impl std::fmt::Display for LamValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

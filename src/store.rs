@@ -121,7 +121,7 @@ mod tests {
         let l = LamValue::List(vec![
             LamValue::Boolean(true),
             LamValue::Number(1f64),
-            LamValue::String("hello".to_string()),
+            "hello".into(),
         ]);
         store.insert("list", &l).unwrap();
         assert_eq!("table: 0x0", store.get("list").unwrap().to_string());
@@ -129,7 +129,7 @@ mod tests {
         let mut h = HashMap::new();
         h.insert("b".into(), LamValue::Boolean(true));
         h.insert("n".into(), LamValue::Number(1f64));
-        h.insert("s".into(), LamValue::String("hello".to_string()));
+        h.insert("s".into(), "hello".into());
         store.insert("table", &LamValue::Table(h)).unwrap();
         assert_eq!("table: 0x0", store.get("table").unwrap().to_string());
     }
@@ -205,7 +205,7 @@ mod tests {
             ("bf", LamValue::Boolean(false)),
             ("ni", LamValue::Number(1f64)),
             ("nf", LamValue::Number(1.23f64)),
-            ("s", LamValue::String("hello".to_string())),
+            ("s", "hello".into()),
         ];
         for (name, value) in data {
             store.insert(name, &value).unwrap();
