@@ -3,10 +3,13 @@ use mlua::{LuaSerdeExt as _, Table, ThreadStatus, VmState};
 use parking_lot::Mutex;
 use std::{
     io::{BufReader, Read},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
-use tracing::debug;
+use tracing::{debug, debug_span, trace_span};
 
 const DEFAULT_TIMEOUT: u64 = 30;
 const K_LOADED: &str = "_LOADED";
@@ -65,6 +68,7 @@ where
 #[derive(Debug)]
 pub struct EvalResult {
     pub duration: Duration,
+    pub max_memory: usize,
     pub result: LamValue,
 }
 
@@ -89,12 +93,14 @@ where
 
         let start = Instant::now();
 
-        let name = &self.name;
         let timeout = self.timeout;
-        let script = &self.script;
-        debug!(?timeout, ?name, ?script, "load script");
+        let max_memory = Arc::new(AtomicUsize::new(0));
 
-        vm.set_interrupt(move |_| {
+        let mm_clone = max_memory.clone();
+        vm.set_interrupt(move |vm| {
+            let used_memory = vm.used_memory();
+            mm_clone.fetch_max(used_memory, Ordering::SeqCst);
+            let _ = trace_span!("tick", used_memory).entered();
             if start.elapsed() > timeout {
                 return Ok(VmState::Yield);
             }
@@ -109,18 +115,27 @@ where
 
             vm.set_named_registry_value(K_LOADED, loaded)?;
 
-            let chunk = vm.load(&self.script).set_name(name);
+            let script = &self.script;
+            let chunk = {
+                let _ = debug_span!("load script", script).entered();
+                vm.load(&self.script).set_name(&self.name)
+            };
             let co = vm.create_thread(chunk.into_function()?)?;
+            let _ = trace_span!("evaluate", script).entered();
             loop {
                 let result = co.resume::<_, mlua::Value<'_>>(())?;
                 let unresumable = co.status() != ThreadStatus::Resumable;
                 let timed_out = start.elapsed() > self.timeout;
                 if unresumable || timed_out {
-                    let duration = start.elapsed();
                     let result = vm.from_value::<LamValue>(result)?;
-                    let used_memory = vm.used_memory();
-                    debug!(?duration, ?result, used_memory, "evaluation finished");
-                    return Ok(EvalResult { duration, result });
+                    let duration = start.elapsed();
+                    let max_memory = max_memory.load(Ordering::SeqCst);
+                    debug!(?duration, ?script, ?max_memory, "evaluated");
+                    return Ok(EvalResult {
+                        duration,
+                        max_memory,
+                        result,
+                    });
                 }
             }
         })?;

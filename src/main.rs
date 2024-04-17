@@ -10,7 +10,7 @@ use std::{
 };
 use tower_http::trace::{self, TraceLayer};
 use tracing::{error, info, warn, Level};
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
 
 #[derive(Parser, Debug)]
 #[command(about, author, long_about=None, version)]
@@ -95,17 +95,25 @@ enum StoreCommands {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    let level = if cli.debug {
+    let default_directive = if cli.debug {
         Level::DEBUG.into()
     } else {
         Level::INFO.into()
     };
     let env_filter = EnvFilter::builder()
-        .with_default_directive(level)
+        .with_default_directive(default_directive)
         .from_env_lossy();
+    let span_events = env_filter.max_level_hint().map_or(FmtSpan::CLOSE, |l| {
+        if l >= Level::DEBUG {
+            FmtSpan::CLOSE
+        } else {
+            FmtSpan::NONE
+        }
+    });
     tracing_subscriber::fmt()
         .with_ansi(!cli.no_color)
         .with_env_filter(env_filter)
+        .with_span_events(span_events)
         .compact()
         .init();
 
