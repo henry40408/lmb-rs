@@ -10,18 +10,18 @@ where
     R: Read,
 {
     input: LamInput<R>,
-    store: LamStore,
+    store: Option<LamStore>,
 }
 
 impl<R> LuaLam<R>
 where
     for<'lua> R: Read + 'lua,
 {
-    pub fn new(input: LamInput<R>, store: LamStore) -> Self {
+    pub fn new(input: LamInput<R>, store: Option<LamStore>) -> Self {
         Self { input, store }
     }
 
-    pub fn register(vm: &Lua, input: LamInput<R>, store: LamStore) -> LamResult<()> {
+    pub fn register(vm: &Lua, input: LamInput<R>, store: Option<LamStore>) -> LamResult<()> {
         let loaded = vm.named_registry_value::<LuaTable<'_>>(K_LOADED)?;
         loaded.set("@lam", LuaLam::new(input, store))?;
         vm.set_named_registry_value(K_LOADED, loaded)?;
@@ -31,7 +31,7 @@ where
 
 fn lua_lam_read<'lua, R>(
     vm: &'lua Lua,
-    lam: &LuaLam<R>,
+    lam: &mut LuaLam<R>,
     f: LuaValue<'lua>,
 ) -> LuaResult<LuaValue<'lua>>
 where
@@ -41,7 +41,7 @@ where
         if f == "*a" || f == "*all" {
             // accepts *a or *all
             let mut buf = Vec::new();
-            let count = lam.input.lock().read_to_end(&mut buf)?;
+            let count = lam.input.read_to_end(&mut buf)?;
             if count == 0 {
                 return Ok(LuaValue::Nil);
             }
@@ -51,7 +51,7 @@ where
         if f == "*l" || f == "*line" {
             // accepts *l or *line
             let mut buf = String::new();
-            let count = lam.input.lock().read_line(&mut buf)?;
+            let count = lam.input.read_line(&mut buf)?;
             if count == 0 {
                 return Ok(LuaNil);
             }
@@ -61,7 +61,7 @@ where
         if f == "*n" || f == "*number" {
             // accepts *n or *number
             let mut buf = String::new();
-            let count = lam.input.lock().read_to_string(&mut buf)?;
+            let count = lam.input.read_to_string(&mut buf)?;
             if count == 0 {
                 return Ok(LuaNil);
             }
@@ -71,12 +71,7 @@ where
 
     if let Some(i) = f.as_usize() {
         let mut buf = Vec::with_capacity(i);
-        let count = lam
-            .input
-            .lock()
-            .by_ref()
-            .take(i as u64)
-            .read_to_end(&mut buf)?;
+        let count = lam.input.by_ref().take(i as u64).read_to_end(&mut buf)?;
         if count == 0 {
             return Ok(LuaNil);
         }
@@ -91,7 +86,7 @@ where
 
 fn lua_lam_read_unicode<'lua, R>(
     vm: &'lua Lua,
-    lam: &LuaLam<R>,
+    lam: &mut LuaLam<R>,
     i: Option<usize>,
 ) -> LuaResult<LuaValue<'lua>>
 where
@@ -101,7 +96,7 @@ where
     let mut remaining = i.unwrap_or(0);
     let mut single = 0;
     while remaining > 0 {
-        let count = lam.input.lock().read(std::slice::from_mut(&mut single))?;
+        let count = lam.input.read(std::slice::from_mut(&mut single))?;
         if count == 0 {
             break;
         }
@@ -120,7 +115,12 @@ fn lua_lam_get<'lua, R>(vm: &'lua Lua, lam: &LuaLam<R>, key: String) -> LuaResul
 where
     R: Read + 'lua,
 {
-    if let Ok(v) = lam.store.get(key.as_str()) {
+    let store = if let Some(s) = &lam.store {
+        s
+    } else {
+        return Ok(LuaNil);
+    };
+    if let Ok(v) = store.get(key.as_str()) {
         return vm.to_value(&v.clone());
     }
     Ok(LuaNil)
@@ -134,7 +134,12 @@ fn lua_lam_set<'lua, R>(
 where
     R: Read,
 {
-    match lam.store.insert(key, &vm.from_value(value.clone())?) {
+    let store = if let Some(s) = &lam.store {
+        s
+    } else {
+        return Ok(LuaNil);
+    };
+    match store.insert(key, &vm.from_value(value.clone())?) {
         Ok(_) => Ok(value),
         Err(err) => {
             error!(?err, "failed to insert value");
@@ -176,8 +181,13 @@ where
         *old = new;
     };
 
-    let v = lam
-        .store
+    let store = if let Some(s) = &lam.store {
+        s
+    } else {
+        return Ok(LuaNil);
+    };
+
+    let v = store
         .update(key, g, &vm.from_value(default_v)?)
         .map_err(|err| {
             error!(?err, "failed to update value");
@@ -196,8 +206,8 @@ where
 
     fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method("get", lua_lam_get);
-        methods.add_method("read", lua_lam_read);
-        methods.add_method("read_unicode", lua_lam_read_unicode);
+        methods.add_method_mut("read", lua_lam_read);
+        methods.add_method_mut("read_unicode", lua_lam_read_unicode);
         methods.add_method("set", lua_lam_set);
         methods.add_method("update", lua_lam_update);
     }

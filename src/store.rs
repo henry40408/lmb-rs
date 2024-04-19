@@ -163,7 +163,7 @@ mod tests {
 
         let res = e.evaluate().unwrap();
         assert_eq!("1.23", res.result.to_string());
-        assert_eq!(LamValue::Number(4.56), e.store.get("a").unwrap());
+        assert_eq!(LamValue::Number(4.56), e.store.unwrap().get("a").unwrap());
     }
 
     #[test]
@@ -202,13 +202,16 @@ mod tests {
         {
             let res = e.evaluate().unwrap();
             assert_eq!("1", res.result.to_string());
-            assert_eq!(LamValue::Number(2f64), e.store.get("a").unwrap());
+            assert_eq!(
+                LamValue::Number(2f64),
+                e.store.as_ref().unwrap().get("a").unwrap()
+            );
         }
 
         {
             let res = e.evaluate().unwrap();
             assert_eq!("2", res.result.to_string());
-            assert_eq!(LamValue::Number(3f64), e.store.get("a").unwrap());
+            assert_eq!(LamValue::Number(3f64), e.store.unwrap().get("a").unwrap());
         }
     }
 
@@ -230,6 +233,6 @@ mod tests {
 
         let res = e.evaluate().unwrap();
         assert_eq!("1", res.result.to_string());
-        assert_eq!(LamValue::Number(1f64), e.store.get("a").unwrap());
+        assert_eq!(LamValue::Number(1f64), e.store.unwrap().get("a").unwrap());
     }
 }
