@@ -102,16 +102,18 @@ impl Evaluation {
 
         let max_memory = Arc::new(AtomicUsize::new(0));
 
-        let mm_clone = max_memory.clone();
         let start = Instant::now();
-        self.vm.set_interrupt(move |vm| {
-            let used_memory = vm.used_memory();
-            mm_clone.fetch_max(used_memory, Ordering::SeqCst);
-            Ok(if start.elapsed() > timeout {
-                LuaVmState::Yield
-            } else {
-                LuaVmState::Continue
-            })
+        self.vm.set_interrupt({
+            let max_memory = Arc::clone(&max_memory);
+            move |vm| {
+                let used_memory = vm.used_memory();
+                max_memory.fetch_max(used_memory, Ordering::SeqCst);
+                Ok(if start.elapsed() > timeout {
+                    LuaVmState::Yield
+                } else {
+                    LuaVmState::Continue
+                })
+            }
         });
 
         let chunk = vm.load(&self.compiled).set_name(&self.name);
