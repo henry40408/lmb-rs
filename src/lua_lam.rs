@@ -1,7 +1,9 @@
 use crate::*;
-use mlua::{LuaSerdeExt, UserData};
+use mlua::prelude::*;
 use std::io::{BufRead, Read};
 use tracing::error;
+
+const K_LOADED: &str = "_LOADED";
 
 pub struct LuaLam<R>
 where
@@ -13,18 +15,25 @@ where
 
 impl<R> LuaLam<R>
 where
-    R: Read,
+    for<'lua> R: Read + 'lua,
 {
     pub fn new(input: LamInput<R>, store: LamStore) -> Self {
         Self { input, store }
     }
+
+    pub fn register(vm: &Lua, input: LamInput<R>, store: LamStore) -> LamResult<()> {
+        let loaded = vm.named_registry_value::<LuaTable<'_>>(K_LOADED)?;
+        loaded.set("@lam", LuaLam::new(input, store))?;
+        vm.set_named_registry_value(K_LOADED, loaded)?;
+        Ok(())
+    }
 }
 
 fn lua_lam_read<'lua, R>(
-    vm: &'lua mlua::Lua,
+    vm: &'lua Lua,
     lam: &LuaLam<R>,
-    f: mlua::Value<'lua>,
-) -> mlua::Result<mlua::Value<'lua>>
+    f: LuaValue<'lua>,
+) -> LuaResult<LuaValue<'lua>>
 where
     R: Read + 'lua,
 {
@@ -34,32 +43,29 @@ where
             let mut buf = Vec::new();
             let count = lam.input.lock().read_to_end(&mut buf)?;
             if count == 0 {
-                return Ok(mlua::Value::Nil);
+                return Ok(LuaValue::Nil);
             }
             let s = String::from_utf8(buf).unwrap_or_default();
-            return Ok(mlua::Value::String(vm.create_string(s)?));
+            return Ok(LuaValue::String(vm.create_string(s)?));
         }
         if f == "*l" || f == "*line" {
             // accepts *l or *line
             let mut buf = String::new();
             let count = lam.input.lock().read_line(&mut buf)?;
             if count == 0 {
-                return Ok(mlua::Value::Nil);
+                return Ok(LuaNil);
             }
             // in Lua, *l doesn't include newline character
-            return Ok(mlua::Value::String(vm.create_string(buf.trim_end())?));
+            return Ok(LuaValue::String(vm.create_string(buf.trim_end())?));
         }
         if f == "*n" || f == "*number" {
             // accepts *n or *number
             let mut buf = String::new();
             let count = lam.input.lock().read_to_string(&mut buf)?;
             if count == 0 {
-                return Ok(mlua::Value::Nil);
+                return Ok(LuaNil);
             }
-            return Ok(buf
-                .parse::<f64>()
-                .map(mlua::Value::Number)
-                .unwrap_or(mlua::Value::Nil));
+            return Ok(buf.parse::<f64>().map(LuaValue::Number).unwrap_or(LuaNil));
         }
     }
 
@@ -72,22 +78,22 @@ where
             .take(i as u64)
             .read_to_end(&mut buf)?;
         if count == 0 {
-            return Ok(mlua::Value::Nil);
+            return Ok(LuaNil);
         }
         buf.truncate(count);
         let s = vm.create_string(buf)?;
-        return Ok(mlua::Value::String(s));
+        return Ok(LuaValue::String(s));
     }
 
     let f = f.as_str().unwrap_or("?");
-    Err(mlua::Error::runtime(format!("unexpected format {f}")))
+    Err(LuaError::runtime(format!("unexpected format {f}")))
 }
 
 fn lua_lam_read_unicode<'lua, R>(
-    vm: &'lua mlua::Lua,
+    vm: &'lua Lua,
     lam: &LuaLam<R>,
     i: Option<usize>,
-) -> mlua::Result<mlua::Value<'lua>>
+) -> LuaResult<LuaValue<'lua>>
 where
     R: Read + 'lua,
 {
@@ -110,25 +116,21 @@ where
     vm.to_value(&std::str::from_utf8(&buf).ok())
 }
 
-fn lua_lam_get<'lua, R>(
-    vm: &'lua mlua::Lua,
-    lam: &LuaLam<R>,
-    key: String,
-) -> mlua::Result<mlua::Value<'lua>>
+fn lua_lam_get<'lua, R>(vm: &'lua Lua, lam: &LuaLam<R>, key: String) -> LuaResult<LuaValue<'lua>>
 where
     R: Read + 'lua,
 {
     if let Ok(v) = lam.store.get(key.as_str()) {
         return vm.to_value(&v.clone());
     }
-    Ok(mlua::Value::Nil)
+    Ok(LuaNil)
 }
 
 fn lua_lam_set<'lua, R>(
-    vm: &'lua mlua::Lua,
+    vm: &'lua Lua,
     lam: &LuaLam<R>,
-    (key, value): (String, mlua::Value<'lua>),
-) -> mlua::Result<mlua::Value<'lua>>
+    (key, value): (String, LuaValue<'lua>),
+) -> LuaResult<LuaValue<'lua>>
 where
     R: Read,
 {
@@ -136,16 +138,16 @@ where
         Ok(_) => Ok(value),
         Err(err) => {
             error!(?err, "failed to insert value");
-            Err(mlua::Error::runtime("failed to insert value"))
+            Err(LuaError::runtime("failed to insert value"))
         }
     }
 }
 
 fn lua_lam_update<'lua, R>(
-    vm: &'lua mlua::Lua,
+    vm: &'lua Lua,
     lam: &LuaLam<R>,
-    (key, f, default_v): (String, mlua::Function<'lua>, mlua::Value<'lua>),
-) -> mlua::Result<mlua::Value<'lua>>
+    (key, f, default_v): (String, LuaFunction<'lua>, LuaValue<'lua>),
+) -> LuaResult<LuaValue<'lua>>
 where
     R: Read + 'lua,
 {
@@ -179,20 +181,20 @@ where
         .update(key, g, &vm.from_value(default_v)?)
         .map_err(|err| {
             error!(?err, "failed to update value");
-            mlua::Error::runtime("failed to update value")
+            LuaError::runtime("failed to update value")
         })?;
     vm.to_value(&v)
 }
 
-impl<R> UserData for LuaLam<R>
+impl<R> LuaUserData for LuaLam<R>
 where
     for<'lua> R: Read + 'lua,
 {
-    fn add_fields<'lua, F: mlua::prelude::LuaUserDataFields<'lua, Self>>(fields: &mut F) {
+    fn add_fields<'lua, F: LuaUserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field("_VERSION", env!("CARGO_PKG_VERSION"));
     }
 
-    fn add_methods<'lua, M: mlua::prelude::LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method("get", lua_lam_get);
         methods.add_method("read", lua_lam_read);
         methods.add_method("read_unicode", lua_lam_read_unicode);

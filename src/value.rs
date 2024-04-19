@@ -1,4 +1,4 @@
-use mlua::UserData;
+use mlua::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -60,4 +60,4 @@ impl std::fmt::Display for LamValue {
     }
 }
 
-impl UserData for LamValue {}
+impl LuaUserData for LamValue {}
