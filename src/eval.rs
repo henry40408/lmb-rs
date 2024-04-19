@@ -20,7 +20,7 @@ where
     pub input: R,
     pub name: Option<String>,
     pub script: String,
-    pub store: LamStore,
+    pub store: Option<LamStore>,
     pub timeout: Option<u64>,
 }
 
@@ -33,7 +33,7 @@ where
             input,
             name: None,
             script: script.as_ref().to_string(),
-            store: LamStore::default(),
+            store: None,
             timeout: None,
         }
     }
@@ -49,7 +49,7 @@ where
     }
 
     pub fn set_store(mut self, store: LamStore) -> Self {
-        self.store = store;
+        self.store = Some(store);
         self
     }
 
@@ -71,7 +71,6 @@ where
         Evaluation {
             compiled,
             name: self.name.unwrap_or_default(),
-            script: self.script,
             store: self.store,
             timeout: Duration::from_secs(self.timeout.unwrap_or(DEFAULT_TIMEOUT)),
             vm,
@@ -89,8 +88,7 @@ pub struct EvalResult {
 pub struct Evaluation {
     pub compiled: Vec<u8>,
     pub name: String,
-    pub script: String,
-    pub store: LamStore,
+    pub store: Option<LamStore>,
     pub timeout: Duration,
     pub vm: Lua,
 }

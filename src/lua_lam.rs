@@ -10,18 +10,18 @@ where
     R: Read,
 {
     input: LamInput<R>,
-    store: LamStore,
+    store: Option<LamStore>,
 }
 
 impl<R> LuaLam<R>
 where
     for<'lua> R: Read + 'lua,
 {
-    pub fn new(input: LamInput<R>, store: LamStore) -> Self {
+    pub fn new(input: LamInput<R>, store: Option<LamStore>) -> Self {
         Self { input, store }
     }
 
-    pub fn register(vm: &Lua, input: LamInput<R>, store: LamStore) -> LamResult<()> {
+    pub fn register(vm: &Lua, input: LamInput<R>, store: Option<LamStore>) -> LamResult<()> {
         let loaded = vm.named_registry_value::<LuaTable<'_>>(K_LOADED)?;
         loaded.set("@lam", LuaLam::new(input, store))?;
         vm.set_named_registry_value(K_LOADED, loaded)?;
@@ -120,7 +120,12 @@ fn lua_lam_get<'lua, R>(vm: &'lua Lua, lam: &LuaLam<R>, key: String) -> LuaResul
 where
     R: Read + 'lua,
 {
-    if let Ok(v) = lam.store.get(key.as_str()) {
+    let store = if let Some(s) = &lam.store {
+        s
+    } else {
+        return Ok(LuaNil);
+    };
+    if let Ok(v) = store.get(key.as_str()) {
         return vm.to_value(&v.clone());
     }
     Ok(LuaNil)
@@ -134,7 +139,12 @@ fn lua_lam_set<'lua, R>(
 where
     R: Read,
 {
-    match lam.store.insert(key, &vm.from_value(value.clone())?) {
+    let store = if let Some(s) = &lam.store {
+        s
+    } else {
+        return Ok(LuaNil);
+    };
+    match store.insert(key, &vm.from_value(value.clone())?) {
         Ok(_) => Ok(value),
         Err(err) => {
             error!(?err, "failed to insert value");
@@ -176,8 +186,13 @@ where
         *old = new;
     };
 
-    let v = lam
-        .store
+    let store = if let Some(s) = &lam.store {
+        s
+    } else {
+        return Ok(LuaNil);
+    };
+
+    let v = store
         .update(key, g, &vm.from_value(default_v)?)
         .map_err(|err| {
             error!(?err, "failed to update value");
