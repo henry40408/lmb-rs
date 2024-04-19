@@ -1,6 +1,5 @@
 use crate::*;
 use mlua::prelude::*;
-use parking_lot::Mutex;
 use std::{
     io::{BufReader, Read},
     sync::{
@@ -65,7 +64,7 @@ where
             compiler.compile(&self.script)
         };
 
-        let input = Arc::new(Mutex::new(BufReader::new(self.input)));
+        let input = BufReader::new(self.input);
         LuaLam::register(&vm, input, self.store.clone()).expect("failed to register");
 
         Evaluation {
