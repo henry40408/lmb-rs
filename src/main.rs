@@ -209,7 +209,6 @@ async fn serve_file(
         store
     } else {
         let store = LamStore::default();
-        store.migrate()?;
         warn!("no store path is specified, an in-memory store will be used and values will be lost when process ends");
         store
     };

@@ -142,15 +142,9 @@ mod tests {
     use std::fs;
     use test_case::test_case;
 
-    fn new_store() -> LamStore {
-        let store = LamStore::default();
-        store.migrate().unwrap();
-        store
-    }
-
     #[test_case("./lua-examples/07-error.lua")]
     fn error_in_script(path: &str) {
-        let store = new_store();
+        let store = LamStore::default();
         let script = fs::read_to_string(path).unwrap();
         let e = EvalBuilder::new(&b""[..], &script).set_store(store).build();
         assert!(e.evaluate().is_err());
@@ -169,7 +163,7 @@ mod tests {
     }.into())]
     #[test_case("09-read-unicode.lua", "你好，世界", "你好".into())]
     fn evaluate_examples(filename: &str, input: &'static str, expected: LamValue) {
-        let store = new_store();
+        let store = LamStore::default();
         let script = fs::read_to_string(format!("./lua-examples/{filename}")).unwrap();
         let e = EvalBuilder::new(input.as_bytes(), &script)
             .set_store(store)

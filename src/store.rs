@@ -95,11 +95,14 @@ impl LamStore {
 
 impl Default for LamStore {
     fn default() -> Self {
-        Self {
-            conn: Arc::new(Mutex::new(
-                Connection::open_in_memory().expect("failed to open sqlite in memory"),
-            )),
-        }
+        let conn = Connection::open_in_memory().expect("failed to open sqlite in memory");
+        let store = Self {
+            conn: Arc::new(Mutex::new(conn)),
+        };
+        store
+            .migrate()
+            .expect("failed to migrate database in memory");
+        store
     }
 }
 
@@ -110,16 +113,10 @@ mod tests {
     use std::thread;
     use test_case::test_case;
 
-    fn new_store() -> LamStore {
-        let store = LamStore::default();
-        store.migrate().unwrap();
-        store
-    }
-
     #[test_case(vec![true.into(), 1f64.into(), "hello".into()].into())]
     #[test_case(hashmap! { "b".into() => true.into() }.into())]
     fn complicated_types(value: LamValue) {
-        let store = new_store();
+        let store = LamStore::default();
         store.insert("value", &value).unwrap();
         assert_eq!("table: 0x0", store.get("value").unwrap().to_string());
     }
@@ -133,7 +130,7 @@ mod tests {
         end, 0)
         "#;
 
-        let store = new_store();
+        let store = LamStore::default();
 
         let mut threads = vec![];
         for _ in 0..=1000 {
@@ -159,7 +156,7 @@ mod tests {
         return a
         "#;
 
-        let store = new_store();
+        let store = LamStore::default();
         store.insert("a", &1.23.into()).unwrap();
 
         let e = EvalBuilder::new(input, script).set_store(store).build();
@@ -171,7 +168,7 @@ mod tests {
 
     #[test]
     fn migrate() {
-        let store = new_store();
+        let store = LamStore::default();
         store.migrate().unwrap(); // duplicated
     }
 
@@ -182,7 +179,7 @@ mod tests {
     #[test_case("nf", 1.23f64.into())]
     #[test_case("s", "hello".into())]
     fn primitive_types(key: &'static str, value: LamValue) {
-        let store = new_store();
+        let store = LamStore::default();
         store.insert(key, &value).unwrap();
         assert_eq!(value, store.get(key).unwrap());
     }
@@ -197,7 +194,7 @@ mod tests {
         return a
         "#;
 
-        let store = new_store();
+        let store = LamStore::default();
         store.insert("a", &LamValue::Number(1f64)).unwrap();
 
         let e = EvalBuilder::new(input, script).set_store(store).build();
@@ -226,7 +223,7 @@ mod tests {
             end
         end, 0)"#;
 
-        let store = new_store();
+        let store = LamStore::default();
         store.insert("a", &LamValue::Number(1f64)).unwrap();
 
         let e = EvalBuilder::new(input, script).set_store(store).build();
