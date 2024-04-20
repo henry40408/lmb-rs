@@ -1,16 +1,14 @@
-use axum::{
-    body::Bytes, extract::State, http::StatusCode, response::IntoResponse, routing::post, Router,
-};
 use clap::{Parser, Subcommand, ValueEnum};
 use lam::{EvalBuilder, LamStore};
 use std::{
     fs,
-    io::{self, Cursor, Read},
+    io::{self, Read},
     path::{self, PathBuf},
 };
-use tower_http::trace::{self, TraceLayer};
-use tracing::{error, info, warn, Level};
+use tracing::Level;
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
+
+mod serve;
 
 #[derive(Parser, Debug)]
 #[command(about, author, long_about=None, version)]
@@ -157,7 +155,7 @@ async fn main() -> anyhow::Result<()> {
         } => {
             let run_migrations = store_options.run_migrations;
             let store_path = store_options.store_path.as_ref();
-            serve_file(&file, &bind, timeout, store_path, run_migrations).await?;
+            serve::serve_file(&file, &bind, timeout, store_path, run_migrations).await?;
         }
         Commands::Store(c) => match c {
             StoreCommands::Migrate { store_path } => {
@@ -166,68 +164,5 @@ async fn main() -> anyhow::Result<()> {
             }
         },
     }
-    Ok(())
-}
-
-#[derive(Clone)]
-struct AppState {
-    script: String,
-    store: LamStore,
-    timeout: u64,
-}
-
-async fn index_route(State(state): State<AppState>, body: Bytes) -> impl IntoResponse {
-    let e = EvalBuilder::new(Cursor::new(body), state.script.clone())
-        .set_timeout(state.timeout)
-        .set_store(state.store.clone())
-        .build();
-    let res = e.evaluate();
-    match res {
-        Ok(res) => (StatusCode::OK, res.result.to_string()),
-        Err(err) => {
-            error!(%err, "failed to run Lua script");
-            (StatusCode::BAD_REQUEST, "".to_string())
-        }
-    }
-}
-
-async fn serve_file(
-    file: &path::PathBuf,
-    bind: &str,
-    timeout: u64,
-    store_path: Option<&PathBuf>,
-    run_migrations: bool,
-) -> anyhow::Result<()> {
-    let script = fs::read_to_string(file)?;
-
-    let store = if let Some(path) = store_path {
-        let store = LamStore::new(path)?;
-        if run_migrations {
-            store.migrate()?;
-        }
-        info!(?path, "open store");
-        store
-    } else {
-        let store = LamStore::default();
-        warn!("no store path is specified, an in-memory store will be used and values will be lost when process ends");
-        store
-    };
-
-    let app_state = AppState {
-        script,
-        store,
-        timeout,
-    };
-    let app = Router::new()
-        .route("/", post(index_route))
-        .layer(
-            TraceLayer::new_for_http()
-                .make_span_with(trace::DefaultMakeSpan::new().level(Level::INFO))
-                .on_response(trace::DefaultOnResponse::new().level(Level::INFO)),
-        )
-        .with_state(app_state);
-    let listener = tokio::net::TcpListener::bind(bind).await?;
-    info!(%bind, "serving lua script");
-    axum::serve(listener, app).await?;
     Ok(())
 }
