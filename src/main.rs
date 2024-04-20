@@ -4,6 +4,7 @@ use std::{
     fs,
     io::{self, Read},
     path::{self, PathBuf},
+    time::Duration,
 };
 use tracing::Level;
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
@@ -53,9 +54,9 @@ enum Commands {
         /// Script path
         #[arg(long)]
         file: Option<path::PathBuf>,
-        /// Timeout
-        #[arg(long, default_value_t = 30)]
-        timeout: u64,
+        /// Timeout in seconds
+        #[arg(long)]
+        timeout: Option<u64>,
         /// Output format
         #[arg(long, value_enum, default_value = "text")]
         output_format: OutputFormat,
@@ -69,10 +70,10 @@ enum Commands {
         bind: String,
         /// Script path
         #[arg(long)]
-        file: path::PathBuf,
-        /// Timeout
-        #[arg(long, default_value_t = 60)]
-        timeout: u64,
+        file: Option<path::PathBuf>,
+        /// Timeout in seconds
+        #[arg(long)]
+        timeout: Option<u64>,
     },
     /// Store commands
     #[command(subcommand)]
@@ -122,12 +123,12 @@ async fn main() -> anyhow::Result<()> {
             timeout,
             ..
         } => {
-            let name = if let Some(ref f) = file {
+            let name = if let Some(f) = &file {
                 f.to_string_lossy().to_string()
             } else {
                 "(stdin)".to_string()
             };
-            let script = if let Some(ref f) = file {
+            let script = if let Some(f) = &file {
                 fs::read_to_string(f)?
             } else {
                 let mut buf = String::new();
@@ -136,6 +137,7 @@ async fn main() -> anyhow::Result<()> {
                     .expect("either file or script via standard input should be provided");
                 buf
             };
+            let timeout = timeout.map(Duration::from_secs);
             let e = EvalBuilder::new(io::stdin(), script)
                 .set_name(name)
                 .set_timeout(timeout)
@@ -153,9 +155,22 @@ async fn main() -> anyhow::Result<()> {
             store_options,
             timeout,
         } => {
-            let run_migrations = store_options.run_migrations;
-            let store_path = store_options.store_path.as_ref();
-            serve::serve_file(&file, &bind, timeout, store_path, run_migrations).await?;
+            let name = if let Some(f) = &file {
+                f.to_string_lossy().to_string()
+            } else {
+                "(stdin)".to_string()
+            };
+            let script = if let Some(f) = &file {
+                fs::read_to_string(f)?
+            } else {
+                let mut buf = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut buf)
+                    .expect("either file or script via standard input should be provided");
+                buf
+            };
+            let timeout = timeout.map(Duration::from_secs);
+            serve::serve_file(&bind, &name, &script, timeout, &store_options).await?;
         }
         Commands::Store(c) => match c {
             StoreCommands::Migrate { store_path } => {

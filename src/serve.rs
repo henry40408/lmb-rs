@@ -1,20 +1,23 @@
+use crate::StoreOptions;
 use axum::{
     body::Bytes, extract::State, http::StatusCode, response::IntoResponse, routing::post, Router,
 };
 use lam::*;
-use std::{fs, io::Cursor, path::PathBuf};
+use std::{io::Cursor, time::Duration};
 use tower_http::trace::{self, TraceLayer};
 use tracing::{error, info, warn, Level};
 
 #[derive(Clone)]
 struct AppState {
+    name: String,
     script: String,
     store: LamStore,
-    timeout: u64,
+    timeout: Option<Duration>,
 }
 
 async fn index_route(State(state): State<AppState>, body: Bytes) -> impl IntoResponse {
     let e = EvalBuilder::new(Cursor::new(body), state.script.clone())
+        .set_name(state.name)
         .set_timeout(state.timeout)
         .set_store(state.store.clone())
         .build();
@@ -28,16 +31,18 @@ async fn index_route(State(state): State<AppState>, body: Bytes) -> impl IntoRes
     }
 }
 
-pub fn init_route(
-    file: &PathBuf,
-    timeout: u64,
-    store_path: Option<&PathBuf>,
-    run_migrations: bool,
-) -> anyhow::Result<Router> {
-    let script = fs::read_to_string(file)?;
-    let store = if let Some(path) = store_path {
-        let store = LamStore::new(path)?;
-        if run_migrations {
+pub fn init_route<S>(
+    name: S,
+    script: S,
+    timeout: Option<Duration>,
+    store_options: &StoreOptions,
+) -> anyhow::Result<Router>
+where
+    S: AsRef<str>,
+{
+    let store = if let Some(path) = &store_options.store_path {
+        let store = LamStore::new(path.as_path())?;
+        if store_options.run_migrations {
             store.migrate()?;
         }
         info!(?path, "open store");
@@ -48,7 +53,8 @@ pub fn init_route(
         store
     };
     let app_state = AppState {
-        script,
+        name: name.as_ref().to_string(),
+        script: script.as_ref().to_string(),
         store,
         timeout,
     };
@@ -63,16 +69,45 @@ pub fn init_route(
     Ok(app)
 }
 
-pub async fn serve_file(
-    file: &PathBuf,
-    bind: &str,
-    timeout: u64,
-    store_path: Option<&PathBuf>,
-    run_migrations: bool,
-) -> anyhow::Result<()> {
-    let app = init_route(file, timeout, store_path, run_migrations)?;
-    let listener = tokio::net::TcpListener::bind(bind).await?;
+pub async fn serve_file<S, T>(
+    bind: T,
+    name: S,
+    script: S,
+    timeout: Option<Duration>,
+    store_options: &StoreOptions,
+) -> anyhow::Result<()>
+where
+    S: AsRef<str>,
+    T: std::fmt::Display + tokio::net::ToSocketAddrs,
+{
+    let app = init_route(name, script, timeout, store_options)?;
+    let listener = tokio::net::TcpListener::bind(&bind).await?;
     info!(%bind, "serving lua script");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use crate::StoreOptions;
+
+    use super::init_route;
+    use axum_test::TestServer;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn serve() {
+        let name = "";
+        let script = "return 1";
+        let timeout = Duration::from_secs(1);
+        let store_options = StoreOptions {
+            store_path: None,
+            run_migrations: true,
+        };
+        let router = init_route(name, script, Some(timeout), &store_options).unwrap();
+        let server = TestServer::new(router.into_make_service()).unwrap();
+        let res = server.post("/").await;
+        assert_eq!(200, res.status_code());
+        assert_eq!("1", res.text());
+    }
 }
