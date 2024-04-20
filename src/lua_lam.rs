@@ -115,9 +115,7 @@ fn lua_lam_get<'lua, R>(vm: &'lua Lua, lam: &LuaLam<R>, key: String) -> LuaResul
 where
     R: Read + 'lua,
 {
-    let store = if let Some(s) = &lam.store {
-        s
-    } else {
+    let Some(store) = &lam.store else {
         return Ok(LuaNil);
     };
     if let Ok(v) = store.get(key.as_str()) {
@@ -134,9 +132,7 @@ fn lua_lam_set<'lua, R>(
 where
     R: Read,
 {
-    let store = if let Some(s) = &lam.store {
-        s
-    } else {
+    let Some(store) = &lam.store else {
         return Ok(LuaNil);
     };
     match store.insert(key, &vm.from_value(value.clone())?) {
@@ -181,9 +177,7 @@ where
         *old = new;
     };
 
-    let store = if let Some(s) = &lam.store {
-        s
-    } else {
+    let Some(store) = &lam.store else {
         return Ok(LuaNil);
     };
 

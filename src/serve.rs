@@ -16,7 +16,7 @@ struct AppState {
 }
 
 async fn index_route(State(state): State<AppState>, body: Bytes) -> impl IntoResponse {
-    let e = EvalBuilder::new(Cursor::new(body), state.script.clone())
+    let e = EvalBuilder::new(Cursor::new(body), &state.script)
         .set_name(state.name)
         .set_timeout(state.timeout)
         .set_store(state.store.clone())
@@ -88,7 +88,7 @@ where
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use crate::StoreOptions;
 
     use super::init_route;

@@ -1,9 +1,9 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use lam::{EvalBuilder, LamStore};
+use lam::{check_syntax, print_error, EvalBuilder, LamStore};
 use std::{
     fs,
     io::{self, Read},
-    path::{self, PathBuf},
+    path::PathBuf,
     time::Duration,
 };
 use tracing::Level;
@@ -47,13 +47,19 @@ struct StoreOptions {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
+    /// Check syntax of script
+    Check {
+        /// Script path
+        #[arg(long)]
+        file: Option<PathBuf>,
+    },
     /// Evaluate a script file
     Eval {
         #[command(flatten)]
         store_options: StoreOptions,
         /// Script path
         #[arg(long)]
-        file: Option<path::PathBuf>,
+        file: Option<PathBuf>,
         /// Timeout in seconds
         #[arg(long)]
         timeout: Option<u64>,
@@ -70,7 +76,7 @@ enum Commands {
         bind: String,
         /// Script path
         #[arg(long)]
-        file: Option<path::PathBuf>,
+        file: Option<PathBuf>,
         /// Timeout in seconds
         #[arg(long)]
         timeout: Option<u64>,
@@ -88,6 +94,24 @@ enum StoreCommands {
         #[arg(long)]
         store_path: PathBuf,
     },
+}
+
+fn file_or_stdin(file: Option<PathBuf>) -> anyhow::Result<(String, String)> {
+    let name = if let Some(f) = &file {
+        f.to_string_lossy().to_string()
+    } else {
+        "(stdin)".to_string()
+    };
+    let script = if let Some(f) = &file {
+        fs::read_to_string(f)?
+    } else {
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .expect("either file or script via standard input should be provided");
+        buf
+    };
+    Ok((name, script))
 }
 
 #[tokio::main]
@@ -117,26 +141,19 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     match cli.command {
+        Commands::Check { file } => {
+            let (name, script) = file_or_stdin(file)?;
+            if let Err(err) = check_syntax(&name, &script) {
+                print_error(name, script, &err)?;
+            }
+        }
         Commands::Eval {
             file,
             output_format,
             timeout,
             ..
         } => {
-            let name = if let Some(f) = &file {
-                f.to_string_lossy().to_string()
-            } else {
-                "(stdin)".to_string()
-            };
-            let script = if let Some(f) = &file {
-                fs::read_to_string(f)?
-            } else {
-                let mut buf = String::new();
-                std::io::stdin()
-                    .read_to_string(&mut buf)
-                    .expect("either file or script via standard input should be provided");
-                buf
-            };
+            let (name, script) = file_or_stdin(file)?;
             let timeout = timeout.map(Duration::from_secs);
             let e = EvalBuilder::new(io::stdin(), script)
                 .set_name(name)
@@ -155,20 +172,7 @@ async fn main() -> anyhow::Result<()> {
             store_options,
             timeout,
         } => {
-            let name = if let Some(f) = &file {
-                f.to_string_lossy().to_string()
-            } else {
-                "(stdin)".to_string()
-            };
-            let script = if let Some(f) = &file {
-                fs::read_to_string(f)?
-            } else {
-                let mut buf = String::new();
-                std::io::stdin()
-                    .read_to_string(&mut buf)
-                    .expect("either file or script via standard input should be provided");
-                buf
-            };
+            let (name, script) = file_or_stdin(file)?;
             let timeout = timeout.map(Duration::from_secs);
             serve::serve_file(&bind, &name, &script, timeout, &store_options).await?;
         }
