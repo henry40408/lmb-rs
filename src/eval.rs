@@ -10,7 +10,7 @@ use std::{
 };
 use tracing::{debug, trace_span};
 
-const DEFAULT_TIMEOUT: u64 = 30;
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct EvalBuilder<R>
 where
@@ -20,7 +20,7 @@ where
     pub name: Option<String>,
     pub script: String,
     pub store: Option<LamStore>,
-    pub timeout: Option<u64>,
+    pub timeout: Option<Duration>,
 }
 
 impl<R> EvalBuilder<R>
@@ -42,8 +42,8 @@ where
         self
     }
 
-    pub fn set_timeout(mut self, timeout: u64) -> Self {
-        self.timeout = Some(timeout);
+    pub fn set_timeout(mut self, timeout: Option<Duration>) -> Self {
+        self.timeout = timeout;
         self
     }
 
@@ -71,7 +71,7 @@ where
             compiled,
             name: self.name.unwrap_or_default(),
             store: self.store,
-            timeout: Duration::from_secs(self.timeout.unwrap_or(DEFAULT_TIMEOUT)),
+            timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
             vm,
         }
     }
@@ -138,7 +138,7 @@ impl Evaluation {
 mod tests {
     use crate::*;
     use maplit::hashmap;
-    use std::fs;
+    use std::{fs, time::Duration};
     use test_case::test_case;
 
     #[test_case("./lua-examples/07-error.lua")]
@@ -173,17 +173,17 @@ mod tests {
 
     #[test]
     fn evaluate_infinite_loop() {
-        let timeout = 1;
+        let timeout = Duration::from_secs(1);
 
         let input: &[u8] = &[];
         let e = EvalBuilder::new(input, r#"while true do end"#)
-            .set_timeout(timeout)
+            .set_timeout(Some(timeout))
             .build();
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::None, res.result);
 
         let duration = res.duration;
-        assert_eq!(timeout, duration.as_secs());
+        assert_eq!(timeout.as_secs(), duration.as_secs());
     }
 
     #[test_case("return 1+1", "2")]
