@@ -1,5 +1,6 @@
+use annotate_snippets::Renderer;
 use clap::{Parser, Subcommand, ValueEnum};
-use lam::{check_syntax, print_error, EvalBuilder, LamStore};
+use lam::{check_syntax, render_error, EvalBuilder, LamStore};
 use std::{
     fs,
     io::{self, Read},
@@ -14,6 +15,10 @@ mod serve;
 #[derive(Parser, Debug)]
 #[command(about, author, long_about=None, version)]
 struct Cli {
+    /// Checks the syntax of the function, disabled by default for performance reasons
+    #[arg(long, env = "CHECK_SYNTAX")]
+    check_syntax: bool,
+
     /// Debug mode
     #[arg(long, short = 'd', env = "DEBUG")]
     debug: bool,
@@ -96,6 +101,24 @@ enum StoreCommands {
     },
 }
 
+fn do_check_syntax<S: AsRef<str>>(no_color: bool, name: S, script: S) -> bool {
+    match check_syntax(script.as_ref()) {
+        Ok(_) => true,
+        Err(error) => {
+            let message = render_error(name.as_ref(), script.as_ref(), &error)
+                .expect("unexpected error found");
+            let renderer = if no_color {
+                Renderer::plain()
+            } else {
+                Renderer::styled()
+            };
+            let rendered = renderer.render(message);
+            eprintln!("{rendered}");
+            false
+        }
+    }
+}
+
 fn file_or_stdin(file: Option<PathBuf>) -> anyhow::Result<(String, String)> {
     let name = if let Some(f) = &file {
         f.to_string_lossy().to_string()
@@ -143,9 +166,7 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Check { file } => {
             let (name, script) = file_or_stdin(file)?;
-            if let Err(err) = check_syntax(&name, &script) {
-                print_error(name, script, &err)?;
-            }
+            do_check_syntax(cli.no_color, name, script);
         }
         Commands::Eval {
             file,
@@ -154,6 +175,9 @@ async fn main() -> anyhow::Result<()> {
             ..
         } => {
             let (name, script) = file_or_stdin(file)?;
+            if cli.check_syntax && !do_check_syntax(cli.no_color, &name, &script) {
+                return Ok(());
+            }
             let timeout = timeout.map(Duration::from_secs);
             let e = EvalBuilder::new(io::stdin(), script)
                 .set_name(name)
@@ -173,6 +197,9 @@ async fn main() -> anyhow::Result<()> {
             timeout,
         } => {
             let (name, script) = file_or_stdin(file)?;
+            if cli.check_syntax && !do_check_syntax(cli.no_color, &name, &script) {
+                return Ok(());
+            }
             let timeout = timeout.map(Duration::from_secs);
             serve::serve_file(&bind, &name, &script, timeout, &store_options).await?;
         }
