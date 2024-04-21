@@ -1,5 +1,6 @@
+use annotate_snippets::Renderer;
 use clap::{Parser, Subcommand, ValueEnum};
-use lam::{check_syntax, print_error, EvalBuilder, LamStore};
+use lam::{check_syntax, render_error, EvalBuilder, LamStore};
 use std::{
     fs,
     io::{self, Read},
@@ -143,8 +144,16 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Check { file } => {
             let (name, script) = file_or_stdin(file)?;
-            if let Err(err) = check_syntax(&name, &script) {
-                print_error(name, script, &err)?;
+            if let Err(err) = check_syntax(&script) {
+                if let Some(message) = render_error(&name, &script, &err) {
+                    let renderer = if cli.no_color {
+                        Renderer::plain()
+                    } else {
+                        Renderer::styled()
+                    };
+                    let rendered = renderer.render(message);
+                    eprintln!("{rendered}");
+                }
             }
         }
         Commands::Eval {

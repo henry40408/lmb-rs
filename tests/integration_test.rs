@@ -8,11 +8,14 @@ mod tests {
     fn check_stdin() {
         let mut cmd = Command::cargo_bin("lam").unwrap();
         cmd.write_stdin("ret true");
-        cmd.args(["check"]);
+        cmd.args(["--no-color", "check"]);
         cmd.assert().success().stderr(
-            r#"syntax error: Incomplete statement: expected assignment or a function call
---> (stdin):1
-1 | ret true -- Incomplete statement: expected assignment or a function call
+            r#"error: leftover token
+ --> (stdin):1:1
+  |
+1 | ret true
+  | ^^^ leftover token
+  |
 "#,
         );
     }
