@@ -41,27 +41,26 @@ where
         if f == "*a" || f == "*all" {
             // accepts *a or *all
             let mut buf = Vec::new();
-            let count = lam.input.read_to_end(&mut buf)?;
+            let count = lam.input.read_to_end(&mut buf).into_lua_err()?;
             if count == 0 {
                 return Ok(LuaValue::Nil);
             }
-            let s = String::from_utf8(buf).unwrap_or_default();
-            return Ok(LuaValue::String(vm.create_string(s)?));
+            return String::from_utf8(buf).into_lua_err()?.into_lua(vm);
         }
         if f == "*l" || f == "*line" {
             // accepts *l or *line
             let mut buf = String::new();
-            let count = lam.input.read_line(&mut buf)?;
+            let count = lam.input.read_line(&mut buf).into_lua_err()?;
             if count == 0 {
                 return Ok(LuaNil);
             }
             // in Lua, *l doesn't include newline character
-            return Ok(LuaValue::String(vm.create_string(buf.trim_end())?));
+            return buf.trim().into_lua(vm);
         }
         if f == "*n" || f == "*number" {
             // accepts *n or *number
             let mut buf = String::new();
-            let count = lam.input.read_to_string(&mut buf)?;
+            let count = lam.input.read_to_string(&mut buf).into_lua_err()?;
             if count == 0 {
                 return Ok(LuaNil);
             }
@@ -71,16 +70,20 @@ where
 
     if let Some(i) = f.as_usize() {
         let mut buf = Vec::with_capacity(i);
-        let count = lam.input.by_ref().take(i as u64).read_to_end(&mut buf)?;
+        let count = lam
+            .input
+            .by_ref()
+            .take(i as u64)
+            .read_to_end(&mut buf)
+            .into_lua_err()?;
         if count == 0 {
             return Ok(LuaNil);
         }
         buf.truncate(count);
-        let s = vm.create_string(buf)?;
-        return Ok(LuaValue::String(s));
+        return String::from_utf8(buf).into_lua_err()?.into_lua(vm);
     }
 
-    let f = f.as_str().unwrap_or("?");
+    let f = f.to_string().into_lua_err()?;
     Err(LuaError::runtime(format!("unexpected format {f}")))
 }
 
@@ -96,7 +99,10 @@ where
     let mut remaining = i.unwrap_or(0);
     let mut single = 0;
     while remaining > 0 {
-        let count = lam.input.read(std::slice::from_mut(&mut single))?;
+        let count = lam
+            .input
+            .read(std::slice::from_mut(&mut single))
+            .into_lua_err()?;
         if count == 0 {
             break;
         }
@@ -152,41 +158,23 @@ fn lua_lam_update<'lua, R>(
 where
     R: Read + 'lua,
 {
-    let g = |old: &mut LamValue| {
-        let old_v = match vm.to_value(old) {
-            Ok(v) => v,
-            Err(err) => {
-                error!(?err, "failed to convert store value");
-                return;
-            }
-        };
-        let new_v = match f.call(old_v) {
-            Ok(v) => v,
-            Err(err) => {
-                error!(?err, "failed to run the function");
-                return;
-            }
-        };
-        let new = match vm.from_value(new_v) {
-            Ok(v) => v,
-            Err(err) => {
-                error!(?err, "failed to convert new value");
-                return;
-            }
-        };
+    let g = |old: &mut LamValue| -> LuaResult<()> {
+        let old_v = vm.to_value(old)?;
+        let new_v = f.call(old_v).into_lua_err()?;
+        let new = vm.from_value(new_v)?;
         *old = new;
+        Ok(())
     };
 
     let Some(store) = &lam.store else {
+        // the function throws an error instead of returing a new value,
+        // return the old value instead.
         return Ok(LuaNil);
     };
 
     let v = store
         .update(key, g, &vm.from_value(default_v)?)
-        .map_err(|err| {
-            error!(?err, "failed to update value");
-            LuaError::runtime("failed to update value")
-        })?;
+        .into_lua_err()?;
     vm.to_value(&v)
 }
 
