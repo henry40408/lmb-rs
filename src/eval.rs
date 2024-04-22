@@ -56,20 +56,12 @@ where
         let vm = Lua::new();
         vm.sandbox(true).expect("failed to enable sandbox");
 
-        let compiler = mlua::Compiler::new();
-        let compiled = {
-            let name = &self.name;
-            let script = &self.script;
-            let _ = trace_span!("compile script", name, script).entered();
-            compiler.compile(&self.script)
-        };
-
         let input = self.input.map(BufReader::new);
         LuaLam::register(&vm, input, self.store.clone()).expect("failed to register");
 
         Evaluation {
-            compiled,
             name: self.name.unwrap_or_default(),
+            script: self.script,
             store: self.store,
             timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
             vm,
@@ -105,8 +97,8 @@ pub struct EvalResult {
 }
 
 pub struct Evaluation {
-    pub compiled: Vec<u8>,
     pub name: String,
+    pub script: String,
     pub store: Option<LamStore>,
     pub timeout: Duration,
     pub vm: Lua,
@@ -133,7 +125,7 @@ impl Evaluation {
             }
         });
 
-        let chunk = vm.load(&self.compiled).set_name(&self.name);
+        let chunk = vm.load(&self.script).set_name(&self.name);
         let co = vm.create_thread(chunk.into_function()?)?;
         let _ = trace_span!("evaluate", name = &self.name).entered();
         loop {

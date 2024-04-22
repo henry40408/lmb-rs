@@ -10,19 +10,25 @@ static SCRIPT: &str = "return true";
 /// evaluation
 
 fn lam_evaluate(bencher: &mut Bencher) {
-    let e = EvalBuilder::new(SCRIPT).build();
-    bencher.iter(|| e.evaluate().unwrap());
+    bencher.iter(|| {
+        let e = EvalBuilder::new(SCRIPT).build();
+        e.evaluate().unwrap()
+    });
 }
 
-fn mlua_load_eval(bencher: &mut Bencher) {
-    let vm = Lua::new();
-    bencher.iter(|| vm.load(SCRIPT).eval::<bool>());
+fn mlua_eval(bencher: &mut Bencher) {
+    bencher.iter(|| {
+        let vm = Lua::new();
+        vm.load(SCRIPT).eval::<bool>()
+    });
 }
 
-fn mlua_call_function(bencher: &mut Bencher) {
-    let vm = Lua::new();
-    let f = vm.load(SCRIPT).into_function().unwrap();
-    bencher.iter(|| f.call::<_, bool>(()).unwrap());
+fn mlua_sandbox_eval(bencher: &mut Bencher) {
+    bencher.iter(|| {
+        let vm = Lua::new();
+        vm.sandbox(true).unwrap();
+        vm.load(SCRIPT).eval::<bool>()
+    });
 }
 
 /// store
@@ -85,7 +91,7 @@ fn read_from_buf_reader(bencher: &mut Bencher) {
     });
 }
 
-benchmark_group!(evaluation, lam_evaluate, mlua_load_eval, mlua_call_function);
+benchmark_group!(evaluation, lam_evaluate, mlua_eval, mlua_sandbox_eval);
 benchmark_group!(
     read,
     lam_read_all,
