@@ -69,7 +69,7 @@ impl LamStore {
     pub fn update<S: AsRef<str>>(
         &self,
         name: S,
-        f: impl FnOnce(&mut LamValue),
+        f: impl FnOnce(&mut LamValue) -> mlua::Result<()>,
         default_v: &LamValue,
     ) -> LamResult<LamValue> {
         let mut conn = self.conn.lock();
@@ -83,7 +83,9 @@ impl LamStore {
         };
 
         let mut deserialized = rmp_serde::from_slice(&v)?;
-        f(&mut deserialized);
+        let Ok(_) = f(&mut deserialized) else {
+            return Ok(deserialized);
+        };
         let serialized = rmp_serde::to_vec(&deserialized)?;
 
         tx.execute(UPDATE_SQL, (name, serialized))?;
