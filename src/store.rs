@@ -125,7 +125,6 @@ mod tests {
 
     #[test]
     fn concurrency() {
-        let input: &[u8] = &[];
         let script = r#"
         return require('@lam'):update('a', function(v)
             return v+1
@@ -138,7 +137,7 @@ mod tests {
         for _ in 0..=1000 {
             let store = store.clone();
             threads.push(thread::spawn(move || {
-                let e = EvalBuilder::new(input, script).set_store(store).build();
+                let e = EvalBuilder::new(script).set_store(store).build();
                 e.evaluate().unwrap();
             }));
         }
@@ -150,7 +149,6 @@ mod tests {
 
     #[test]
     fn get_set() {
-        let input: &[u8] = &[];
         let script = r#"
         local m = require('@lam')
         local a = m:get('a')
@@ -161,7 +159,7 @@ mod tests {
         let store = LamStore::default();
         store.insert("a", &1.23.into()).unwrap();
 
-        let e = EvalBuilder::new(input, script).set_store(store).build();
+        let e = EvalBuilder::new(script).set_store(store).build();
 
         let res = e.evaluate().unwrap();
         assert_eq!("1.23", res.result.to_string());
@@ -188,7 +186,6 @@ mod tests {
 
     #[test]
     fn reuse() {
-        let input: &[u8] = &[];
         let script = r#"
         local m = require('@lam')
         local a = m:get('a')
@@ -199,7 +196,7 @@ mod tests {
         let store = LamStore::default();
         store.insert("a", &LamValue::Number(1f64)).unwrap();
 
-        let e = EvalBuilder::new(input, script).set_store(store).build();
+        let e = EvalBuilder::new(script).set_store(store).build();
 
         {
             let res = e.evaluate().unwrap();
@@ -219,7 +216,6 @@ mod tests {
 
     #[test_log::test]
     fn rollback_when_error() {
-        let input: &[u8] = &[];
         let script = r#"return require('@lam'):update('a', function(v)
             if v == 1 then
                 error('something went wrong')
@@ -231,7 +227,7 @@ mod tests {
         let store = LamStore::default();
         store.insert("a", &LamValue::Number(1f64)).unwrap();
 
-        let e = EvalBuilder::new(input, script).set_store(store).build();
+        let e = EvalBuilder::new(script).set_store(store).build();
 
         let res = e.evaluate().unwrap();
         assert_eq!("1", res.result.to_string());

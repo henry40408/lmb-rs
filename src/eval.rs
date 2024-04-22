@@ -16,7 +16,7 @@ pub struct EvalBuilder<R>
 where
     R: Read,
 {
-    pub input: R,
+    pub input: Option<R>,
     pub name: Option<String>,
     pub script: String,
     pub store: Option<LamStore>,
@@ -27,13 +27,13 @@ impl<R> EvalBuilder<R>
 where
     for<'lua> R: Read + 'lua,
 {
-    pub fn new<S: AsRef<str>>(input: R, script: S) -> Self {
-        Self {
+    pub fn set_input<S: Read>(self, input: Option<S>) -> EvalBuilder<S> {
+        EvalBuilder {
             input,
-            name: None,
-            script: script.as_ref().to_string(),
-            store: None,
-            timeout: None,
+            name: self.name,
+            script: self.script,
+            store: self.store,
+            timeout: self.timeout,
         }
     }
 
@@ -64,7 +64,7 @@ where
             compiler.compile(&self.script)
         };
 
-        let input = BufReader::new(self.input);
+        let input = self.input.map(BufReader::new);
         LuaLam::register(&vm, input, self.store.clone()).expect("failed to register");
 
         Evaluation {
@@ -73,6 +73,26 @@ where
             store: self.store,
             timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
             vm,
+        }
+    }
+}
+
+pub struct NoInput {}
+
+impl Read for NoInput {
+    fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+        unreachable!()
+    }
+}
+
+impl EvalBuilder<NoInput> {
+    pub fn new<S: AsRef<str>>(script: S) -> Self {
+        Self {
+            input: None,
+            name: None,
+            script: script.as_ref().to_string(),
+            store: None,
+            timeout: None,
         }
     }
 }
@@ -145,7 +165,7 @@ mod tests {
     fn error_in_script(path: &str) {
         let store = LamStore::default();
         let script = fs::read_to_string(path).unwrap();
-        let e = EvalBuilder::new(&b""[..], &script).set_store(store).build();
+        let e = EvalBuilder::new(script).set_store(store).build();
         assert!(e.evaluate().is_err());
     }
 
@@ -164,7 +184,8 @@ mod tests {
     fn evaluate_examples(filename: &str, input: &'static str, expected: LamValue) {
         let store = LamStore::default();
         let script = fs::read_to_string(format!("./lua-examples/{filename}")).unwrap();
-        let e = EvalBuilder::new(input.as_bytes(), &script)
+        let e = EvalBuilder::new(&script)
+            .set_input(Some(input.as_bytes()))
             .set_store(store)
             .build();
         let res = e.evaluate().expect(&script);
@@ -175,8 +196,7 @@ mod tests {
     fn evaluate_infinite_loop() {
         let timeout = Duration::from_secs(1);
 
-        let input: &[u8] = &[];
-        let e = EvalBuilder::new(input, r#"while true do end"#)
+        let e = EvalBuilder::new(r#"while true do end"#)
             .set_timeout(Some(timeout))
             .build();
         let res = e.evaluate().unwrap();
@@ -190,7 +210,7 @@ mod tests {
     #[test_case("return 'a'..1", "a1")]
     #[test_case("return require('@lam')._VERSION", "0.1.0")]
     fn evaluate_scripts(script: &str, expected: &str) {
-        let e = EvalBuilder::new(&b""[..], script).build();
+        let e = EvalBuilder::new(script).build();
         let res = e.evaluate().expect(script);
         assert_eq!(expected, res.result.to_string());
     }
@@ -198,9 +218,10 @@ mod tests {
     #[test]
     fn reevaluate() {
         let input = "foo\nbar";
-
         let script = r#"return require('@lam'):read('*l')"#;
-        let e = EvalBuilder::new(input.as_bytes(), script).build();
+        let e = EvalBuilder::new(script)
+            .set_input(Some(input.as_bytes()))
+            .build();
 
         let res = e.evaluate().unwrap();
         assert_eq!("foo", res.result.to_string());
@@ -219,17 +240,15 @@ mod tests {
     #[test_case(r#"return {a=true,b=1.23,c="hello"}"#, "table: 0x0")]
     #[test_case(r#"return {true,1.23,"hello"}"#, "table: 0x0")]
     fn return_to_string(script: &str, expected: &str) {
-        let input: &[u8] = &[];
-        let e = EvalBuilder::new(input, script).build();
+        let e = EvalBuilder::new(script).build();
         let res = e.evaluate().expect(script);
         assert_eq!(expected, res.result.to_string());
     }
 
     #[test]
     fn syntax_error() {
-        let input: &[u8] = &[];
         let script = "ret true"; // code with syntax error
-        let e = EvalBuilder::new(input, script).build();
+        let e = EvalBuilder::new(script).build();
         assert!(e.evaluate().is_err());
     }
 }
