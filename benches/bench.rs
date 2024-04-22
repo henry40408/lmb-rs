@@ -11,7 +11,7 @@ static SCRIPT: &str = "return true";
 
 fn lam_evaluate(bencher: &mut Bencher) {
     bencher.iter(|| {
-        let e = EvalBuilder::new(SCRIPT).build();
+        let e = EvalBuilder::new(SCRIPT.into()).build();
         e.evaluate().unwrap()
     });
 }
@@ -35,7 +35,7 @@ fn mlua_sandbox_eval(bencher: &mut Bencher) {
 
 fn lam_no_store(bencher: &mut Bencher) {
     bencher.iter(|| {
-        let e = EvalBuilder::new(SCRIPT).build();
+        let e = EvalBuilder::new(SCRIPT.into()).build();
         e.evaluate().unwrap()
     });
 }
@@ -43,7 +43,7 @@ fn lam_no_store(bencher: &mut Bencher) {
 fn lam_default_store(bencher: &mut Bencher) {
     bencher.iter(|| {
         let store = LamStore::default();
-        let e = EvalBuilder::new(SCRIPT).set_store(store).build();
+        let e = EvalBuilder::new(SCRIPT.into()).set_store(store).build();
         e.evaluate().unwrap()
     });
 }
@@ -54,7 +54,7 @@ fn lam_read_all(bencher: &mut Bencher) {
     let input = "1";
     let script = "return require('@lam'):read('*a')";
     bencher.iter(|| {
-        let e = EvalBuilder::new(script)
+        let e = EvalBuilder::new(script.into())
             .set_input(Some(input.as_bytes()))
             .build();
         e.evaluate().unwrap()
@@ -65,7 +65,7 @@ fn lam_read_line(bencher: &mut Bencher) {
     let input = "1";
     let script = "return require('@lam'):read('*l')";
     bencher.iter(|| {
-        let e = EvalBuilder::new(script)
+        let e = EvalBuilder::new(script.into())
             .set_input(Some(input.as_bytes()))
             .build();
         e.evaluate().unwrap()
@@ -76,7 +76,7 @@ fn lam_read_number(bencher: &mut Bencher) {
     let input = "1";
     let script = "return require('@lam'):read('*n')";
     bencher.iter(|| {
-        let e = EvalBuilder::new(script)
+        let e = EvalBuilder::new(script.into())
             .set_input(Some(input.as_bytes()))
             .build();
         e.evaluate().unwrap()

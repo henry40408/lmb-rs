@@ -2,6 +2,7 @@ use annotate_snippets::Renderer;
 use clap::{Parser, Subcommand, ValueEnum};
 use lam::{check_syntax, render_error, EvalBuilder, LamStore};
 use std::{
+    borrow::Cow,
     fs,
     io::{self, Read},
     path::PathBuf,
@@ -119,20 +120,20 @@ fn do_check_syntax<S: AsRef<str>>(no_color: bool, name: S, script: S) -> bool {
     }
 }
 
-fn file_or_stdin(file: Option<PathBuf>) -> anyhow::Result<(String, String)> {
+fn file_or_stdin<'a>(file: Option<PathBuf>) -> anyhow::Result<(Cow<'a, str>, Cow<'a, str>)> {
     let name = if let Some(f) = &file {
-        f.to_string_lossy().to_string()
+        Cow::Owned(f.to_string_lossy().to_string())
     } else {
-        "(stdin)".to_string()
+        Cow::Borrowed("(stdin)")
     };
     let script = if let Some(f) = &file {
-        fs::read_to_string(f)?
+        Cow::Owned(fs::read_to_string(f)?)
     } else {
         let mut buf = String::new();
         std::io::stdin()
             .read_to_string(&mut buf)
             .expect("either file or script via standard input should be provided");
-        buf
+        Cow::Owned(buf)
     };
     Ok((name, script))
 }
@@ -202,7 +203,7 @@ async fn main() -> anyhow::Result<()> {
                 return Ok(());
             }
             let timeout = timeout.map(Duration::from_secs);
-            serve::serve_file(&bind, &name, &script, timeout, &store_options).await?;
+            serve::serve_file(&bind, name, script, timeout, &store_options).await?;
         }
         Commands::Store(c) => match c {
             StoreCommands::Migrate { store_path } => {

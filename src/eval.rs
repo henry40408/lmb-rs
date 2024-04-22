@@ -1,6 +1,7 @@
 use crate::*;
 use mlua::prelude::*;
 use std::{
+    borrow::Cow,
     io::{BufReader, Read},
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -12,22 +13,22 @@ use tracing::{debug, trace_span};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
-pub struct EvalBuilder<R>
+pub struct EvalBuilder<'a, R>
 where
     R: Read,
 {
     pub input: Option<R>,
-    pub name: Option<String>,
-    pub script: String,
+    pub name: Option<Cow<'a, str>>,
+    pub script: Cow<'a, str>,
     pub store: Option<LamStore>,
     pub timeout: Option<Duration>,
 }
 
-impl<R> EvalBuilder<R>
+impl<'a, R> EvalBuilder<'a, R>
 where
     for<'lua> R: Read + 'lua,
 {
-    pub fn set_input<S: Read>(self, input: Option<S>) -> EvalBuilder<S> {
+    pub fn set_input<S: Read>(self, input: Option<S>) -> EvalBuilder<'a, S> {
         EvalBuilder {
             input,
             name: self.name,
@@ -37,7 +38,7 @@ where
         }
     }
 
-    pub fn set_name(mut self, name: String) -> Self {
+    pub fn set_name(mut self, name: Cow<'a, str>) -> Self {
         self.name = Some(name);
         self
     }
@@ -52,7 +53,7 @@ where
         self
     }
 
-    pub fn build(self) -> Evaluation {
+    pub fn build(self) -> Evaluation<'a> {
         let vm = Lua::new();
         vm.sandbox(true).expect("failed to enable sandbox");
 
@@ -77,12 +78,12 @@ impl Read for NoInput {
     }
 }
 
-impl EvalBuilder<NoInput> {
-    pub fn new<S: AsRef<str>>(script: S) -> Self {
+impl<'a> EvalBuilder<'a, NoInput> {
+    pub fn new(script: Cow<'a, str>) -> Self {
         Self {
             input: None,
             name: None,
-            script: script.as_ref().to_string(),
+            script,
             store: None,
             timeout: None,
         }
@@ -96,15 +97,15 @@ pub struct EvalResult {
     pub result: LamValue,
 }
 
-pub struct Evaluation {
-    pub name: String,
-    pub script: String,
+pub struct Evaluation<'a> {
+    pub name: Cow<'a, str>,
+    pub script: Cow<'a, str>,
     pub store: Option<LamStore>,
     pub timeout: Duration,
     pub vm: Lua,
 }
 
-impl Evaluation {
+impl<'a> Evaluation<'a> {
     pub fn evaluate(&self) -> LamResult<EvalResult> {
         let vm = &self.vm;
         let timeout = self.timeout;
@@ -125,9 +126,10 @@ impl Evaluation {
             }
         });
 
-        let chunk = vm.load(&self.script).set_name(&self.name);
+        let chunk = vm.load(self.script.as_ref()).set_name(self.name.as_ref());
         let co = vm.create_thread(chunk.into_function()?)?;
-        let _ = trace_span!("evaluate", name = &self.name).entered();
+        let name = self.name.as_ref();
+        let _ = trace_span!("evaluate", name).entered();
         loop {
             let result_value = co.resume::<_, LuaValue<'_>>(())?;
             let unresumable = co.status() != LuaThreadStatus::Resumable;
@@ -135,7 +137,8 @@ impl Evaluation {
             let timed_out = duration > self.timeout;
             if unresumable || timed_out {
                 let max_memory = max_memory.load(Ordering::SeqCst);
-                debug!(?duration, name = &self.name, ?max_memory, "evaluated");
+                let name = self.name.as_ref();
+                debug!(?duration, name, ?max_memory, "evaluated");
                 return Ok(EvalResult {
                     duration,
                     max_memory,
@@ -150,14 +153,14 @@ impl Evaluation {
 mod tests {
     use crate::*;
     use maplit::hashmap;
-    use std::{fs, time::Duration};
+    use std::{borrow::Cow, fs, time::Duration};
     use test_case::test_case;
 
     #[test_case("./lua-examples/07-error.lua")]
     fn error_in_script(path: &str) {
         let store = LamStore::default();
         let script = fs::read_to_string(path).unwrap();
-        let e = EvalBuilder::new(script).set_store(store).build();
+        let e = EvalBuilder::new(script.into()).set_store(store).build();
         assert!(e.evaluate().is_err());
     }
 
@@ -176,7 +179,7 @@ mod tests {
     fn evaluate_examples(filename: &str, input: &'static str, expected: LamValue) {
         let store = LamStore::default();
         let script = fs::read_to_string(format!("./lua-examples/{filename}")).unwrap();
-        let e = EvalBuilder::new(&script)
+        let e = EvalBuilder::new(Cow::Borrowed(&script))
             .set_input(Some(input.as_bytes()))
             .set_store(store)
             .build();
@@ -188,7 +191,7 @@ mod tests {
     fn evaluate_infinite_loop() {
         let timeout = Duration::from_secs(1);
 
-        let e = EvalBuilder::new(r#"while true do end"#)
+        let e = EvalBuilder::new(r#"while true do end"#.into())
             .set_timeout(Some(timeout))
             .build();
         let res = e.evaluate().unwrap();
@@ -202,7 +205,7 @@ mod tests {
     #[test_case("return 'a'..1", "a1")]
     #[test_case("return require('@lam')._VERSION", "0.1.0")]
     fn evaluate_scripts(script: &str, expected: &str) {
-        let e = EvalBuilder::new(script).build();
+        let e = EvalBuilder::new(script.into()).build();
         let res = e.evaluate().expect(script);
         assert_eq!(expected, res.result.to_string());
     }
@@ -211,7 +214,7 @@ mod tests {
     fn reevaluate() {
         let input = "foo\nbar";
         let script = r#"return require('@lam'):read('*l')"#;
-        let e = EvalBuilder::new(script)
+        let e = EvalBuilder::new(script.into())
             .set_input(Some(input.as_bytes()))
             .build();
 
@@ -232,7 +235,7 @@ mod tests {
     #[test_case(r#"return {a=true,b=1.23,c="hello"}"#, "table: 0x0")]
     #[test_case(r#"return {true,1.23,"hello"}"#, "table: 0x0")]
     fn return_to_string(script: &str, expected: &str) {
-        let e = EvalBuilder::new(script).build();
+        let e = EvalBuilder::new(script.into()).build();
         let res = e.evaluate().expect(script);
         assert_eq!(expected, res.result.to_string());
     }
@@ -240,7 +243,7 @@ mod tests {
     #[test]
     fn syntax_error() {
         let script = "ret true"; // code with syntax error
-        let e = EvalBuilder::new(script).build();
+        let e = EvalBuilder::new(script.into()).build();
         assert!(e.evaluate().is_err());
     }
 }

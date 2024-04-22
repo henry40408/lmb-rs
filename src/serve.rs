@@ -3,7 +3,7 @@ use axum::{
     body::Bytes, extract::State, http::StatusCode, response::IntoResponse, routing::post, Router,
 };
 use lam::*;
-use std::{io::Cursor, time::Duration};
+use std::{borrow::Cow, io::Cursor, time::Duration};
 use tower_http::trace::{self, TraceLayer};
 use tracing::{error, info, warn, Level};
 
@@ -16,9 +16,9 @@ struct AppState {
 }
 
 async fn index_route(State(state): State<AppState>, body: Bytes) -> impl IntoResponse {
-    let e = EvalBuilder::new(&state.script)
+    let e = EvalBuilder::new(Cow::Owned(state.script))
         .set_input(Some(Cursor::new(body)))
-        .set_name(state.name)
+        .set_name(state.name.into())
         .set_timeout(state.timeout)
         .set_store(state.store.clone())
         .build();
@@ -70,15 +70,14 @@ where
     Ok(app)
 }
 
-pub async fn serve_file<S, T>(
+pub async fn serve_file<'a, T>(
     bind: T,
-    name: S,
-    script: S,
+    name: Cow<'a, str>,
+    script: Cow<'a, str>,
     timeout: Option<Duration>,
     store_options: &StoreOptions,
 ) -> anyhow::Result<()>
 where
-    S: AsRef<str>,
     T: std::fmt::Display + tokio::net::ToSocketAddrs,
 {
     let app = init_route(name, script, timeout, store_options)?;
