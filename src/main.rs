@@ -181,9 +181,9 @@ async fn main() -> anyhow::Result<()> {
             }
             let timeout = timeout.map(Duration::from_secs);
             let e = EvalBuilder::new(script)
-                .set_input(Some(io::stdin()))
-                .set_name(name)
-                .set_timeout(timeout)
+                .with_input(io::stdin())
+                .with_name(name)
+                .with_timeout(timeout)
                 .build();
             let res = e.evaluate()?;
             let output = match output_format {

@@ -1,4 +1,5 @@
-use std::io::BufReader;
+use parking_lot::Mutex;
+use std::{io::BufReader, sync::Arc};
 
 pub use check::*;
 pub use error::*;
@@ -14,5 +15,5 @@ mod lua_lam;
 mod store;
 mod value;
 
-pub type LamInput<R> = BufReader<R>;
+pub type LamInput<R> = Arc<Mutex<BufReader<R>>>;
 pub type LamResult<T> = Result<T, LamError>;

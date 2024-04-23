@@ -17,10 +17,10 @@ struct AppState {
 
 async fn index_route(State(state): State<AppState>, body: Bytes) -> impl IntoResponse {
     let e = EvalBuilder::new(Cow::Owned(state.script))
-        .set_input(Some(Cursor::new(body)))
-        .set_name(state.name.into())
-        .set_timeout(state.timeout)
-        .set_store(state.store.clone())
+        .with_input(Cursor::new(body))
+        .with_name(state.name.into())
+        .with_timeout(state.timeout)
+        .with_store(state.store.clone())
         .build();
     let res = e.evaluate();
     match res {

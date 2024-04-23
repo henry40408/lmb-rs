@@ -48,7 +48,7 @@ where
         if f == "*a" || f == "*all" {
             // accepts *a or *all
             let mut buf = Vec::new();
-            let count = input.read_to_end(&mut buf).into_lua_err()?;
+            let count = input.lock().read_to_end(&mut buf).into_lua_err()?;
             if count == 0 {
                 return Ok(LuaValue::Nil);
             }
@@ -57,7 +57,7 @@ where
         if f == "*l" || f == "*line" {
             // accepts *l or *line
             let mut buf = String::new();
-            let count = input.read_line(&mut buf).into_lua_err()?;
+            let count = input.lock().read_line(&mut buf).into_lua_err()?;
             if count == 0 {
                 return Ok(LuaNil);
             }
@@ -67,7 +67,7 @@ where
         if f == "*n" || f == "*number" {
             // accepts *n or *number
             let mut buf = String::new();
-            let count = input.read_to_string(&mut buf).into_lua_err()?;
+            let count = input.lock().read_to_string(&mut buf).into_lua_err()?;
             if count == 0 {
                 return Ok(LuaNil);
             }
@@ -76,12 +76,8 @@ where
     }
 
     if let Some(i) = f.as_usize() {
-        let mut buf = Vec::with_capacity(i);
-        let count = input
-            .by_ref()
-            .take(i as u64)
-            .read_to_end(&mut buf)
-            .into_lua_err()?;
+        let mut buf = vec![0; i];
+        let count = input.lock().read(&mut buf).into_lua_err()?;
         if count == 0 {
             return Ok(LuaNil);
         }
@@ -109,6 +105,7 @@ where
     let mut single = 0;
     while remaining > 0 {
         let count = input
+            .lock()
             .read(std::slice::from_mut(&mut single))
             .into_lua_err()?;
         if count == 0 {
@@ -166,7 +163,7 @@ fn lua_lam_update<'lua, R>(
 where
     R: Read + 'lua,
 {
-    let g = |old: &mut LamValue| -> LuaResult<()> {
+    let update_fn = |old: &mut LamValue| -> LuaResult<()> {
         let old_v = vm.to_value(old)?;
         let new_v = f.call(old_v).into_lua_err()?;
         let new = vm.from_value(new_v)?;
@@ -175,13 +172,11 @@ where
     };
 
     let Some(store) = &lam.store else {
-        // the function throws an error instead of returing a new value,
-        // return the old value instead.
         return Ok(LuaNil);
     };
 
     let v = store
-        .update(key, g, &vm.from_value(default_v)?)
+        .update(key, update_fn, &vm.from_value(default_v)?)
         .into_lua_err()?;
     vm.to_value(&v)
 }
@@ -212,7 +207,7 @@ mod tests {
     fn read_binary() {
         let input: &[u8] = &[1, 2, 3];
         let e = EvalBuilder::new(r#"return #require('@lam'):read('*a')"#.into())
-            .set_input(Some(input))
+            .with_input(input)
             .build();
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::Number(3f64), res.result);
@@ -235,7 +230,7 @@ mod tests {
     fn read_number(input: &'static str, expected: LamValue) {
         let script = r#"return require('@lam'):read('*n')"#;
         let e = EvalBuilder::new(script.into())
-            .set_input(Some(input.as_bytes()))
+            .with_input(input.as_bytes())
             .build();
         let res = e.evaluate().expect(input);
         assert_eq!(expected, res.result);
@@ -248,7 +243,7 @@ mod tests {
     fn read_string(script: &str, expected: LamValue) {
         let input = "foo\nbar";
         let e = EvalBuilder::new(script.into())
-            .set_input(Some(input.as_bytes()))
+            .with_input(input.as_bytes())
             .build();
         let res = e.evaluate().expect(script);
         assert_eq!(expected, res.result);
@@ -260,7 +255,7 @@ mod tests {
     fn read_unicode_cjk_characters(n: usize, expected: &str) {
         let input = "你好";
         let e = EvalBuilder::new(format!("return require('@lam'):read_unicode({n})").into())
-            .set_input(Some(input.as_bytes()))
+            .with_input(input.as_bytes())
             .build();
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::from(expected), res.result);
@@ -272,7 +267,7 @@ mod tests {
         let script = "return require('@lam'):read_unicode(1)";
 
         let e = EvalBuilder::new(script.into())
-            .set_input(Some(input.as_bytes()))
+            .with_input(input.as_bytes())
             .build();
 
         let res = e.evaluate().unwrap();
@@ -290,7 +285,7 @@ mod tests {
         // ref: https://www.php.net/manual/en/reference.pcre.pattern.modifiers.php#54805
         let input: &[u8] = &[0xf0, 0x28, 0x8c, 0xbc];
         let e = EvalBuilder::new(r#"return require('@lam'):read_unicode(1)"#.into())
-            .set_input(Some(input))
+            .with_input(input)
             .build();
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::None, res.result);
@@ -301,7 +296,7 @@ mod tests {
         // mix CJK and non-CJK characters
         let input = r#"{"key":"你好"}"#;
         let e = EvalBuilder::new(r#"return require('@lam'):read_unicode(12)"#.into())
-            .set_input(Some(input.as_bytes()))
+            .with_input(input.as_bytes())
             .build();
         let res = e.evaluate().unwrap();
         assert_eq!(input, res.result.to_string());
@@ -314,7 +309,7 @@ mod tests {
         let input = "ab";
         let script = format!("return require('@lam'):read_unicode({n})");
         let e = EvalBuilder::new(script.into())
-            .set_input(Some(input.as_bytes()))
+            .with_input(input.as_bytes())
             .build();
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::from(expected), res.result);

@@ -84,6 +84,8 @@ impl LamStore {
 
         let mut deserialized = rmp_serde::from_slice(&v)?;
         let Ok(_) = f(&mut deserialized) else {
+            // the function throws an error instead of returing a new value,
+            // return the old value instead.
             return Ok(deserialized);
         };
         let serialized = rmp_serde::to_vec(&deserialized)?;
@@ -137,7 +139,7 @@ mod tests {
         for _ in 0..=1000 {
             let store = store.clone();
             threads.push(thread::spawn(move || {
-                let e = EvalBuilder::new(script.into()).set_store(store).build();
+                let e = EvalBuilder::new(script.into()).with_store(store).build();
                 e.evaluate().unwrap();
             }));
         }
@@ -159,7 +161,7 @@ mod tests {
         let store = LamStore::default();
         store.insert("a", &1.23.into()).unwrap();
 
-        let e = EvalBuilder::new(script.into()).set_store(store).build();
+        let e = EvalBuilder::new(script.into()).with_store(store).build();
 
         let res = e.evaluate().unwrap();
         assert_eq!("1.23", res.result.to_string());
@@ -196,7 +198,7 @@ mod tests {
         let store = LamStore::default();
         store.insert("a", &LamValue::Number(1f64)).unwrap();
 
-        let e = EvalBuilder::new(script.into()).set_store(store).build();
+        let e = EvalBuilder::new(script.into()).with_store(store).build();
 
         {
             let res = e.evaluate().unwrap();
@@ -227,7 +229,7 @@ mod tests {
         let store = LamStore::default();
         store.insert("a", &LamValue::Number(1f64)).unwrap();
 
-        let e = EvalBuilder::new(script.into()).set_store(store).build();
+        let e = EvalBuilder::new(script.into()).with_store(store).build();
 
         let res = e.evaluate().unwrap();
         assert_eq!("1", res.result.to_string());
