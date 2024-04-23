@@ -13,6 +13,7 @@ use tracing::{debug, trace_span};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
+#[derive(Default)]
 pub struct EvalBuilder<'a, R>
 where
     R: Read,
@@ -70,6 +71,7 @@ where
     }
 }
 
+#[derive(Default)]
 pub struct NoInput {}
 
 impl Read for NoInput {
@@ -106,6 +108,10 @@ pub struct Evaluation<'a> {
 }
 
 impl<'a> Evaluation<'a> {
+    pub fn builder() -> EvalBuilder<'a, NoInput> {
+        EvalBuilder::default()
+    }
+
     pub fn evaluate(&self) -> LamResult<EvalResult> {
         let vm = &self.vm;
         let timeout = self.timeout;
