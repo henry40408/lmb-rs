@@ -3,8 +3,10 @@ use mlua::prelude::*;
 use std::io::{BufRead as _, Read};
 use tracing::error;
 
+// ref: https://www.lua.org/pil/8.1.html
 const K_LOADED: &str = "_LOADED";
 
+/// Interface of between Lua and Rust.
 pub struct LuaLam<R>
 where
     R: Read,
@@ -17,10 +19,12 @@ impl<R> LuaLam<R>
 where
     for<'lua> R: Read + 'lua,
 {
+    /// Create a new instance of interface with input [`LamInput`] and store [`LamStore`].
     pub fn new(input: Option<LamInput<R>>, store: Option<LamStore>) -> Self {
         Self { input, store }
     }
 
+    /// Register the interface to a Lua virtual machine.
     pub fn register(
         vm: &Lua,
         input: Option<LamInput<R>>,
@@ -176,7 +180,7 @@ where
     };
 
     let v = store
-        .update(key, update_fn, &vm.from_value(default_v)?)
+        .update(key, update_fn, vm.from_value(default_v)?)
         .into_lua_err()?;
     vm.to_value(&v)
 }
@@ -299,7 +303,7 @@ mod tests {
             .with_input(input.as_bytes())
             .build();
         let res = e.evaluate().unwrap();
-        assert_eq!(input, res.result.to_string());
+        assert_eq!(LamValue::String(input.into()), res.result);
     }
 
     #[test_case(1, "a")]

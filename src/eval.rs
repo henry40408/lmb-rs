@@ -13,15 +13,21 @@ use tracing::{debug, trace_span};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Evaluation builder.
 #[derive(Default)]
 pub struct EvalBuilder<'a, R>
 where
     R: Read,
 {
+    /// Function input, such as anything that implements [`std::io::Read`].
     pub input: Option<R>,
+    /// Function name. Might be `(stdin)` or file name.
     pub name: Option<Cow<'a, str>>,
+    /// Lua script in plain text.
     pub script: Cow<'a, str>,
+    /// Store that persists data across each execution.
     pub store: Option<LamStore>,
+    /// Execution timeout.
     pub timeout: Option<Duration>,
 }
 
@@ -29,11 +35,14 @@ impl<'a, R> EvalBuilder<'a, R>
 where
     for<'lua> R: Read + 'lua,
 {
+    /// Attach an in-memory store.
+    /// <div class="warning">Data will be lost after the program finishes.</div>
     pub fn with_default_store(mut self) -> Self {
         self.store = Some(LamStore::default());
         self
     }
 
+    /// Give a input to the function.
     pub fn with_input<S: Read>(self, input: S) -> EvalBuilder<'a, S> {
         EvalBuilder {
             input: Some(input),
@@ -44,21 +53,30 @@ where
         }
     }
 
+    /// Name the function for verbosity.
     pub fn with_name(mut self, name: Cow<'a, str>) -> Self {
         self.name = Some(name);
         self
     }
 
+    /// Set execution timeout.
     pub fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
         self.timeout = timeout;
         self
     }
 
+    /// Attach a store to the function.
     pub fn with_store(mut self, store: LamStore) -> Self {
         self.store = Some(store);
         self
     }
 
+    /// Build the [`Evaluation`] for execution.
+    /// It will compile Lua script into bytecodes for better performance.
+    ///
+    /// <div class="warning">This function doesn't check syntax of Lua script.</div>
+    ///
+    /// The syntax of Lua script could be checked with [`check_syntax`].
     pub fn build(self) -> Evaluation<'a, R> {
         let vm = Lua::new();
         vm.sandbox(true).expect("failed to enable sandbox");
@@ -80,6 +98,7 @@ where
 }
 
 #[derive(Default)]
+#[doc(hidden)]
 pub struct NoInput {}
 
 impl Read for NoInput {
@@ -89,6 +108,7 @@ impl Read for NoInput {
 }
 
 impl<'a> EvalBuilder<'a, NoInput> {
+    /// Create a builder without input.
     pub fn new(script: Cow<'a, str>) -> Self {
         Self {
             input: None,
@@ -100,33 +120,40 @@ impl<'a> EvalBuilder<'a, NoInput> {
     }
 }
 
+/// Evaluation result.
 #[derive(Debug)]
 pub struct EvalResult {
+    /// Execution duration.
     pub duration: Duration,
+    /// Max memory usage in bytes.
     pub max_memory: usize,
+    /// Result returned by the function.
     pub result: LamValue,
 }
 
+/// A container that holds the compiled function for execution.
 pub struct Evaluation<'a, R>
 where
     for<'lua> R: Read + 'lua,
 {
-    pub compiled: Vec<u8>,
-    pub input: Option<LamInput<R>>,
-    pub name: Cow<'a, str>,
-    pub store: Option<LamStore>,
-    pub timeout: Duration,
-    pub vm: Lua,
+    compiled: Vec<u8>,
+    input: Option<LamInput<R>>,
+    name: Cow<'a, str>,
+    store: Option<LamStore>,
+    timeout: Duration,
+    vm: Lua,
 }
 
 impl<'a, R> Evaluation<'a, R>
 where
     for<'lua> R: Read + 'lua,
 {
+    /// Create a builder [`EvalBuilder`] without Lua script.
     pub fn builder() -> EvalBuilder<'a, NoInput> {
         EvalBuilder::default()
     }
 
+    /// Evaluate the function and return a [`EvalResult`] as result.
     pub fn evaluate(&self) -> LamResult<EvalResult> {
         let vm = &self.vm;
         LuaLam::register(vm, self.input.clone(), self.store.clone())?;
@@ -170,7 +197,8 @@ where
         }
     }
 
-    pub fn replace_input(&mut self, input: R) {
+    /// Replace the function input after the container is built.
+    pub fn set_input(&mut self, input: R) {
         self.input = Some(Arc::new(Mutex::new(BufReader::new(input))));
     }
 }
@@ -243,10 +271,10 @@ mod tests {
             .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!("foo", res.result.to_string());
+        assert_eq!(LamValue::String("foo".into()), res.result);
 
         let res = e.evaluate().unwrap();
-        assert_eq!("bar", res.result.to_string());
+        assert_eq!(LamValue::String("bar".into()), res.result);
     }
 
     #[test_case(r#""#, "")]
@@ -280,7 +308,7 @@ mod tests {
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::String("0".into()), res.result);
 
-        e.replace_input(&b"1"[..]);
+        e.set_input(&b"1"[..]);
 
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::String("1".into()), res.result);

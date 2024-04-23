@@ -53,7 +53,7 @@ fn lam_read_all(bencher: &mut Bencher) {
         .with_input(input.as_bytes())
         .build();
     bencher.iter(|| {
-        e.replace_input(&b"0"[..]);
+        e.set_input(&b"0"[..]);
         e.evaluate().unwrap()
     });
 }
@@ -65,7 +65,7 @@ fn lam_read_line(bencher: &mut Bencher) {
         .with_input(input.as_bytes())
         .build();
     bencher.iter(|| {
-        e.replace_input(&b"0"[..]);
+        e.set_input(&b"0"[..]);
         e.evaluate().unwrap()
     });
 }
@@ -77,7 +77,7 @@ fn lam_read_number(bencher: &mut Bencher) {
         .with_input(input.as_bytes())
         .build();
     bencher.iter(|| {
-        e.replace_input(&b"0"[..]);
+        e.set_input(&b"0"[..]);
         e.evaluate().unwrap()
     });
 }

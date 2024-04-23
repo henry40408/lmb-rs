@@ -1,4 +1,3 @@
-use annotate_snippets::Renderer;
 use clap::{Parser, Subcommand, ValueEnum};
 use lam::{check_syntax, render_error, EvalBuilder, LamStore};
 use std::{
@@ -103,20 +102,12 @@ enum StoreCommands {
 }
 
 fn do_check_syntax<S: AsRef<str>>(no_color: bool, name: S, script: S) -> bool {
-    match check_syntax(script.as_ref()) {
-        Ok(_) => true,
-        Err(error) => {
-            let message = render_error(name.as_ref(), script.as_ref(), &error)
-                .expect("unexpected error found");
-            let renderer = if no_color {
-                Renderer::plain()
-            } else {
-                Renderer::styled()
-            };
-            let rendered = renderer.render(message);
-            eprintln!("{rendered}");
-            false
-        }
+    let res = check_syntax(script.as_ref());
+    if let Some(message) = render_error(no_color, name, script, res) {
+        eprint!("{message}");
+        true
+    } else {
+        false
     }
 }
 

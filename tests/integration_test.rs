@@ -10,12 +10,10 @@ mod tests {
         cmd.write_stdin("ret true");
         cmd.args(["--no-color", "check"]);
         cmd.assert().success().stderr(
-            r#"error: leftover token
- --> (stdin):1:1
-  |
-1 | ret true
-  | ^^^ leftover token
-  |
+            r#"Error: leftover token
+   ,-[(stdin):1:1]
+ 1 |ret true
+   | `-- leftover token
 "#,
         );
     }

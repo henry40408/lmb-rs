@@ -1,31 +1,71 @@
-use annotate_snippets::{Level, Snippet};
+use ariadne::{CharSet, ColorGenerator, Config, Label, Report, ReportKind, Source};
 
+/// Check syntax of Lua script.
+///
+/// ```rust
+/// use lam::*;
+///
+/// let checked = check_syntax("ret true");
+/// assert!(checked.is_err());
+///
+/// let checked = check_syntax("return true");
+/// assert!(checked.is_ok());
+/// ```
 pub fn check_syntax<S: AsRef<str>>(script: S) -> Result<(), full_moon::Error> {
     full_moon::parse(script.as_ref())?;
     Ok(())
 }
 
-pub fn render_error<'a, S>(
-    name: &'a S,
-    script: &'a S,
-    error: &'a full_moon::Error,
-) -> Option<annotate_snippets::Message<'a>>
+/// Return error message if syntax of Lua script has error.
+///
+/// ```rust
+/// use lam::*;
+///
+/// let no_color = true;
+/// let name = "test";
+/// let script = "ret true";
+/// let checked = check_syntax(script);
+/// assert!(render_error(no_color, name, script, checked).is_some());
+/// ```
+pub fn render_error<S>(
+    no_color: bool,
+    name: S,
+    script: S,
+    result: Result<(), full_moon::Error>,
+) -> Option<String>
 where
-    S: AsRef<str> + ?Sized + 'a,
+    S: AsRef<str>,
 {
-    if let full_moon::Error::AstError(full_moon::ast::AstError::UnexpectedToken {
+    if let Err(full_moon::Error::AstError(full_moon::ast::AstError::UnexpectedToken {
         token,
         additional,
-    }) = error
+    })) = result
     {
-        let message = additional.as_deref().unwrap_or("");
-        let span = token.start_position().bytes()..token.end_position().bytes();
-        let message = Level::Error.title(message).snippet(
-            Snippet::source(script.as_ref())
-                .origin(name.as_ref())
-                .annotation(Level::Error.span(span).label(message)),
-        );
-        Some(message)
+        let mut colors = ColorGenerator::new();
+        let color = colors.next();
+
+        let mut buf = Vec::new();
+        let name = name.as_ref();
+        let message = additional.map_or(String::new(), |s| s.into_owned());
+        let start = token.start_position().bytes();
+        let end = token.end_position().bytes();
+        let span = start..end;
+        let _ = Report::build(ReportKind::Error, name, start)
+            .with_config(
+                Config::default()
+                    .with_char_set(CharSet::Ascii)
+                    .with_compact(true)
+                    .with_color(!no_color),
+            )
+            .with_label(
+                Label::new((name, span))
+                    .with_color(color)
+                    .with_message(&message),
+            )
+            .with_message(&message)
+            .finish()
+            .write((name, Source::from(script)), &mut buf);
+        Some(String::from_utf8_lossy(&buf).to_string())
     } else {
         None
     }
@@ -51,9 +91,10 @@ mod tests {
     fn syntax_error() {
         let name = "foobar";
         let script = "ret true";
-        let e = check_syntax(script).unwrap_err();
-        assert!(matches!(e, full_moon::Error::AstError { .. }));
 
-        render_error(name, script, &e).unwrap();
+        let res = check_syntax(script);
+        assert!(matches!(res, Err(full_moon::Error::AstError { .. })));
+
+        assert!(render_error(true, name, script, res).is_some());
     }
 }

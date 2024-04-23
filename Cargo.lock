@@ -45,16 +45,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c6cb57a04249c6480766f7f7cef5467412af1490f8d1e243141daddada3264f"
 
 [[package]]
-name = "annotate-snippets"
-version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "238760b2324c811147d933e41f1743e4a8e309c8f3a15f417232e5980e5ce765"
-dependencies = [
- "anstyle",
- "unicode-width",
-]
-
-[[package]]
 name = "anstream"
 version = "0.6.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -107,6 +97,16 @@ name = "anyhow"
 version = "1.0.82"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f538837af36e6f6a9be0faa67f9a314f8119e4e4b5867c6ab40ed60360142519"
+
+[[package]]
+name = "ariadne"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd002a6223f12c7a95cdd4b1cb3a0149d22d37f7a9ecdb2cb691a071fe236c29"
+dependencies = [
+ "unicode-width",
+ "yansi",
+]
 
 [[package]]
 name = "assert_cmd"
@@ -753,8 +753,8 @@ checksum = "49f1f14873335454500d59611f1cf4a4b0f786f9ac11f4312a78e4cf2566695b"
 name = "lam"
 version = "0.1.0"
 dependencies = [
- "annotate-snippets",
  "anyhow",
+ "ariadne",
  "assert_cmd",
  "axum",
  "axum-test",
