@@ -16,8 +16,7 @@ struct AppState {
 }
 
 async fn index_route(State(state): State<AppState>, body: Bytes) -> impl IntoResponse {
-    let e = EvalBuilder::new(Cow::Owned(state.script))
-        .with_input(Cursor::new(body))
+    let e = EvalBuilder::new(state.script.into(), Cursor::new(body))
         .with_name(state.name.into())
         .with_timeout(state.timeout)
         .with_store(state.store.clone())
