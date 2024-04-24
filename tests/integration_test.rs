@@ -8,7 +8,7 @@ mod tests {
     fn check_stdin() {
         let mut cmd = Command::cargo_bin("lam").unwrap();
         cmd.write_stdin("ret true");
-        cmd.args(["--no-color", "check"]);
+        cmd.args(["--no-color", "check", "--file", "-"]);
         cmd.assert().success().stderr(
             r#"Error: leftover token
    ,-[(stdin):1:1]
@@ -22,7 +22,7 @@ mod tests {
     fn eval_stdin() {
         let mut cmd = Command::cargo_bin("lam").unwrap();
         cmd.write_stdin("return 1+1");
-        cmd.args(["eval"]);
+        cmd.args(["eval", "--file", "-"]);
         cmd.assert().success().stdout("2");
     }
 
@@ -60,7 +60,14 @@ mod tests {
         let store_path = store.path().to_string_lossy().to_string();
         let mut cmd = Command::cargo_bin("lam").unwrap();
         cmd.write_stdin("return true");
-        cmd.args(["eval", "--store-path", &store_path, "--run-migrations"]);
+        cmd.args([
+            "eval",
+            "--file",
+            "-",
+            "--store-path",
+            &store_path,
+            "--run-migrations",
+        ]);
         cmd.assert().success();
     }
 

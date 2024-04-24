@@ -1,12 +1,7 @@
 use clap::{Parser, Subcommand, ValueEnum};
+use clap_stdin::{FileOrStdin, Source};
 use lam::{check_syntax, render_error, EvalBuilder, LamStore};
-use std::{
-    borrow::Cow,
-    fs,
-    io::{self, Read},
-    path::PathBuf,
-    time::Duration,
-};
+use std::{io, path::PathBuf, time::Duration};
 use tracing::Level;
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
 
@@ -56,7 +51,7 @@ enum Commands {
     Check {
         /// Script path
         #[arg(long)]
-        file: Option<PathBuf>,
+        file: FileOrStdin,
     },
     /// Evaluate a script file
     Eval {
@@ -64,7 +59,7 @@ enum Commands {
         store_options: StoreOptions,
         /// Script path
         #[arg(long)]
-        file: Option<PathBuf>,
+        file: FileOrStdin,
         /// Timeout in seconds
         #[arg(long)]
         timeout: Option<u64>,
@@ -81,7 +76,7 @@ enum Commands {
         bind: String,
         /// Script path
         #[arg(long)]
-        file: Option<PathBuf>,
+        file: FileOrStdin,
         /// Timeout in seconds
         #[arg(long)]
         timeout: Option<u64>,
@@ -109,24 +104,6 @@ fn do_check_syntax<S: AsRef<str>>(no_color: bool, name: S, script: S) -> bool {
     } else {
         false
     }
-}
-
-fn file_or_stdin<'a>(file: Option<PathBuf>) -> anyhow::Result<(Cow<'a, str>, Cow<'a, str>)> {
-    let name = if let Some(f) = &file {
-        Cow::Owned(f.to_string_lossy().to_string())
-    } else {
-        Cow::Borrowed("(stdin)")
-    };
-    let script = if let Some(f) = &file {
-        Cow::Owned(fs::read_to_string(f)?)
-    } else {
-        let mut buf = String::new();
-        std::io::stdin()
-            .read_to_string(&mut buf)
-            .expect("either file or script via standard input should be provided");
-        Cow::Owned(buf)
-    };
-    Ok((name, script))
 }
 
 #[tokio::main]
@@ -157,7 +134,12 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Check { file } => {
-            let (name, script) = file_or_stdin(file)?;
+            let name = if let Source::Arg(path) = &file.source {
+                path.to_string()
+            } else {
+                "(stdin)".to_string()
+            };
+            let script = file.contents()?;
             do_check_syntax(cli.no_color, name, script);
         }
         Commands::Eval {
@@ -166,13 +148,18 @@ async fn main() -> anyhow::Result<()> {
             timeout,
             ..
         } => {
-            let (name, script) = file_or_stdin(file)?;
+            let name = if let Source::Arg(path) = &file.source {
+                path.to_string()
+            } else {
+                "(stdin)".to_string()
+            };
+            let script = file.contents()?;
             if cli.check_syntax && !do_check_syntax(cli.no_color, &name, &script) {
                 return Ok(());
             }
             let timeout = timeout.map(Duration::from_secs);
-            let e = EvalBuilder::new(script, io::stdin())
-                .with_name(name)
+            let e = EvalBuilder::new(script.into(), io::stdin())
+                .with_name(name.into())
                 .with_timeout(timeout)
                 .build();
             let res = e.evaluate()?;
@@ -188,12 +175,17 @@ async fn main() -> anyhow::Result<()> {
             store_options,
             timeout,
         } => {
-            let (name, script) = file_or_stdin(file)?;
+            let name = if let Source::Arg(path) = &file.source {
+                path.to_string()
+            } else {
+                "(stdin)".to_string()
+            };
+            let script = file.contents()?;
             if cli.check_syntax && !do_check_syntax(cli.no_color, &name, &script) {
                 return Ok(());
             }
             let timeout = timeout.map(Duration::from_secs);
-            serve::serve_file(&bind, name, script, timeout, &store_options).await?;
+            serve::serve_file(&bind, name.into(), script.into(), timeout, &store_options).await?;
         }
         Commands::Store(c) => match c {
             StoreCommands::Migrate { store_path } => {
