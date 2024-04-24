@@ -100,9 +100,9 @@ fn do_check_syntax<S: AsRef<str>>(no_color: bool, name: S, script: S) -> bool {
     let res = check_syntax(script.as_ref());
     if let Some(message) = render_error(no_color, name, script, res) {
         eprint!("{message}");
-        true
-    } else {
         false
+    } else {
+        true
     }
 }
 
