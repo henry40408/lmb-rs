@@ -19,6 +19,14 @@ pub struct LamStore {
 
 impl LamStore {
     /// Create a new store with path on the filesystem.
+    ///
+    /// ```rust
+    /// # use tempdir::TempDir;
+    /// use lam::*;
+    /// let dir = TempDir::new("temp").unwrap();
+    /// let path = dir.path().join("db.sqlite3");
+    /// let _ = LamStore::new(&path);
+    /// ```
     pub fn new(path: &Path) -> LamResult<Self> {
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "busy_timeout", 5000)?;
@@ -31,6 +39,15 @@ impl LamStore {
     }
 
     /// Perform migration on the database. Migrations should be idempotent.
+    ///
+    /// ```rust
+    /// # use tempdir::TempDir;
+    /// use lam::*;
+    /// let dir = TempDir::new("temp").unwrap();
+    /// let path = dir.path().join("db.sqlite3");
+    /// let store = LamStore::new(&path).unwrap();
+    /// store.migrate().unwrap();
+    /// ```
     pub fn migrate(&self) -> LamResult<()> {
         let conn = self.conn.lock();
         for e in MIGRATIONS_DIR.entries() {
@@ -51,6 +68,17 @@ impl LamStore {
     ///
     /// The key distinction between this function and [`LamStore::update`] is
     /// that this function unconditionally inserts or updates with the provided value.
+    ///
+    /// ```rust
+    /// use lam::*;
+    /// let store = LamStore::default();
+    /// store.insert("a", &true.into());
+    /// assert_eq!(LamValue::Boolean(true), store.get("a").unwrap());
+    /// store.insert("b", &1.into());
+    /// assert_eq!(LamValue::Number(1f64), store.get("b").unwrap());
+    /// store.insert("c", &"hello".into());
+    /// assert_eq!(LamValue::String("hello".into()), store.get("c").unwrap());
+    /// ```
     pub fn insert<S: AsRef<str>>(&self, name: S, value: &LamValue) -> LamResult<()> {
         let conn = self.conn.lock();
 
@@ -63,6 +91,14 @@ impl LamStore {
 
     /// Get value from the store. A `nil` will be returned to Lua virtual machine
     /// when the value is absent.
+    ///
+    /// ```rust
+    /// use lam::*;
+    /// let store = LamStore::default();
+    /// assert_eq!(LamValue::None, store.get("a").unwrap());
+    /// store.insert("a", &true.into());
+    /// assert_eq!(LamValue::Boolean(true), store.get("a").unwrap());
+    /// ```
     pub fn get<S: AsRef<str>>(&self, name: S) -> LamResult<LamValue> {
         let conn = self.conn.lock();
 
@@ -82,6 +118,18 @@ impl LamStore {
     /// the value in the store remains unchanged.
     ///
     /// This function also takes a default value.
+    ///
+    /// ```rust
+    /// use lam::*;
+    /// let store = LamStore::default();
+    /// let _ = store.update("a", |old| {
+    ///     if let LamValue::Number(n) = old {
+    ///         *old = LamValue::Number(*n + 1f64);
+    ///     }
+    ///     Ok(())
+    /// }, Some(1.into()));
+    /// assert_eq!(LamValue::Number(2f64), store.get("a").unwrap());
+    /// ```
     pub fn update<S: AsRef<str>>(
         &self,
         name: S,
