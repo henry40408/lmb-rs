@@ -3,7 +3,7 @@ use include_dir::{include_dir, Dir};
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use std::{path::Path, sync::Arc};
-use tracing::debug;
+use tracing::{debug, trace_span};
 
 static MIGRATIONS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/migrations");
 
@@ -49,15 +49,17 @@ impl LamStore {
     /// store.migrate().unwrap();
     /// ```
     pub fn migrate(&self) -> LamResult<()> {
+        let _ = trace_span!("run migrations").entered();
         let conn = self.conn.lock();
         for e in MIGRATIONS_DIR.entries() {
             let path = e.path();
-            debug!(?path, "open migration file");
+            debug!(?path, "open migration");
             let sql = e
                 .as_file()
                 .expect("invalid file")
                 .contents_utf8()
                 .expect("invalid contents");
+            let _ = trace_span!("run migration SQL", ?sql).entered();
             debug!(?sql, "run migration SQL");
             conn.execute(sql, ())?;
         }
