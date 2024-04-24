@@ -203,9 +203,9 @@ dependencies = [
 
 [[package]]
 name = "axum-test"
-version = "14.8.0"
+version = "14.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db705caa0b050aa7247c4748293b09e4cddaf7a3c4a87faf145859c11ce501e3"
+checksum = "c1dd121fc33f83778a00a366c18fc1ecf6e544c8acc15709a6216d4f94c2f27b"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1394,9 +1394,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "0.38.33"
+version = "0.38.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3cc72858054fcff6d7dea32df2aeaee6a7c24227366d7ea429aada2f26b16ad"
+checksum = "70dc5ec042f7a43c4a73241207cecc9873a06d45debb38b329f8541d85c2730f"
 dependencies = [
  "bitflags 2.5.0",
  "errno",
