@@ -11,12 +11,22 @@ const FIND_SQL: &str = r#"SELECT value FROM store WHERE name = ?1"#;
 const UPDATE_SQL: &str = r#"INSERT INTO store (name, value) VALUES (?1, ?2)
     ON CONFLICT(name) DO UPDATE SET value = ?2"#;
 
+/// Store that persists data across executions.
 #[derive(Clone, Debug)]
 pub struct LamStore {
-    pub conn: Arc<Mutex<Connection>>,
+    conn: Arc<Mutex<Connection>>,
 }
 
 impl LamStore {
+    /// Create a new store with path on the filesystem.
+    ///
+    /// ```rust
+    /// # use tempdir::TempDir;
+    /// use lam::*;
+    /// let dir = TempDir::new("temp").unwrap();
+    /// let path = dir.path().join("db.sqlite3");
+    /// let _ = LamStore::new(&path);
+    /// ```
     pub fn new(path: &Path) -> LamResult<Self> {
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "busy_timeout", 5000)?;
@@ -28,6 +38,16 @@ impl LamStore {
         })
     }
 
+    /// Perform migration on the database. Migrations should be idempotent.
+    ///
+    /// ```rust
+    /// # use tempdir::TempDir;
+    /// use lam::*;
+    /// let dir = TempDir::new("temp").unwrap();
+    /// let path = dir.path().join("db.sqlite3");
+    /// let store = LamStore::new(&path).unwrap();
+    /// store.migrate().unwrap();
+    /// ```
     pub fn migrate(&self) -> LamResult<()> {
         let conn = self.conn.lock();
         for e in MIGRATIONS_DIR.entries() {
@@ -44,6 +64,21 @@ impl LamStore {
         Ok(())
     }
 
+    /// Insert or update the value into the store.
+    ///
+    /// The key distinction between this function and [`LamStore::update`] is
+    /// that this function unconditionally inserts or updates with the provided value.
+    ///
+    /// ```rust
+    /// use lam::*;
+    /// let store = LamStore::default();
+    /// store.insert("a", &true.into());
+    /// assert_eq!(LamValue::Boolean(true), store.get("a").unwrap());
+    /// store.insert("b", &1.into());
+    /// assert_eq!(LamValue::Number(1f64), store.get("b").unwrap());
+    /// store.insert("c", &"hello".into());
+    /// assert_eq!(LamValue::String("hello".into()), store.get("c").unwrap());
+    /// ```
     pub fn insert<S: AsRef<str>>(&self, name: S, value: &LamValue) -> LamResult<()> {
         let conn = self.conn.lock();
 
@@ -54,6 +89,16 @@ impl LamStore {
         Ok(())
     }
 
+    /// Get value from the store. A `nil` will be returned to Lua virtual machine
+    /// when the value is absent.
+    ///
+    /// ```rust
+    /// use lam::*;
+    /// let store = LamStore::default();
+    /// assert_eq!(LamValue::None, store.get("a").unwrap());
+    /// store.insert("a", &true.into());
+    /// assert_eq!(LamValue::Boolean(true), store.get("a").unwrap());
+    /// ```
     pub fn get<S: AsRef<str>>(&self, name: S) -> LamResult<LamValue> {
         let conn = self.conn.lock();
 
@@ -66,11 +111,52 @@ impl LamStore {
         Ok(rmp_serde::from_slice::<LamValue>(&v)?)
     }
 
+    /// Insert or update the value into the store.
+    ///
+    /// Unlike [`LamStore::insert`], this function accepts a closure and only mutates the value in the store
+    /// when the closure returns a new value. If the closure results in an error,
+    /// the value in the store remains unchanged.
+    ///
+    /// This function also takes a default value.
+    ///
+    /// # Successfully update the value
+    ///
+    /// ```rust
+    /// use lam::*;
+    /// let store = LamStore::default();
+    /// let x = store.update("b", |old| {
+    ///     if let LamValue::Number(n) = old {
+    ///         *old = LamValue::Number(*n + 1f64);
+    ///     }
+    ///     Ok(())
+    /// }, Some(1.into()));
+    /// assert_eq!(LamValue::Number(2f64), x.unwrap());
+    /// assert_eq!(LamValue::Number(2f64), store.get("b").unwrap());
+    /// ```
+    ///
+    /// # Do nothing when an error is returned
+    ///
+    /// ```rust
+    /// use lam::*;
+    /// let store = LamStore::default();
+    /// store.insert("a", &1.into());
+    /// let x = store.update("a", |old| {
+    ///     if let LamValue::Number(n) = old {
+    ///        if *n == 1f64 {
+    ///            return Err(mlua::Error::runtime("something went wrong"));
+    ///        }
+    ///        *old = LamValue::Number(*n + 1f64);
+    ///     }
+    ///     Ok(())
+    /// }, Some(1.into()));
+    /// assert_eq!(LamValue::Number(1f64), x.unwrap());
+    /// assert_eq!(LamValue::Number(1f64), store.get("a").unwrap());
+    /// ```
     pub fn update<S: AsRef<str>>(
         &self,
         name: S,
         f: impl FnOnce(&mut LamValue) -> mlua::Result<()>,
-        default_v: &LamValue,
+        default_v: Option<LamValue>,
     ) -> LamResult<LamValue> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
@@ -78,7 +164,7 @@ impl LamStore {
         let name = name.as_ref();
 
         let v: Vec<u8> = match tx.query_row(FIND_SQL, (name,), |row| row.get(0)) {
-            Err(_) => rmp_serde::to_vec(default_v)?,
+            Err(_) => rmp_serde::to_vec(&default_v.unwrap_or(LamValue::None))?,
             Ok(v) => v,
         };
 
@@ -114,7 +200,7 @@ impl Default for LamStore {
 mod tests {
     use crate::*;
     use maplit::hashmap;
-    use std::thread;
+    use std::{io::empty, thread};
     use test_case::test_case;
 
     #[test_case(vec![true.into(), 1f64.into(), "hello".into()].into())]
@@ -139,7 +225,9 @@ mod tests {
         for _ in 0..=1000 {
             let store = store.clone();
             threads.push(thread::spawn(move || {
-                let e = EvalBuilder::new(script.into()).with_store(store).build();
+                let e = EvalBuilder::new(script.into(), empty())
+                    .with_store(store)
+                    .build();
                 e.evaluate().unwrap();
             }));
         }
@@ -161,11 +249,13 @@ mod tests {
         let store = LamStore::default();
         store.insert("a", &1.23.into()).unwrap();
 
-        let e = EvalBuilder::new(script.into()).with_store(store).build();
+        let e = EvalBuilder::new(script.into(), empty())
+            .with_store(store.clone())
+            .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!("1.23", res.result.to_string());
-        assert_eq!(LamValue::Number(4.56), e.store.unwrap().get("a").unwrap());
+        assert_eq!(LamValue::Number(1.23), res.result);
+        assert_eq!(LamValue::Number(4.56), store.get("a").unwrap());
     }
 
     #[test]
@@ -198,22 +288,39 @@ mod tests {
         let store = LamStore::default();
         store.insert("a", &LamValue::Number(1f64)).unwrap();
 
-        let e = EvalBuilder::new(script.into()).with_store(store).build();
+        let e = EvalBuilder::new(script.into(), empty())
+            .with_store(store.clone())
+            .build();
 
         {
             let res = e.evaluate().unwrap();
-            assert_eq!("1", res.result.to_string());
-            assert_eq!(
-                LamValue::Number(2f64),
-                e.store.as_ref().unwrap().get("a").unwrap()
-            );
+            assert_eq!(LamValue::Number(1f64), res.result);
+            assert_eq!(LamValue::Number(2f64), store.get("a").unwrap());
         }
 
         {
             let res = e.evaluate().unwrap();
-            assert_eq!("2", res.result.to_string());
-            assert_eq!(LamValue::Number(3f64), e.store.unwrap().get("a").unwrap());
+            assert_eq!(LamValue::Number(2f64), res.result);
+            assert_eq!(LamValue::Number(3f64), store.get("a").unwrap());
         }
+    }
+
+    #[test]
+    fn update_without_default_value() {
+        let script = r#"return require('@lam'):update('a', function(v)
+            return v+1
+        end)"#;
+
+        let store = LamStore::default();
+        store.insert("a", &LamValue::Number(1f64)).unwrap();
+
+        let e = EvalBuilder::new(script.into(), empty())
+            .with_store(store.clone())
+            .build();
+
+        let res = e.evaluate().unwrap();
+        assert_eq!(LamValue::Number(2f64), res.result);
+        assert_eq!(LamValue::Number(2f64), store.get("a").unwrap());
     }
 
     #[test_log::test]
@@ -229,10 +336,12 @@ mod tests {
         let store = LamStore::default();
         store.insert("a", &LamValue::Number(1f64)).unwrap();
 
-        let e = EvalBuilder::new(script.into()).with_store(store).build();
+        let e = EvalBuilder::new(script.into(), empty())
+            .with_store(store.clone())
+            .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!("1", res.result.to_string());
-        assert_eq!(LamValue::Number(1f64), e.store.unwrap().get("a").unwrap());
+        assert_eq!(LamValue::Number(1f64), res.result);
+        assert_eq!(LamValue::Number(1f64), store.get("a").unwrap());
     }
 }

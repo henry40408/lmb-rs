@@ -2,14 +2,21 @@ use mlua::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Value mapping between Rust and Lua.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum LamValue {
+    /// nil in Lua, None in Rust.
     None,
+    /// Boolean.
     Boolean(bool),
-    Number(f64), // represent float and integer
+    /// Numbers, includes float and integer.
+    Number(f64),
+    /// String.
     String(String),
+    /// Table without explicit key in Lua, Vec in Rust.
     List(Vec<LamValue>),
+    /// Table with explicit key in Lua, HashMap in Rust.
     Table(HashMap<String, LamValue>),
 }
 
@@ -34,7 +41,7 @@ macro_rules! impl_numeric_to_lam_value {
         )*
     };
 }
-impl_numeric_to_lam_value!(i8, u8, i16, u16, i32, u32, f32, i64, u64, f64);
+impl_numeric_to_lam_value!(f32, f64, i8, i16, i32, i64, u8, u16, u32, u64);
 
 impl From<HashMap<String, LamValue>> for LamValue {
     fn from(value: HashMap<String, LamValue>) -> Self {
