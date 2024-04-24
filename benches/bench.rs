@@ -3,14 +3,14 @@
 use bencher::{benchmark_group, benchmark_main, Bencher};
 use lam::EvalBuilder;
 use mlua::prelude::*;
-use std::io::{BufReader, Cursor, Read as _};
+use std::io::{empty, BufReader, Cursor, Read as _};
 
 static SCRIPT: &str = "return true";
 
 /// evaluation
 
 fn lam_evaluate(bencher: &mut Bencher) {
-    let e = EvalBuilder::new(SCRIPT.into(), &b""[..]).build();
+    let e = EvalBuilder::new(SCRIPT.into(), empty()).build();
     bencher.iter(|| e.evaluate().unwrap());
 }
 
@@ -35,12 +35,12 @@ fn mlua_sandbox_eval(bencher: &mut Bencher) {
 /// store
 
 fn lam_no_store(bencher: &mut Bencher) {
-    let e = EvalBuilder::new(SCRIPT.into(), &b""[..]).build();
+    let e = EvalBuilder::new(SCRIPT.into(), empty()).build();
     bencher.iter(|| e.evaluate().unwrap());
 }
 
 fn lam_default_store(bencher: &mut Bencher) {
-    let e = EvalBuilder::new(SCRIPT.into(), &b""[..])
+    let e = EvalBuilder::new(SCRIPT.into(), empty())
         .with_default_store()
         .build();
     bencher.iter(|| e.evaluate().unwrap());

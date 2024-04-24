@@ -218,6 +218,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::*;
+    use std::io::empty;
     use test_case::test_case;
 
     #[test]
@@ -233,7 +234,7 @@ mod tests {
     #[test_case(r#"assert(not require('@lam'):read('*n'))"#)]
     #[test_case(r#"assert(not require('@lam'):read(1))"#)]
     fn read_empty(script: &'static str) {
-        let e = EvalBuilder::new(script.into(), &b""[..]).build();
+        let e = EvalBuilder::new(script.into(), empty()).build();
         let _ = e.evaluate().expect(script);
     }
 

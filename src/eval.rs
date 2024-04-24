@@ -35,11 +35,12 @@ impl<'a, R> EvalBuilder<'a, R>
 where
     for<'lua> R: Read + 'lua,
 {
-    /// Create a builder without input.
+    /// Create a builder.
     ///
     /// ```rust
+    /// # use std::io::empty;
     /// use lam::*;
-    /// let _ = EvalBuilder::new("".into(), &b""[..]);
+    /// let _ = EvalBuilder::new("".into(), empty());
     /// ```
     pub fn new(script: Cow<'a, str>, input: R) -> Self {
         Self {
@@ -55,19 +56,21 @@ where
     /// <div class="warning">Data will be lost after the program finishes.</div>
     ///
     /// ```rust
+    /// # use std::io::empty;
     /// use lam::*;
-    /// let _ = EvalBuilder::new("".into(), &b""[..]).with_default_store();
+    /// let _ = EvalBuilder::new("".into(), empty()).with_default_store();
     /// ```
     pub fn with_default_store(mut self) -> Self {
         self.store = Some(LamStore::default());
         self
     }
 
-    /// Name the function for verbosity.
+    /// Name the function for debugging and/or verbosity.
     ///
     /// ```rust
+    /// # use std::io::empty;
     /// use lam::*;
-    /// let _ = EvalBuilder::new("".into(), &b""[..]).with_name("script".into());
+    /// let _ = EvalBuilder::new("".into(), empty()).with_name("script".into());
     /// ```
     pub fn with_name(mut self, name: Cow<'a, str>) -> Self {
         self.name = Some(name);
@@ -77,10 +80,10 @@ where
     /// Set or unset execution timeout.
     ///
     /// ```rust
-    /// # use std::time::Duration;
+    /// # use std::{io::empty, time::Duration};
     /// use lam::*;
     /// let timeout = Duration::from_secs(30);
-    /// let _ = EvalBuilder::new("".into(), &b""[..]).with_timeout(Some(timeout));
+    /// let _ = EvalBuilder::new("".into(), empty()).with_timeout(Some(timeout));
     /// ```
     pub fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
         self.timeout = timeout;
@@ -90,9 +93,10 @@ where
     /// Attach a store to the function.
     ///
     /// ```rust
+    /// # use std::io::empty;
     /// use lam::*;
     /// let store = LamStore::default();
-    /// let _ = EvalBuilder::new("".into(), &b""[..]).with_store(store);
+    /// let _ = EvalBuilder::new("".into(), empty()).with_store(store);
     /// ```
     pub fn with_store(mut self, store: LamStore) -> Self {
         self.store = Some(store);
@@ -102,13 +106,14 @@ where
     /// Build the [`Evaluation`] for execution.
     /// It will compile Lua script into bytecodes for better performance.
     ///
-    /// <div class="warning">This function doesn't check syntax of Lua script.</div>
+    /// <div class="warning">However, this function won't check syntax of Lua script.</div>
     ///
     /// The syntax of Lua script could be checked with [`check_syntax`].
     ///
     /// ```rust
+    /// # use std::io::empty;
     /// use lam::*;
-    /// let e = EvalBuilder::new("return true".into(), &b""[..]).build();
+    /// let e = EvalBuilder::new("return true".into(), empty()).build();
     /// let res = e.evaluate().unwrap();
     /// assert_eq!(LamValue::Boolean(true), res.result);
     /// ```
@@ -163,8 +168,9 @@ where
     /// Evaluate the function and return a [`EvalResult`] as result.
     ///
     /// ```rust
+    /// # use std::io::empty;
     /// use lam::*;
-    /// let e = EvalBuilder::new("return 1+1".into(), &b""[..]).build();
+    /// let e = EvalBuilder::new("return 1+1".into(), empty()).build();
     /// let res = e.evaluate().unwrap();
     /// assert_eq!(LamValue::Number(2f64), res.result);
     /// ```
@@ -212,6 +218,22 @@ where
     }
 
     /// Replace the function input after the container is built.
+    ///
+    /// ```rust
+    /// # use std::io::{Cursor, empty};
+    /// use lam::*;
+    ///
+    /// let script = "return require('@lam'):read('*a')";
+    /// let mut e = EvalBuilder::new(script.into(), Cursor::new("1")).build();
+    ///
+    /// let r = e.evaluate().unwrap();
+    /// assert_eq!(LamValue::String("1".into()), r.result);
+    ///
+    /// e.set_input(Cursor::new("2"));
+    ///
+    /// let r = e.evaluate().unwrap();
+    /// assert_eq!(LamValue::String("2".into()), r.result);
+    /// ```
     pub fn set_input(&mut self, input: R) {
         self.input = Arc::new(Mutex::new(BufReader::new(input)));
     }
@@ -221,13 +243,13 @@ where
 mod tests {
     use crate::*;
     use maplit::hashmap;
-    use std::{borrow::Cow, fs, time::Duration};
+    use std::{borrow::Cow, fs, io::empty, time::Duration};
     use test_case::test_case;
 
     #[test_case("./lua-examples/07-error.lua")]
     fn error_in_script(path: &str) {
         let script = fs::read_to_string(path).unwrap();
-        let e = EvalBuilder::new(script.into(), &b""[..]).build();
+        let e = EvalBuilder::new(script.into(), empty()).build();
         assert!(e.evaluate().is_err());
     }
 
@@ -256,7 +278,7 @@ mod tests {
     fn evaluate_infinite_loop() {
         let timeout = Duration::from_secs(1);
 
-        let e = EvalBuilder::new(r#"while true do end"#.into(), &b""[..])
+        let e = EvalBuilder::new(r#"while true do end"#.into(), empty())
             .with_timeout(Some(timeout))
             .build();
         let res = e.evaluate().unwrap();
@@ -270,7 +292,7 @@ mod tests {
     #[test_case("return 'a'..1", "a1")]
     #[test_case("return require('@lam')._VERSION", "0.1.0")]
     fn evaluate_scripts(script: &str, expected: &str) {
-        let e = EvalBuilder::new(script.into(), &b""[..]).build();
+        let e = EvalBuilder::new(script.into(), empty()).build();
         let res = e.evaluate().expect(script);
         assert_eq!(expected, res.result.to_string());
     }
@@ -298,7 +320,7 @@ mod tests {
     #[test_case(r#"return {a=true,b=1.23,c="hello"}"#, "table: 0x0")]
     #[test_case(r#"return {true,1.23,"hello"}"#, "table: 0x0")]
     fn return_to_string(script: &str, expected: &str) {
-        let e = EvalBuilder::new(script.into(), &b""[..]).build();
+        let e = EvalBuilder::new(script.into(), empty()).build();
         let res = e.evaluate().expect(script);
         assert_eq!(expected, res.result.to_string());
     }
@@ -306,7 +328,7 @@ mod tests {
     #[test]
     fn syntax_error() {
         let script = "ret true"; // code with syntax error
-        let e = EvalBuilder::new(script.into(), &b""[..]).build();
+        let e = EvalBuilder::new(script.into(), empty()).build();
         assert!(e.evaluate().is_err());
     }
 

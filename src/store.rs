@@ -119,16 +119,38 @@ impl LamStore {
     ///
     /// This function also takes a default value.
     ///
+    /// # Successfully update the value
+    ///
     /// ```rust
     /// use lam::*;
     /// let store = LamStore::default();
-    /// let _ = store.update("a", |old| {
+    /// let x = store.update("b", |old| {
     ///     if let LamValue::Number(n) = old {
     ///         *old = LamValue::Number(*n + 1f64);
     ///     }
     ///     Ok(())
     /// }, Some(1.into()));
-    /// assert_eq!(LamValue::Number(2f64), store.get("a").unwrap());
+    /// assert_eq!(LamValue::Number(2f64), x.unwrap());
+    /// assert_eq!(LamValue::Number(2f64), store.get("b").unwrap());
+    /// ```
+    ///
+    /// # Do nothing when an error is returned
+    ///
+    /// ```rust
+    /// use lam::*;
+    /// let store = LamStore::default();
+    /// store.insert("a", &1.into());
+    /// let x = store.update("a", |old| {
+    ///     if let LamValue::Number(n) = old {
+    ///        if *n == 1f64 {
+    ///            return Err(mlua::Error::runtime("something went wrong"));
+    ///        }
+    ///        *old = LamValue::Number(*n + 1f64);
+    ///     }
+    ///     Ok(())
+    /// }, Some(1.into()));
+    /// assert_eq!(LamValue::Number(1f64), x.unwrap());
+    /// assert_eq!(LamValue::Number(1f64), store.get("a").unwrap());
     /// ```
     pub fn update<S: AsRef<str>>(
         &self,
@@ -178,7 +200,7 @@ impl Default for LamStore {
 mod tests {
     use crate::*;
     use maplit::hashmap;
-    use std::thread;
+    use std::{io::empty, thread};
     use test_case::test_case;
 
     #[test_case(vec![true.into(), 1f64.into(), "hello".into()].into())]
@@ -203,7 +225,7 @@ mod tests {
         for _ in 0..=1000 {
             let store = store.clone();
             threads.push(thread::spawn(move || {
-                let e = EvalBuilder::new(script.into(), &b""[..])
+                let e = EvalBuilder::new(script.into(), empty())
                     .with_store(store)
                     .build();
                 e.evaluate().unwrap();
@@ -227,7 +249,7 @@ mod tests {
         let store = LamStore::default();
         store.insert("a", &1.23.into()).unwrap();
 
-        let e = EvalBuilder::new(script.into(), &b""[..])
+        let e = EvalBuilder::new(script.into(), empty())
             .with_store(store.clone())
             .build();
 
@@ -266,7 +288,7 @@ mod tests {
         let store = LamStore::default();
         store.insert("a", &LamValue::Number(1f64)).unwrap();
 
-        let e = EvalBuilder::new(script.into(), &b""[..])
+        let e = EvalBuilder::new(script.into(), empty())
             .with_store(store.clone())
             .build();
 
@@ -292,7 +314,7 @@ mod tests {
         let store = LamStore::default();
         store.insert("a", &LamValue::Number(1f64)).unwrap();
 
-        let e = EvalBuilder::new(script.into(), &b""[..])
+        let e = EvalBuilder::new(script.into(), empty())
             .with_store(store.clone())
             .build();
 
@@ -314,7 +336,7 @@ mod tests {
         let store = LamStore::default();
         store.insert("a", &LamValue::Number(1f64)).unwrap();
 
-        let e = EvalBuilder::new(script.into(), &b""[..])
+        let e = EvalBuilder::new(script.into(), empty())
             .with_store(store.clone())
             .build();
 
