@@ -40,11 +40,10 @@ mod tests {
     fn eval_json_output() {
         let mut cmd = Command::cargo_bin("lam").unwrap();
         cmd.args([
+            "--json",
             "eval",
             "--file",
             "lua-examples/08-return-table.lua",
-            "--output-format",
-            "json",
         ]);
         cmd.assert().success();
         let s = String::from_utf8(cmd.output().unwrap().stdout).unwrap();

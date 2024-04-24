@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 use clap_stdin::{FileOrStdin, Source};
 use lam::{check_syntax, render_error, EvalBuilder, LamStore};
 use std::{io, path::PathBuf, time::Duration};
@@ -18,20 +18,16 @@ struct Cli {
     #[arg(long, short = 'd', env = "DEBUG")]
     debug: bool,
 
+    /// Output as JSON
+    #[arg(long)]
+    json: bool,
+
     /// No color https://no-color.org/
     #[arg(long, env = "NO_COLOR")]
     no_color: bool,
 
     #[command(subcommand)]
     command: Commands,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
-enum OutputFormat {
-    /// Plain text
-    Text,
-    /// JSON
-    Json,
 }
 
 #[derive(Debug, Parser)]
@@ -63,9 +59,6 @@ enum Commands {
         /// Timeout in seconds
         #[arg(long)]
         timeout: Option<u64>,
-        /// Output format
-        #[arg(long, value_enum, default_value = "text")]
-        output_format: OutputFormat,
     },
     /// Handle request with a script file
     Serve {
@@ -142,12 +135,7 @@ async fn main() -> anyhow::Result<()> {
             let script = file.contents()?;
             do_check_syntax(cli.no_color, name, script);
         }
-        Commands::Eval {
-            file,
-            output_format,
-            timeout,
-            ..
-        } => {
+        Commands::Eval { file, timeout, .. } => {
             let name = if let Source::Arg(path) = &file.source {
                 path.to_string()
             } else {
@@ -163,9 +151,10 @@ async fn main() -> anyhow::Result<()> {
                 .with_timeout(timeout)
                 .build();
             let res = e.evaluate()?;
-            let output = match output_format {
-                OutputFormat::Text => res.result.to_string(),
-                OutputFormat::Json => serde_json::to_string(&res.result)?,
+            let output = if cli.json {
+                serde_json::to_string(&res.result)?
+            } else {
+                res.result.to_string()
             };
             print!("{}", output);
         }
