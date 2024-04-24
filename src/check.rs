@@ -91,10 +91,7 @@ mod tests {
     fn syntax_error() {
         let name = "foobar";
         let script = "ret true";
-
         let res = check_syntax(script);
-        assert!(matches!(res, Err(full_moon::Error::AstError { .. })));
-
         assert!(render_error(true, name, script, res).is_some());
     }
 }

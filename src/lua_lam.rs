@@ -20,11 +20,33 @@ where
     for<'lua> R: Read + 'lua,
 {
     /// Create a new instance of interface with input [`LamInput`] and store [`LamStore`].
+    ///
+    /// <div class="warning">Export for benchmarking, but end-user should not directly use it.</div>
+    ///
+    /// ```rust
+    /// # use std::{io::{Cursor, BufReader}, sync::Arc};
+    /// # use parking_lot::Mutex;
+    /// use lam::*;
+    /// let input = Arc::new(Mutex::new(BufReader::new(Cursor::new("0"))));
+    /// let store = LamStore::default();
+    /// let _ = LuaLam::new(Some(input), Some(store));
+    /// ```
     pub fn new(input: Option<LamInput<R>>, store: Option<LamStore>) -> Self {
         Self { input, store }
     }
 
     /// Register the interface to a Lua virtual machine.
+    ///
+    /// ```rust
+    /// # use std::{io::{Cursor, BufReader}, sync::Arc};
+    /// # use mlua::prelude::*;
+    /// # use parking_lot::Mutex;
+    /// use lam::*;
+    /// let vm = Lua::new();
+    /// let input = Arc::new(Mutex::new(BufReader::new(Cursor::new("0"))));
+    /// let store = LamStore::default();
+    /// let _ = LuaLam::register(&vm, Some(input), Some(store));
+    /// ```
     pub fn register(
         vm: &Lua,
         input: Option<LamInput<R>>,

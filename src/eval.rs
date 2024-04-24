@@ -37,12 +37,24 @@ where
 {
     /// Attach an in-memory store.
     /// <div class="warning">Data will be lost after the program finishes.</div>
+    ///
+    /// ```rust
+    /// use lam::*;
+    /// let _ = EvalBuilder::new("".into()).with_default_store();
+    /// ```
     pub fn with_default_store(mut self) -> Self {
         self.store = Some(LamStore::default());
         self
     }
 
     /// Give a input to the function.
+    ///
+    /// ```rust
+    /// # use std::io::Cursor;
+    /// use lam::*;
+    /// let input = Cursor::new("1");
+    /// let _ = EvalBuilder::new("".into()).with_input(input);
+    /// ```
     pub fn with_input<S: Read>(self, input: S) -> EvalBuilder<'a, S> {
         EvalBuilder {
             input: Some(input),
@@ -54,18 +66,36 @@ where
     }
 
     /// Name the function for verbosity.
+    ///
+    /// ```rust
+    /// use lam::*;
+    /// let _ = EvalBuilder::new("".into()).with_name("script".into());
+    /// ```
     pub fn with_name(mut self, name: Cow<'a, str>) -> Self {
         self.name = Some(name);
         self
     }
 
-    /// Set execution timeout.
+    /// Set or unset execution timeout.
+    ///
+    /// ```rust
+    /// # use std::time::Duration;
+    /// use lam::*;
+    /// let timeout = Duration::from_secs(30);
+    /// let _ = EvalBuilder::new("".into()).with_timeout(Some(timeout));
+    /// ```
     pub fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
         self.timeout = timeout;
         self
     }
 
     /// Attach a store to the function.
+    ///
+    /// ```rust
+    /// use lam::*;
+    /// let store = LamStore::default();
+    /// let _ = EvalBuilder::new("".into()).with_store(store);
+    /// ```
     pub fn with_store(mut self, store: LamStore) -> Self {
         self.store = Some(store);
         self
@@ -77,6 +107,13 @@ where
     /// <div class="warning">This function doesn't check syntax of Lua script.</div>
     ///
     /// The syntax of Lua script could be checked with [`check_syntax`].
+    ///
+    /// ```rust
+    /// use lam::*;
+    /// let e = EvalBuilder::new("return true".into()).build();
+    /// let res = e.evaluate().unwrap();
+    /// assert_eq!(LamValue::Boolean(true), res.result);
+    /// ```
     pub fn build(self) -> Evaluation<'a, R> {
         let vm = Lua::new();
         vm.sandbox(true).expect("failed to enable sandbox");
@@ -109,6 +146,11 @@ impl Read for NoInput {
 
 impl<'a> EvalBuilder<'a, NoInput> {
     /// Create a builder without input.
+    ///
+    /// ```rust
+    /// use lam::*;
+    /// let _ = EvalBuilder::new("".into());
+    /// ```
     pub fn new(script: Cow<'a, str>) -> Self {
         Self {
             input: None,
@@ -148,12 +190,14 @@ impl<'a, R> Evaluation<'a, R>
 where
     for<'lua> R: Read + 'lua,
 {
-    /// Create a builder [`EvalBuilder`] without Lua script.
-    pub fn builder() -> EvalBuilder<'a, NoInput> {
-        EvalBuilder::default()
-    }
-
     /// Evaluate the function and return a [`EvalResult`] as result.
+    ///
+    /// ```rust
+    /// use lam::*;
+    /// let e = EvalBuilder::new("return 1+1".into()).build();
+    /// let res = e.evaluate().unwrap();
+    /// assert_eq!(LamValue::Number(2f64), res.result);
+    /// ```
     pub fn evaluate(&self) -> LamResult<EvalResult> {
         let vm = &self.vm;
         LuaLam::register(vm, self.input.clone(), self.store.clone())?;
@@ -200,6 +244,18 @@ where
     /// Replace the function input after the container is built.
     pub fn set_input(&mut self, input: R) {
         self.input = Some(Arc::new(Mutex::new(BufReader::new(input))));
+    }
+}
+
+impl<'a> Evaluation<'a, NoInput> {
+    /// Create a builder [`EvalBuilder`] without Lua script.
+    ///
+    /// ```rust
+    /// use lam::*;
+    /// let _ = Evaluation::builder();
+    /// ```
+    pub fn builder() -> EvalBuilder<'a, NoInput> {
+        EvalBuilder::default()
     }
 }
 
