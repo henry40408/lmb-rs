@@ -138,7 +138,6 @@ where
 }
 
 /// Evaluation result.
-#[derive(Debug)]
 pub struct EvalResult {
     /// Execution duration.
     pub duration: Duration,

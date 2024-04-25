@@ -7,7 +7,7 @@ use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
 
 mod serve;
 
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 #[command(about, author, long_about=None, version)]
 struct Cli {
     /// Checks the syntax of the function, disabled by default for performance reasons
@@ -30,7 +30,7 @@ struct Cli {
     command: Commands,
 }
 
-#[derive(Debug, Parser)]
+#[derive(Parser)]
 struct StoreOptions {
     /// Run migrations
     #[arg(long, env = "RUN_MIGRATIONS")]
@@ -41,7 +41,7 @@ struct StoreOptions {
     store_path: Option<PathBuf>,
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Subcommand)]
 enum Commands {
     /// Check syntax of script
     Check {
@@ -79,7 +79,7 @@ enum Commands {
     Store(StoreCommands),
 }
 
-#[derive(Debug, Parser)]
+#[derive(Parser)]
 enum StoreCommands {
     /// Run migrations on the store
     Migrate {
