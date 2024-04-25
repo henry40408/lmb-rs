@@ -78,6 +78,16 @@ fn lam_read_number(bencher: &mut Bencher) {
     });
 }
 
+fn lam_read_unicode(bencher: &mut Bencher) {
+    let input = "1";
+    let script = "return require('@lam'):read_unicode(1)";
+    let mut e = EvalBuilder::new(script.into(), input.as_bytes()).build();
+    bencher.iter(|| {
+        e.set_input(&b"0"[..]);
+        e.evaluate().unwrap()
+    });
+}
+
 fn read_from_buf_reader(bencher: &mut Bencher) {
     let mut r = BufReader::new(Cursor::new("1"));
     bencher.iter(|| {
@@ -98,6 +108,7 @@ benchmark_group!(
     lam_read_all,
     lam_read_line,
     lam_read_number,
+    lam_read_unicode,
     read_from_buf_reader,
 );
 benchmark_group!(store, lam_default_store, lam_no_store);
