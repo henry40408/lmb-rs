@@ -245,25 +245,24 @@ mod tests {
     use std::{borrow::Cow, fs, io::empty, time::Duration};
     use test_case::test_case;
 
-    #[test_case("./lua-examples/07-error.lua")]
+    #[test_case("./lua-examples/error.lua")]
     fn error_in_script(path: &str) {
         let script = fs::read_to_string(path).unwrap();
         let e = EvalBuilder::new(script.into(), empty()).build();
         assert!(e.evaluate().is_err());
     }
 
-    #[test_case("01-hello.lua", "", LamValue::None)]
-    #[test_case("02-input.lua", "lua", LamValue::None)]
-    #[test_case("03-algebra.lua", "2", 4.into())]
-    #[test_case("04-echo.lua", "a", "a".into())]
-    #[test_case("05-state.lua", "", 1.into())]
-    #[test_case("06-count-bytes.lua", "A", hashmap!{ "65".into() => 1.into() }.into())]
-    #[test_case("08-return-table.lua", "123", hashmap!{
-        "a".into() => true.into(),
-        "b".into() => 1.23.into(),
-        "c".into() => "hello".into()
+    #[test_case("hello.lua", "", LamValue::None)]
+    #[test_case("input.lua", "lua", LamValue::None)]
+    #[test_case("algebra.lua", "2", 4.into())]
+    #[test_case("state.lua", "", 1.into())]
+    #[test_case("count-bytes.lua", "A", hashmap!{ "65".into() => 1.into() }.into())]
+    #[test_case("return-table.lua", "123", hashmap!{
+        "bool".into() => true.into(),
+        "num".into() => 1.23.into(),
+        "str".into() => "hello".into()
     }.into())]
-    #[test_case("09-read-unicode.lua", "你好，世界", "你好".into())]
+    #[test_case("read-unicode.lua", "你好，世界", "你好".into())]
     fn evaluate_examples(filename: &str, input: &'static str, expected: LamValue) {
         let script = fs::read_to_string(format!("./lua-examples/{filename}")).unwrap();
         let e = EvalBuilder::new(Cow::Borrowed(&script), input.as_bytes())
