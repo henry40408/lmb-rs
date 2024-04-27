@@ -53,10 +53,6 @@ $ ./target/release/lam serve --file lua-examples/echo.lua
 hello
 ```
 
-## Roadmap
-
-- [ ] Manage functions and executions via REST APIs
-
 ## License
 
 MIT
