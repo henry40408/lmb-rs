@@ -1,3 +1,7 @@
+--[[
+--description = "Count bytes from standard input."
+--]]
+
 local m = require("@lam")
 
 local t = {}

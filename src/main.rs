@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
 use clap_stdin::{FileOrStdin, Source};
-use lam::{check_syntax, render_error, EvalBuilder, LamStore};
+use comfy_table::{presets, Table};
+use lam::*;
+use serve::ServeOptions;
 use std::{io, path::PathBuf, time::Duration};
 use tracing::Level;
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
@@ -8,7 +10,8 @@ use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
 mod serve;
 
 #[derive(Parser)]
-#[command(about, author, long_about=None, version)]
+#[command(about, author, version)]
+/// lam is a Lua function runner.
 struct Cli {
     /// Checks the syntax of the function, disabled by default for performance reasons
     #[arg(long, env = "CHECK_SYNTAX")]
@@ -30,7 +33,7 @@ struct Cli {
     command: Commands,
 }
 
-#[derive(Parser)]
+#[derive(Default, Parser)]
 struct StoreOptions {
     /// Run migrations
     #[arg(long, env = "RUN_MIGRATIONS")]
@@ -50,7 +53,8 @@ enum Commands {
         file: FileOrStdin,
     },
     /// Evaluate a script file
-    Eval {
+    #[command(alias = "eval")]
+    Evaluate {
         #[command(flatten)]
         store_options: StoreOptions,
         /// Script path
@@ -60,7 +64,10 @@ enum Commands {
         #[arg(long)]
         timeout: Option<u64>,
     },
-    /// Handle request with a script file
+    /// Interact with examples
+    #[command(subcommand)]
+    Example(ExampleCommands),
+    /// Run a HTTP server from a Lua script
     Serve {
         #[command(flatten)]
         store_options: StoreOptions,
@@ -74,9 +81,16 @@ enum Commands {
         #[arg(long)]
         timeout: Option<u64>,
     },
-    /// Store commands
+    /// Commands on store
     #[command(subcommand)]
     Store(StoreCommands),
+}
+
+#[derive(Parser)]
+enum ExampleCommands {
+    /// List examples
+    #[command(alias = "ls")]
+    List,
 }
 
 #[derive(Parser)]
@@ -135,7 +149,7 @@ async fn main() -> anyhow::Result<()> {
             let script = file.contents()?;
             do_check_syntax(cli.no_color, name, script);
         }
-        Commands::Eval { file, timeout, .. } => {
+        Commands::Evaluate { file, timeout, .. } => {
             let name = if let Source::Arg(path) = &file.source {
                 path.to_string()
             } else {
@@ -158,6 +172,17 @@ async fn main() -> anyhow::Result<()> {
             };
             print!("{}", output);
         }
+        Commands::Example(ExampleCommands::List) => {
+            let mut table = Table::new();
+            table.load_preset(presets::NOTHING);
+            table.set_header(vec!["name", "description"]);
+            for e in EXAMPLES.iter() {
+                let name = &e.name;
+                let description = &e.description;
+                table.add_row(vec![name, description]);
+            }
+            println!("{table}");
+        }
         Commands::Serve {
             bind,
             file,
@@ -174,7 +199,15 @@ async fn main() -> anyhow::Result<()> {
                 return Ok(());
             }
             let timeout = timeout.map(Duration::from_secs);
-            serve::serve_file(&bind, name.into(), script.into(), timeout, &store_options).await?;
+            serve::serve_file(&ServeOptions {
+                json: cli.json,
+                bind,
+                name,
+                script,
+                timeout,
+                store_options,
+            })
+            .await?;
         }
         Commands::Store(c) => match c {
             StoreCommands::Migrate { store_path } => {

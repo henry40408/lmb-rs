@@ -3,16 +3,31 @@ use axum::{
     body::Bytes, extract::State, http::StatusCode, response::IntoResponse, routing::post, Router,
 };
 use lam::*;
-use std::{borrow::Cow, io::Cursor, time::Duration};
+use std::{io::Cursor, time::Duration};
 use tower_http::trace::{self, TraceLayer};
 use tracing::{error, info, warn, Level};
 
 #[derive(Clone)]
 struct AppState {
+    json: bool,
     name: String,
     script: String,
     store: LamStore,
     timeout: Option<Duration>,
+}
+
+#[derive(Default)]
+pub struct ServeOptions<S, T>
+where
+    S: AsRef<str>,
+    T: std::fmt::Display + tokio::net::ToSocketAddrs,
+{
+    pub json: bool,
+    pub bind: T,
+    pub name: S,
+    pub script: S,
+    pub timeout: Option<Duration>,
+    pub store_options: StoreOptions,
 }
 
 async fn index_route(State(state): State<AppState>, body: Bytes) -> impl IntoResponse {
@@ -23,7 +38,16 @@ async fn index_route(State(state): State<AppState>, body: Bytes) -> impl IntoRes
         .build();
     let res = e.evaluate();
     match res {
-        Ok(res) => (StatusCode::OK, res.result.to_string()),
+        Ok(res) => {
+            if state.json {
+                let Ok(serialized) = serde_json::to_string(&res.result) else {
+                    return (StatusCode::INTERNAL_SERVER_ERROR, "".to_string());
+                };
+                (StatusCode::OK, serialized)
+            } else {
+                (StatusCode::OK, res.result.to_string())
+            }
+        }
         Err(err) => {
             error!(%err, "failed to run Lua script");
             (StatusCode::BAD_REQUEST, "".to_string())
@@ -31,18 +55,14 @@ async fn index_route(State(state): State<AppState>, body: Bytes) -> impl IntoRes
     }
 }
 
-pub fn init_route<S>(
-    name: S,
-    script: S,
-    timeout: Option<Duration>,
-    store_options: &StoreOptions,
-) -> anyhow::Result<Router>
+pub fn init_route<S, T>(opts: &ServeOptions<S, T>) -> anyhow::Result<Router>
 where
     S: AsRef<str>,
+    T: std::fmt::Display + tokio::net::ToSocketAddrs,
 {
-    let store = if let Some(path) = &store_options.store_path {
+    let store = if let Some(path) = &opts.store_options.store_path {
         let store = LamStore::new(path.as_path())?;
-        if store_options.run_migrations {
+        if opts.store_options.run_migrations {
             store.migrate()?;
         }
         info!(?path, "open store");
@@ -53,10 +73,11 @@ where
         store
     };
     let app_state = AppState {
-        name: name.as_ref().to_string(),
-        script: script.as_ref().to_string(),
+        json: opts.json,
+        name: opts.name.as_ref().to_string(),
+        script: opts.script.as_ref().to_string(),
         store,
-        timeout,
+        timeout: opts.timeout,
     };
     let app = Router::new()
         .route("/", post(index_route))
@@ -69,17 +90,13 @@ where
     Ok(app)
 }
 
-pub async fn serve_file<'a, T>(
-    bind: T,
-    name: Cow<'a, str>,
-    script: Cow<'a, str>,
-    timeout: Option<Duration>,
-    store_options: &StoreOptions,
-) -> anyhow::Result<()>
+pub async fn serve_file<'a, S, T>(opts: &ServeOptions<S, T>) -> anyhow::Result<()>
 where
+    S: AsRef<str>,
     T: std::fmt::Display + tokio::net::ToSocketAddrs,
 {
-    let app = init_route(name, script, timeout, store_options)?;
+    let bind = &opts.bind;
+    let app = init_route(opts)?;
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     info!(%bind, "serving lua script");
     axum::serve(listener, app).await?;
@@ -88,22 +105,28 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::StoreOptions;
+    use crate::{serve::ServeOptions, Cli, StoreOptions};
 
     use super::init_route;
     use axum_test::TestServer;
-    use std::time::Duration;
+    use clap::Parser;
 
     #[tokio::test]
     async fn serve() {
-        let name = "";
+        let cli = Cli::parse_from(["--json", "serve", "--file", "a.lua"]);
         let script = "return 1";
-        let timeout = Duration::from_secs(1);
         let store_options = StoreOptions {
             store_path: None,
             run_migrations: true,
         };
-        let router = init_route(name, script, Some(timeout), &store_options).unwrap();
+        let opts = ServeOptions {
+            bind: "",
+            json: cli.json,
+            script,
+            store_options,
+            ..Default::default()
+        };
+        let router = init_route(&opts).unwrap();
         let server = TestServer::new(router.into_make_service()).unwrap();
         let res = server.post("/").await;
         assert_eq!(200, res.status_code());
