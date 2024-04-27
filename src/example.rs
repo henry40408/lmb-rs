@@ -1,8 +1,8 @@
-use std::borrow::Cow;
-
+use bat::PrettyPrinter;
 use full_moon::{tokenizer::TokenType, visitors::Visitor};
 use include_dir::{include_dir, Dir};
 use once_cell::sync::Lazy;
+use std::borrow::Cow;
 use toml::{Table, Value};
 
 /// Lua example
@@ -70,3 +70,12 @@ pub static EXAMPLES: Lazy<Vec<Example<'_>>> = Lazy::new(|| {
     examples.sort_by(|a, b| a.name.cmp(&b.name));
     examples
 });
+
+/// Print script with syntax highlighting
+pub fn print_script<S: AsRef<str>>(script: S) -> anyhow::Result<()> {
+    PrettyPrinter::new()
+        .input_from_bytes(script.as_ref().as_bytes())
+        .language("lua")
+        .print()?;
+    Ok(())
+}

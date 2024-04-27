@@ -4,7 +4,7 @@ use comfy_table::{presets, Table};
 use lam::*;
 use serve::ServeOptions;
 use std::{io, path::PathBuf, time::Duration};
-use tracing::Level;
+use tracing::{warn, Level};
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
 
 mod serve;
@@ -91,6 +91,12 @@ enum ExampleCommands {
     /// List examples
     #[command(alias = "ls")]
     List,
+    /// Print script of example
+    Cat {
+        /// Example name, which can be found with "list" command
+        #[arg(long)]
+        name: String,
+    },
 }
 
 #[derive(Parser)]
@@ -182,6 +188,14 @@ async fn main() -> anyhow::Result<()> {
                 table.add_row(vec![name, description]);
             }
             println!("{table}");
+        }
+        Commands::Example(ExampleCommands::Cat { name }) => {
+            let Some(found) = EXAMPLES.iter().find(|e| e.name == name) else {
+                warn!("example with {name} not found");
+                return Ok(());
+            };
+            let script = &found.script.trim();
+            print_script(script)?;
         }
         Commands::Serve {
             bind,

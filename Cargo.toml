@@ -9,6 +9,9 @@ edition = "2021"
 anyhow = "1.0.75"
 ariadne = "0.4.0"
 axum = "0.7.2"
+bat = { version = "0.24.0", default-features = false, features = [
+  "regex-onig",
+] }
 comfy-table = "7.1.1"
 clap = { version = "4.4.8", features = ["derive", "env"] }
 clap-stdin = "0.4.0"
