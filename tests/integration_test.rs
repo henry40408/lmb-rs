@@ -27,6 +27,14 @@ mod tests {
     }
 
     #[test]
+    fn eval_example() {
+        let mut cmd = Command::cargo_bin("lam").unwrap();
+        cmd.write_stdin("1949\n");
+        cmd.args(["eval", "--file", "lua-examples/algebra.lua"]);
+        cmd.assert().success().stdout("3798601");
+    }
+
+    #[test]
     fn eval_file() {
         let mut cmd = Command::cargo_bin("lam").unwrap();
         cmd.args(["eval", "--file", "lua-examples/hello.lua"]);

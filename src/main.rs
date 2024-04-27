@@ -88,15 +88,22 @@ enum Commands {
 
 #[derive(Parser)]
 enum ExampleCommands {
-    /// List examples
-    #[command(alias = "ls")]
-    List,
     /// Print script of example
     Cat {
-        /// Example name, which can be found with "list" command
+        /// Example name
         #[arg(long)]
         name: String,
     },
+    /// Evaluate the example
+    #[command(alias = "eval")]
+    Evaluate {
+        /// Example name
+        #[arg(long)]
+        name: String,
+    },
+    /// List examples
+    #[command(alias = "ls")]
+    List,
 }
 
 #[derive(Parser)]
@@ -117,6 +124,16 @@ fn do_check_syntax<S: AsRef<str>>(no_color: bool, name: S, script: S) -> bool {
     } else {
         true
     }
+}
+
+fn print_result(json: bool, result: &LamValue) -> anyhow::Result<()> {
+    let output = if json {
+        serde_json::to_string(result)?
+    } else {
+        result.to_string()
+    };
+    print!("{output}");
+    Ok(())
 }
 
 #[tokio::main]
@@ -171,12 +188,15 @@ async fn main() -> anyhow::Result<()> {
                 .with_timeout(timeout)
                 .build();
             let res = e.evaluate()?;
-            let output = if cli.json {
-                serde_json::to_string(&res.result)?
-            } else {
-                res.result.to_string()
+            print_result(cli.json, &res.result)?;
+        }
+        Commands::Example(ExampleCommands::Cat { name }) => {
+            let Some(found) = EXAMPLES.iter().find(|e| e.name == name) else {
+                warn!("example with {name} not found");
+                return Ok(());
             };
-            print!("{}", output);
+            let script = &found.script.trim();
+            print_script(script)?;
         }
         Commands::Example(ExampleCommands::List) => {
             let mut table = Table::new();
@@ -189,13 +209,17 @@ async fn main() -> anyhow::Result<()> {
             }
             println!("{table}");
         }
-        Commands::Example(ExampleCommands::Cat { name }) => {
+        Commands::Example(ExampleCommands::Evaluate { name }) => {
             let Some(found) = EXAMPLES.iter().find(|e| e.name == name) else {
                 warn!("example with {name} not found");
                 return Ok(());
             };
-            let script = &found.script.trim();
-            print_script(script)?;
+            let script = found.script.trim();
+            let e = EvalBuilder::new(script.into(), io::stdin())
+                .with_name(name.into())
+                .build();
+            let res = e.evaluate()?;
+            print_result(cli.json, &res.result)?;
         }
         Commands::Serve {
             bind,

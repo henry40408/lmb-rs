@@ -90,7 +90,11 @@ where
             if count == 0 {
                 return Ok(LuaNil);
             }
-            return Ok(buf.parse::<f64>().map(LuaValue::Number).unwrap_or(LuaNil));
+            return Ok(buf
+                .trim()
+                .parse::<f64>()
+                .map(LuaValue::Number)
+                .unwrap_or(LuaNil));
         }
     }
 
@@ -243,6 +247,7 @@ mod tests {
     #[test_case("1.23e-10", 0.000000000123.into())]
     #[test_case("", LamValue::None)]
     #[test_case("x", LamValue::None)]
+    #[test_case("1\n", 1.into())]
     fn read_number(input: &'static str, expected: LamValue) {
         let script = r#"return require('@lam'):read('*n')"#;
         let e = EvalBuilder::new(script.into(), input.as_bytes()).build();
