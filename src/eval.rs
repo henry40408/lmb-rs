@@ -174,8 +174,48 @@ where
     /// assert_eq!(LamValue::Number(2f64), res.result);
     /// ```
     pub fn evaluate(&self) -> LamResult<EvalResult> {
+        self.do_evaluate(None)
+    }
+
+    /// Evaluate the function with a state.
+    ///
+    /// ```rust
+    /// # use std::io::empty;
+    /// use lam::*;
+    /// let e = EvalBuilder::new("return 1+1".into(), empty()).build();
+    /// let state = LamState::new();
+    /// state.insert(LamStateKey::String("bool".into()), true.into());
+    /// let res = e.evaluate_with_state(state).unwrap();
+    /// assert_eq!(LamValue::Number(2f64), res.result);
+    /// ```
+    pub fn evaluate_with_state(&self, state: LamState) -> LamResult<EvalResult> {
+        self.do_evaluate(Some(state))
+    }
+
+    /// Replace the function input after the container is built.
+    ///
+    /// ```rust
+    /// # use std::io::{Cursor, empty};
+    /// use lam::*;
+    ///
+    /// let script = "return require('@lam'):read('*a')";
+    /// let mut e = EvalBuilder::new(script.into(), Cursor::new("1")).build();
+    ///
+    /// let r = e.evaluate().unwrap();
+    /// assert_eq!(LamValue::String("1".into()), r.result);
+    ///
+    /// e.set_input(Cursor::new("2"));
+    ///
+    /// let r = e.evaluate().unwrap();
+    /// assert_eq!(LamValue::String("2".into()), r.result);
+    /// ```
+    pub fn set_input(&mut self, input: R) {
+        self.input = Arc::new(Mutex::new(BufReader::new(input)));
+    }
+
+    fn do_evaluate(&self, state: Option<LamState>) -> LamResult<EvalResult> {
         let vm = &self.vm;
-        LuaLam::register(vm, self.input.clone(), self.store.clone())?;
+        LuaLam::register(vm, self.input.clone(), self.store.clone(), state)?;
 
         let max_memory = Arc::new(AtomicUsize::new(0));
         let timeout = self.timeout;
@@ -214,27 +254,6 @@ where
                 });
             }
         }
-    }
-
-    /// Replace the function input after the container is built.
-    ///
-    /// ```rust
-    /// # use std::io::{Cursor, empty};
-    /// use lam::*;
-    ///
-    /// let script = "return require('@lam'):read('*a')";
-    /// let mut e = EvalBuilder::new(script.into(), Cursor::new("1")).build();
-    ///
-    /// let r = e.evaluate().unwrap();
-    /// assert_eq!(LamValue::String("1".into()), r.result);
-    ///
-    /// e.set_input(Cursor::new("2"));
-    ///
-    /// let r = e.evaluate().unwrap();
-    /// assert_eq!(LamValue::String("2".into()), r.result);
-    /// ```
-    pub fn set_input(&mut self, input: R) {
-        self.input = Arc::new(Mutex::new(BufReader::new(input)));
     }
 }
 

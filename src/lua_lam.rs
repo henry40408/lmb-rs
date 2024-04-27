@@ -1,7 +1,8 @@
 use crate::*;
 use mlua::prelude::*;
 use std::io::{BufRead as _, Read};
-use tracing::error;
+use tracing::field;
+use tracing::{error, trace_span};
 
 // ref: https://www.lua.org/pil/8.1.html
 const K_LOADED: &str = "_LOADED";
@@ -12,6 +13,7 @@ where
     R: Read,
 {
     input: LamInput<R>,
+    state: Option<LamState>,
     store: Option<LamStore>,
 }
 
@@ -29,10 +31,14 @@ where
     /// use lam::*;
     /// let input = Arc::new(Mutex::new(BufReader::new(Cursor::new("0"))));
     /// let store = LamStore::default();
-    /// let _ = LuaLam::new(input, Some(store));
+    /// let _ = LuaLam::new(input, Some(store), None);
     /// ```
-    pub fn new(input: LamInput<R>, store: Option<LamStore>) -> Self {
-        Self { input, store }
+    pub fn new(input: LamInput<R>, store: Option<LamStore>, state: Option<LamState>) -> Self {
+        Self {
+            input,
+            state,
+            store,
+        }
     }
 
     /// Register the interface to a Lua virtual machine.
@@ -45,11 +51,16 @@ where
     /// let vm = Lua::new();
     /// let input = Arc::new(Mutex::new(BufReader::new(Cursor::new("0"))));
     /// let store = LamStore::default();
-    /// let _ = LuaLam::register(&vm, input, Some(store));
+    /// let _ = LuaLam::register(&vm, input, Some(store), None);
     /// ```
-    pub fn register(vm: &Lua, input: LamInput<R>, store: Option<LamStore>) -> LamResult<()> {
+    pub fn register(
+        vm: &Lua,
+        input: LamInput<R>,
+        store: Option<LamStore>,
+        state: Option<LamState>,
+    ) -> LamResult<()> {
         let loaded = vm.named_registry_value::<LuaTable<'_>>(K_LOADED)?;
-        loaded.set("@lam", Self::new(input, store))?;
+        loaded.set("@lam", Self::new(input, store, state))?;
         vm.set_named_registry_value(K_LOADED, loaded)?;
         Ok(())
     }
@@ -99,13 +110,15 @@ where
     }
 
     if let Some(i) = f.as_usize() {
+        let s = trace_span!("read bytes from input", count = field::Empty).entered();
         let mut buf = vec![0; i];
         let count = lam.input.lock().read(&mut buf).into_lua_err()?;
+        s.record("count", count);
         if count == 0 {
             return Ok(LuaNil);
         }
         buf.truncate(count);
-        return String::from_utf8(buf).into_lua_err()?.into_lua(vm);
+        return Ok(mlua::Value::String(vm.create_string(&buf)?));
     }
 
     let f = f.to_string().into_lua_err()?;
@@ -208,6 +221,15 @@ where
 {
     fn add_fields<'lua, F: LuaUserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field("_VERSION", env!("CARGO_PKG_VERSION"));
+        fields.add_field_method_get("request", |vm, this| {
+            let Some(m) = &this.state else {
+                return Ok(LuaNil);
+            };
+            let Some(v) = m.get(&LamStateKey::Request) else {
+                return Ok(LuaNil);
+            };
+            vm.to_value(&*v)
+        });
     }
 
     fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {

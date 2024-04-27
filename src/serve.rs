@@ -1,9 +1,14 @@
 use crate::StoreOptions;
 use axum::{
-    body::Bytes, extract::State, http::StatusCode, response::IntoResponse, routing::post, Router,
+    body::Bytes,
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
+    routing::post,
+    Router,
 };
 use lam::*;
-use std::{io::Cursor, time::Duration};
+use std::{collections::HashMap, io::Cursor, time::Duration};
 use tower_http::trace::{self, TraceLayer};
 use tracing::{error, info, warn, Level};
 
@@ -30,13 +35,33 @@ where
     pub store_options: StoreOptions,
 }
 
-async fn index_route(State(state): State<AppState>, body: Bytes) -> impl IntoResponse {
+async fn index_route(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> impl IntoResponse {
     let e = EvalBuilder::new(state.script.into(), Cursor::new(body))
         .with_name(state.name.into())
         .with_timeout(state.timeout)
         .with_store(state.store.clone())
         .build();
-    let res = e.evaluate();
+
+    let mut headers_map = HashMap::new();
+    for (name, value) in headers {
+        if let Some(name) = name {
+            let value = value.to_str().unwrap_or("");
+            headers_map.insert(name.to_string(), value.into());
+        }
+    }
+
+    let mut request_map = HashMap::new();
+    request_map.insert("method".into(), "POST".into());
+    request_map.insert("headers".into(), headers_map.into());
+
+    let eval_state = LamState::new();
+    eval_state.insert(LamStateKey::Request, request_map.into());
+
+    let res = e.evaluate_with_state(eval_state);
     match res {
         Ok(res) => {
             if state.json {
