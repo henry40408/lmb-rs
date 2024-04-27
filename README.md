@@ -2,30 +2,60 @@
 
 > Lua function runner
 
+[![Casual Maintenance Intended](https://casuallymaintained.tech/badge.svg)](https://casuallymaintained.tech/)
+![GitHub Workflow Status (with event)](https://img.shields.io/github/actions/workflow/status/henry40408/lam/.github%2Fworkflows%2Fworkflow.yaml)
+![GitHub](https://img.shields.io/github/license/henry40408/lam)
+
 ## Features
 
-- Evaluate Lua code
-- Manage functions and result of each execution
+- Evaluate Lua script.
+- Handle HTTP requests via Lua script.
 
 ## Installation
 
-> TODO
+### Prerequisites
+
+- Rust >= 1.77.2
+
+```bash
+git clone https://github.com/henry40408/lam
+cd lam
+cargo build --release
+```
 
 ## Usage
 
+Find some examples:
+
+```bash
+$ ./target/release/lam example ls
+```
+
+
+Evaluate an example:
+
+```bash
+$ ./target/release/lam example eval --name hello
+```
+
 Evaluate Lua script:
 
-```
-$ ./lam eval --file lua-examples/01-hello.lua
+```bash
+$ ./target/release/lam eval --file lua-examples/hello.lua
+hello, world!
 ```
 
 Handle HTTP requests with single script:
 
-```
-$ ./lam serve --file lua-examples/04-echo.lua
-(in another terminal) $ curl -X POST http://localhost:3000 -d $'hello'
+```bash
+$ ./target/release/lam serve --file lua-examples/echo.lua
+(another shell session) $ curl -X POST http://localhost:3000 -d $'hello'
 hello
 ```
+
+## Roadmap
+
+- [ ] Manage functions and executions via REST APIs
 
 ## License
 
