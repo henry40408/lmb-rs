@@ -12,7 +12,7 @@ const UPDATE_SQL: &str = r#"INSERT INTO store (name, value) VALUES (?1, ?2)
     ON CONFLICT(name) DO UPDATE SET value = ?2"#;
 
 /// Store that persists data across executions.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct LamStore {
     conn: Arc<Mutex<Connection>>,
 }

@@ -27,9 +27,17 @@ mod tests {
     }
 
     #[test]
+    fn eval_example() {
+        let mut cmd = Command::cargo_bin("lam").unwrap();
+        cmd.write_stdin("1949\n");
+        cmd.args(["eval", "--file", "lua-examples/algebra.lua"]);
+        cmd.assert().success().stdout("3798601");
+    }
+
+    #[test]
     fn eval_file() {
         let mut cmd = Command::cargo_bin("lam").unwrap();
-        cmd.args(["eval", "--file", "lua-examples/01-hello.lua"]);
+        cmd.args(["eval", "--file", "lua-examples/hello.lua"]);
         #[cfg(not(windows))]
         cmd.assert().success().stdout("hello, world!\n");
         #[cfg(windows)]
@@ -39,18 +47,13 @@ mod tests {
     #[test]
     fn eval_json_output() {
         let mut cmd = Command::cargo_bin("lam").unwrap();
-        cmd.args([
-            "--json",
-            "eval",
-            "--file",
-            "lua-examples/08-return-table.lua",
-        ]);
+        cmd.args(["--json", "eval", "--file", "lua-examples/return-table.lua"]);
         cmd.assert().success();
         let s = String::from_utf8(cmd.output().unwrap().stdout).unwrap();
         let parsed: Value = serde_json::from_str(&s).unwrap();
-        assert_eq!(json!(true), *parsed.get("a").unwrap());
-        assert_eq!(json!(1.23f64), *parsed.get("b").unwrap());
-        assert_eq!(json!("hello"), *parsed.get("c").unwrap());
+        assert_eq!(json!(true), *parsed.get("bool").unwrap());
+        assert_eq!(json!(1.23f64), *parsed.get("num").unwrap());
+        assert_eq!(json!("hello"), *parsed.get("str").unwrap());
     }
 
     #[test]
