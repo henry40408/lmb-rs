@@ -17,9 +17,9 @@ impl LuaUserData for LuaLamJSON {
 
 #[cfg(test)]
 mod tests {
-    use std::io::empty;
-
     use crate::{EvalBuilder, LamValue};
+    use serde_json::{json, Value};
+    use std::io::empty;
 
     #[test]
     fn json_decode() {
@@ -46,7 +46,9 @@ mod tests {
         "#;
         let e = EvalBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        let expected = r#"{"bool":true,"num":2,"str":"hello"}"#;
-        assert_eq!(LamValue::String(expected.into()), res.result);
+        let value: Value = serde_json::from_str(&res.result.to_string()).unwrap();
+        assert_eq!(Some(&json!(true)), value.get("bool"));
+        assert_eq!(Some(&json!(2.0)), value.get("num"));
+        assert_eq!(Some(&json!("hello")), value.get("str"));
     }
 }
