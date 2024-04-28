@@ -1,7 +1,7 @@
 use crate::StoreOptions;
 use axum::{
     body::Bytes,
-    extract::State,
+    extract::{Path, State},
     http::{HeaderMap, Method, StatusCode},
     response::IntoResponse,
     routing::any,
@@ -35,12 +35,16 @@ where
     pub store_options: StoreOptions,
 }
 
-async fn index_route(
+fn do_handle_request<S>(
+    state: AppState,
     method: Method,
-    State(state): State<AppState>,
+    path: S,
     headers: HeaderMap,
     body: Bytes,
-) -> impl IntoResponse {
+) -> impl IntoResponse
+where
+    S: AsRef<str>,
+{
     let e = EvalBuilder::new(state.script, Cursor::new(body))
         .with_name(state.name)
         .with_timeout(state.timeout)
@@ -57,6 +61,7 @@ async fn index_route(
 
     let mut request_map = HashMap::new();
     request_map.insert("method".into(), method.as_str().into());
+    request_map.insert("path".into(), path.as_ref().into());
     request_map.insert("headers".into(), headers_map.into());
 
     let eval_state = LamState::new();
@@ -79,6 +84,26 @@ async fn index_route(
             (StatusCode::BAD_REQUEST, "".to_string())
         }
     }
+}
+
+async fn index_route(
+    State(state): State<AppState>,
+    method: Method,
+    headers: HeaderMap,
+    body: Bytes,
+) -> impl IntoResponse {
+    do_handle_request(state, method, "/", headers, body)
+}
+
+async fn match_all_route(
+    State(state): State<AppState>,
+    method: Method,
+    Path(path): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> impl IntoResponse {
+    let path = format!("/{path}");
+    do_handle_request(state, method, path, headers, body)
 }
 
 pub fn init_route<S, T>(opts: &ServeOptions<S, T>) -> anyhow::Result<Router>
@@ -107,6 +132,7 @@ where
     };
     let app = Router::new()
         .route("/", any(index_route))
+        .route("/*path", any(match_all_route))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(trace::DefaultMakeSpan::new().level(Level::INFO))
@@ -131,15 +157,15 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{serve::ServeOptions, Cli, StoreOptions};
-
     use super::init_route;
+    use crate::{serve::ServeOptions, Cli, StoreOptions};
     use axum_test::TestServer;
     use clap::Parser;
+    use serde_json::{json, Value};
 
     #[tokio::test]
     async fn serve() {
-        let cli = Cli::parse_from(["--json", "serve", "--file", "a.lua"]);
+        let cli = Cli::parse_from(["lam", "--json", "serve", "--file", "a.lua"]);
         let script = "return 1";
         let store_options = StoreOptions {
             store_path: None,
@@ -156,6 +182,46 @@ mod tests {
         let server = TestServer::new(router.into_make_service()).unwrap();
         let res = server.post("/").await;
         assert_eq!(200, res.status_code());
-        assert_eq!("1", res.text());
+        assert_eq!("1.0", res.text());
+    }
+
+    #[tokio::test]
+    async fn echo_request() {
+        let cli = Cli::parse_from(["lam", "--json", "serve", "--file", "a.lua"]);
+        let script = r#"
+        local m = require('@lam');
+        return { request = m.request, body = m:read('*a') }
+        "#;
+        let store_options = StoreOptions {
+            store_path: None,
+            run_migrations: true,
+        };
+        let opts = ServeOptions {
+            bind: "",
+            json: cli.json,
+            script,
+            store_options,
+            ..Default::default()
+        };
+        let router = init_route(&opts).unwrap();
+        let server = TestServer::new(router.into_make_service()).unwrap();
+        let res = server.post("/foo/bar/baz").json(&json!({"a":1})).await;
+        assert_eq!(200, res.status_code());
+
+        let value: Value = serde_json::from_str(&res.text()).unwrap();
+
+        let request = value.get("request").unwrap();
+        assert_eq!(Some(&Value::String("POST".into())), request.get("method"));
+
+        assert_eq!(
+            Some(&Value::String("/foo/bar/baz".into())),
+            request.get("path")
+        );
+
+        let headers = request.get("headers").unwrap();
+        assert_eq!(
+            Some(&Value::String("application/json".into())),
+            headers.get("content-type")
+        );
     }
 }
