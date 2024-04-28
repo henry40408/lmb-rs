@@ -4,6 +4,10 @@ use std::io::{BufRead as _, Read};
 use tracing::field;
 use tracing::{error, trace_span};
 
+use json::*;
+
+mod json;
+
 // ref: https://www.lua.org/pil/8.1.html
 const K_LOADED: &str = "_LOADED";
 
@@ -61,6 +65,7 @@ where
     ) -> LamResult<()> {
         let loaded = vm.named_registry_value::<LuaTable<'_>>(K_LOADED)?;
         loaded.set("@lam", Self::new(input, store, state))?;
+        loaded.set("@lam/json", LuaLamJSON {})?;
         vm.set_named_registry_value(K_LOADED, loaded)?;
         Ok(())
     }

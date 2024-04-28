@@ -60,9 +60,9 @@ where
     }
 
     let mut request_map = HashMap::new();
-    request_map.insert("method".into(), method.as_str().into());
-    request_map.insert("path".into(), path.as_ref().into());
-    request_map.insert("headers".into(), headers_map.into());
+    request_map.insert("method", method.as_str().into());
+    request_map.insert("path", path.as_ref().into());
+    request_map.insert("headers", headers_map.into());
 
     let eval_state = LamState::new();
     eval_state.insert(LamStateKey::Request, request_map.into());

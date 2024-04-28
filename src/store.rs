@@ -206,7 +206,7 @@ mod tests {
     use test_case::test_case;
 
     #[test_case(vec![true.into(), 1f64.into(), "hello".into()].into())]
-    #[test_case(hashmap! { "b".into() => true.into() }.into())]
+    #[test_case(hashmap! { "b" => true.into() }.into())]
     fn complicated_types(value: LamValue) {
         let store = LamStore::default();
         store.insert("value", &value).unwrap();

@@ -273,11 +273,11 @@ mod tests {
     #[test_case("input.lua", "lua", LamValue::None)]
     #[test_case("algebra.lua", "2", 4.into())]
     #[test_case("store.lua", "", 1.into())]
-    #[test_case("count-bytes.lua", "A", hashmap!{ "65".into() => 1.into() }.into())]
+    #[test_case("count-bytes.lua", "A", hashmap!{ "65" => 1.into() }.into())]
     #[test_case("return-table.lua", "123", hashmap!{
-        "bool".into() => true.into(),
-        "num".into() => 1.23.into(),
-        "str".into() => "hello".into()
+        "bool" => true.into(),
+        "num" => 1.23.into(),
+        "str" => "hello".into()
     }.into())]
     #[test_case("read-unicode.lua", "你好，世界", "你好".into())]
     fn evaluate_examples(filename: &str, input: &'static str, expected: LamValue) {
