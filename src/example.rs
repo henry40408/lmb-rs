@@ -2,22 +2,21 @@ use bat::PrettyPrinter;
 use full_moon::{tokenizer::TokenType, visitors::Visitor};
 use include_dir::{include_dir, Dir};
 use once_cell::sync::Lazy;
-use std::borrow::Cow;
 use toml::{Table, Value};
 
 /// Lua example
 #[derive(Default)]
-pub struct Example<'a> {
+pub struct Example {
     /// Name
-    pub name: Cow<'a, str>,
+    pub name: String,
     /// Description, which is extracted from the first multi-line comment as TOML
-    pub description: Cow<'a, str>,
+    pub description: String,
     /// Script
-    pub script: Cow<'a, str>,
+    pub script: String,
     _done: bool,
 }
 
-impl<'a> Visitor for Example<'a> {
+impl Visitor for Example {
     fn visit_multi_line_comment(&mut self, token: &full_moon::tokenizer::Token) {
         if self._done {
             return;
@@ -36,7 +35,7 @@ impl<'a> Visitor for Example<'a> {
         let Value::String(description) = &parsed["description"] else {
             return;
         };
-        self.description = Cow::Owned(description.to_string());
+        self.description = description.to_string();
         self._done = true;
     }
 }
@@ -44,7 +43,7 @@ impl<'a> Visitor for Example<'a> {
 static EXAMPLES_DIR: Dir<'_> = include_dir!("lua-examples");
 
 /// Embedded Lua examples
-pub static EXAMPLES: Lazy<Vec<Example<'_>>> = Lazy::new(|| {
+pub static EXAMPLES: Lazy<Vec<Example>> = Lazy::new(|| {
     let mut examples = vec![];
     for f in EXAMPLES_DIR
         .find("**/*.lua")
@@ -57,8 +56,8 @@ pub static EXAMPLES: Lazy<Vec<Example<'_>>> = Lazy::new(|| {
             continue;
         };
         let mut example = Example {
-            name,
-            script: Cow::Owned(script.to_string()),
+            name: name.to_string(),
+            script: script.to_string(),
             ..Default::default()
         };
         let Ok(ast) = full_moon::parse(script) else {

@@ -101,6 +101,20 @@ enum ExampleCommands {
         #[arg(long)]
         name: String,
     },
+    /// Handle HTTP requests with the example
+    Serve {
+        #[command(flatten)]
+        store_options: StoreOptions,
+        /// Bind
+        #[arg(long, default_value = "127.0.0.1:3000")]
+        bind: String,
+        /// Example name
+        #[arg(long)]
+        name: String,
+        /// Timeout in seconds
+        #[arg(long)]
+        timeout: Option<u64>,
+    },
     /// List examples
     #[command(alias = "ls")]
     List,
@@ -186,8 +200,8 @@ async fn main() -> anyhow::Result<()> {
                 return Ok(());
             }
             let timeout = timeout.map(Duration::from_secs);
-            let e = EvalBuilder::new(script.into(), io::stdin())
-                .with_name(name.into())
+            let e = EvalBuilder::new(script, io::stdin())
+                .with_name(name)
                 .with_timeout(timeout)
                 .build();
             let res = e.evaluate()?;
@@ -201,6 +215,18 @@ async fn main() -> anyhow::Result<()> {
             let script = &found.script.trim();
             print_script(script)?;
         }
+        Commands::Example(ExampleCommands::Evaluate { name }) => {
+            let Some(found) = EXAMPLES.iter().find(|e| e.name == name) else {
+                warn!("example with {name} not found");
+                return Ok(());
+            };
+            let script = found.script.trim();
+            let e = EvalBuilder::new(script, io::stdin())
+                .with_name(name)
+                .build();
+            let res = e.evaluate()?;
+            print_result(cli.json, &res.result)?;
+        }
         Commands::Example(ExampleCommands::List) => {
             let mut table = Table::new();
             table.load_preset(presets::NOTHING);
@@ -212,17 +238,30 @@ async fn main() -> anyhow::Result<()> {
             }
             println!("{table}");
         }
-        Commands::Example(ExampleCommands::Evaluate { name }) => {
+        Commands::Example(ExampleCommands::Serve {
+            store_options,
+            bind,
+            name,
+            timeout,
+        }) => {
             let Some(found) = EXAMPLES.iter().find(|e| e.name == name) else {
                 warn!("example with {name} not found");
                 return Ok(());
             };
-            let script = found.script.trim();
-            let e = EvalBuilder::new(script.into(), io::stdin())
-                .with_name(name.into())
-                .build();
-            let res = e.evaluate()?;
-            print_result(cli.json, &res.result)?;
+            let script = &found.script;
+            if cli.check_syntax && !do_check_syntax(cli.no_color, &name, script) {
+                return Ok(());
+            }
+            let timeout = timeout.map(Duration::from_secs);
+            serve::serve_file(&ServeOptions {
+                json: cli.json,
+                bind,
+                name,
+                script: script.to_string(),
+                timeout,
+                store_options,
+            })
+            .await?;
         }
         Commands::Serve {
             bind,

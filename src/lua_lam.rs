@@ -1,7 +1,8 @@
 use crate::*;
 use mlua::prelude::*;
 use std::io::{BufRead as _, Read};
-use tracing::error;
+use tracing::field;
+use tracing::{error, trace_span};
 
 // ref: https://www.lua.org/pil/8.1.html
 const K_LOADED: &str = "_LOADED";
@@ -12,6 +13,7 @@ where
     R: Read,
 {
     input: LamInput<R>,
+    state: Option<LamState>,
     store: Option<LamStore>,
 }
 
@@ -29,10 +31,14 @@ where
     /// use lam::*;
     /// let input = Arc::new(Mutex::new(BufReader::new(Cursor::new("0"))));
     /// let store = LamStore::default();
-    /// let _ = LuaLam::new(input, Some(store));
+    /// let _ = LuaLam::new(input, Some(store), None);
     /// ```
-    pub fn new(input: LamInput<R>, store: Option<LamStore>) -> Self {
-        Self { input, store }
+    pub fn new(input: LamInput<R>, store: Option<LamStore>, state: Option<LamState>) -> Self {
+        Self {
+            input,
+            state,
+            store,
+        }
     }
 
     /// Register the interface to a Lua virtual machine.
@@ -45,11 +51,16 @@ where
     /// let vm = Lua::new();
     /// let input = Arc::new(Mutex::new(BufReader::new(Cursor::new("0"))));
     /// let store = LamStore::default();
-    /// let _ = LuaLam::register(&vm, input, Some(store));
+    /// let _ = LuaLam::register(&vm, input, Some(store), None);
     /// ```
-    pub fn register(vm: &Lua, input: LamInput<R>, store: Option<LamStore>) -> LamResult<()> {
+    pub fn register(
+        vm: &Lua,
+        input: LamInput<R>,
+        store: Option<LamStore>,
+        state: Option<LamState>,
+    ) -> LamResult<()> {
         let loaded = vm.named_registry_value::<LuaTable<'_>>(K_LOADED)?;
-        loaded.set("@lam", Self::new(input, store))?;
+        loaded.set("@lam", Self::new(input, store, state))?;
         vm.set_named_registry_value(K_LOADED, loaded)?;
         Ok(())
     }
@@ -99,13 +110,15 @@ where
     }
 
     if let Some(i) = f.as_usize() {
+        let s = trace_span!("read bytes from input", count = field::Empty).entered();
         let mut buf = vec![0; i];
         let count = lam.input.lock().read(&mut buf).into_lua_err()?;
+        s.record("count", count);
         if count == 0 {
             return Ok(LuaNil);
         }
         buf.truncate(count);
-        return String::from_utf8(buf).into_lua_err()?.into_lua(vm);
+        return Ok(mlua::Value::String(vm.create_string(&buf)?));
     }
 
     let f = f.to_string().into_lua_err()?;
@@ -208,6 +221,15 @@ where
 {
     fn add_fields<'lua, F: LuaUserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field("_VERSION", env!("CARGO_PKG_VERSION"));
+        fields.add_field_method_get("request", |vm, this| {
+            let Some(m) = &this.state else {
+                return Ok(LuaNil);
+            };
+            let Some(v) = m.get(&LamStateKey::Request) else {
+                return Ok(LuaNil);
+            };
+            vm.to_value(&*v)
+        });
     }
 
     fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
@@ -228,7 +250,7 @@ mod tests {
     #[test]
     fn read_binary() {
         let input: &[u8] = &[1, 2, 3];
-        let e = EvalBuilder::new(r#"return #require('@lam'):read('*a')"#.into(), input).build();
+        let e = EvalBuilder::new(r#"return #require('@lam'):read('*a')"#, input).build();
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::Number(3f64), res.result);
     }
@@ -238,7 +260,7 @@ mod tests {
     #[test_case(r#"assert(not require('@lam'):read('*n'))"#)]
     #[test_case(r#"assert(not require('@lam'):read(1))"#)]
     fn read_empty(script: &'static str) {
-        let e = EvalBuilder::new(script.into(), empty()).build();
+        let e = EvalBuilder::new(script, empty()).build();
         let _ = e.evaluate().expect(script);
     }
 
@@ -250,7 +272,7 @@ mod tests {
     #[test_case("1\n", 1.into())]
     fn read_number(input: &'static str, expected: LamValue) {
         let script = r#"return require('@lam'):read('*n')"#;
-        let e = EvalBuilder::new(script.into(), input.as_bytes()).build();
+        let e = EvalBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().expect(input);
         assert_eq!(expected, res.result);
     }
@@ -261,7 +283,7 @@ mod tests {
     #[test_case(r#"return require('@lam'):read(4)"#, "foo\n".into())]
     fn read_string(script: &str, expected: LamValue) {
         let input = "foo\nbar";
-        let e = EvalBuilder::new(script.into(), input.as_bytes()).build();
+        let e = EvalBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().expect(script);
         assert_eq!(expected, res.result);
     }
@@ -272,7 +294,7 @@ mod tests {
     fn read_unicode_cjk_characters(n: usize, expected: &str) {
         let script = format!("return require('@lam'):read_unicode({n})");
         let input = "你好";
-        let e = EvalBuilder::new(script.into(), input.as_bytes()).build();
+        let e = EvalBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::from(expected), res.result);
     }
@@ -282,7 +304,7 @@ mod tests {
         let input = "你好";
         let script = "return require('@lam'):read_unicode(1)";
 
-        let e = EvalBuilder::new(script.into(), input.as_bytes()).build();
+        let e = EvalBuilder::new(script, input.as_bytes()).build();
 
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::from("你"), res.result);
@@ -299,7 +321,7 @@ mod tests {
         // ref: https://www.php.net/manual/en/reference.pcre.pattern.modifiers.php#54805
         let input: &[u8] = &[0xf0, 0x28, 0x8c, 0xbc];
         let script = r#"return require('@lam'):read_unicode(1)"#;
-        let e = EvalBuilder::new(script.into(), input).build();
+        let e = EvalBuilder::new(script, input).build();
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::None, res.result);
     }
@@ -309,7 +331,7 @@ mod tests {
         // mix CJK and non-CJK characters
         let input = r#"{"key":"你好"}"#;
         let script = r#"return require('@lam'):read_unicode(12)"#;
-        let e = EvalBuilder::new(script.into(), input.as_bytes()).build();
+        let e = EvalBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::String(input.into()), res.result);
     }
@@ -320,7 +342,7 @@ mod tests {
     fn read_unicode_non_cjk_characters(n: usize, expected: &str) {
         let input = "ab";
         let script = format!("return require('@lam'):read_unicode({n})");
-        let e = EvalBuilder::new(script.into(), input.as_bytes()).build();
+        let e = EvalBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::from(expected), res.result);
     }
