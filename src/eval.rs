@@ -238,7 +238,7 @@ where
         let co = vm.create_thread(chunk.into_function()?)?;
         let _ = trace_span!("evaluate", name).entered();
         loop {
-            let result_value = co.resume::<_, LuaValue<'_>>(())?;
+            let result = co.resume::<_, LamValue>(())?;
             let unresumable = co.status() != LuaThreadStatus::Resumable;
             let duration = start.elapsed();
             let timed_out = duration > self.timeout;
@@ -248,7 +248,7 @@ where
                 return Ok(EvalResult {
                     duration,
                     max_memory,
-                    result: vm.from_value::<LamValue>(result_value)?,
+                    result,
                 });
             }
         }

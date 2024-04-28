@@ -71,6 +71,9 @@ where
     }
 }
 
+// This function intentionally uses Lua values instead of Lam values to pass bytes as partial,
+// invalid strings, allowing Lua to handle the bytes.
+// For a demonstration, see 'count-bytes.lua'.
 fn lua_lam_read<'lua, R>(
     vm: &'lua Lua,
     lam: &mut LuaLam<R>,
@@ -131,10 +134,10 @@ where
 }
 
 fn lua_lam_read_unicode<'lua, R>(
-    vm: &'lua Lua,
+    _: &'lua Lua,
     lam: &mut LuaLam<R>,
     i: Option<usize>,
-) -> LuaResult<LuaValue<'lua>>
+) -> LuaResult<LamValue>
 where
     R: Read + 'lua,
 {
@@ -156,36 +159,34 @@ where
         }
     }
     if buf.is_empty() {
-        return vm.to_value(&LamValue::None);
+        return Ok(LamValue::None);
     }
-    vm.to_value(&std::str::from_utf8(&buf).ok())
+    Ok(std::str::from_utf8(&buf)
+        .ok()
+        .map_or(LamValue::None, |s| LamValue::String(s.into())))
 }
 
-fn lua_lam_get<'lua, R>(vm: &'lua Lua, lam: &LuaLam<R>, key: String) -> LuaResult<LuaValue<'lua>>
+fn lua_lam_get<'lua, R>(_: &'lua Lua, lam: &LuaLam<R>, key: String) -> LuaResult<LamValue>
 where
     R: Read + 'lua,
 {
     let Some(store) = &lam.store else {
-        return Ok(LuaNil);
+        return Ok(LamValue::None);
     };
     if let Ok(v) = store.get(key.as_str()) {
-        return vm.to_value(&v.clone());
+        return Ok(v.clone());
     }
-    Ok(LuaNil)
+    Ok(LamValue::None)
 }
 
-fn lua_lam_set<'lua, R>(
-    vm: &'lua Lua,
-    lam: &LuaLam<R>,
-    (key, value): (String, LuaValue<'lua>),
-) -> LuaResult<LuaValue<'lua>>
+fn lua_lam_set<R>(_: &Lua, lam: &LuaLam<R>, (key, value): (String, LamValue)) -> LuaResult<LamValue>
 where
     R: Read,
 {
     let Some(store) = &lam.store else {
-        return Ok(LuaNil);
+        return Ok(LamValue::None);
     };
-    match store.insert(key, &vm.from_value(value.clone())?) {
+    match store.insert(key, &value) {
         Ok(_) => Ok(value),
         Err(err) => {
             error!(?err, "failed to insert value");
@@ -197,15 +198,14 @@ where
 fn lua_lam_update<'lua, R>(
     vm: &'lua Lua,
     lam: &LuaLam<R>,
-    (key, f, default_v): (String, LuaFunction<'lua>, LuaValue<'lua>),
+    (key, f, default_v): (String, LuaFunction<'lua>, Option<LamValue>),
 ) -> LuaResult<LuaValue<'lua>>
 where
     R: Read + 'lua,
 {
     let update_fn = |old: &mut LamValue| -> LuaResult<()> {
         let old_v = vm.to_value(old)?;
-        let new_v = f.call(old_v).into_lua_err()?;
-        let new = vm.from_value(new_v)?;
+        let new = f.call::<_, LamValue>(old_v).into_lua_err()?;
         *old = new;
         Ok(())
     };
@@ -214,9 +214,7 @@ where
         return Ok(LuaNil);
     };
 
-    let v = store
-        .update(key, update_fn, vm.from_value(default_v)?)
-        .into_lua_err()?;
+    let v = store.update(key, update_fn, default_v).into_lua_err()?;
     vm.to_value(&v)
 }
 

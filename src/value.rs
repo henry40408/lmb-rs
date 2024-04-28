@@ -20,6 +20,18 @@ pub enum LamValue {
     Table(HashMap<String, LamValue>),
 }
 
+impl<'lua> IntoLua<'lua> for LamValue {
+    fn into_lua(self, lua: &'lua Lua) -> LuaResult<LuaValue<'lua>> {
+        lua.to_value(&self)
+    }
+}
+
+impl<'lua> FromLua<'lua> for LamValue {
+    fn from_lua(value: LuaValue<'lua>, lua: &'lua Lua) -> LuaResult<Self> {
+        lua.from_value(value)
+    }
+}
+
 impl From<bool> for LamValue {
     fn from(value: bool) -> Self {
         Self::Boolean(value)
@@ -73,5 +85,3 @@ impl std::fmt::Display for LamValue {
         }
     }
 }
-
-impl LuaUserData for LamValue {}

@@ -9,7 +9,7 @@ impl LuaUserData for LuaLamJSON {
         methods.add_method("decode", |vm, _, value: String| {
             vm.to_value(&serde_json::from_str::<LamValue>(&value).into_lua_err()?)
         });
-        methods.add_method("encode", |_, _, value: LuaValue<'lua>| {
+        methods.add_method("encode", |_, _, value: LamValue| {
             serde_json::to_string(&value).into_lua_err()
         });
     }
