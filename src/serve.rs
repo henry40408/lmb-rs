@@ -2,9 +2,9 @@ use crate::StoreOptions;
 use axum::{
     body::Bytes,
     extract::State,
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, Method, StatusCode},
     response::IntoResponse,
-    routing::post,
+    routing::any,
     Router,
 };
 use lam::*;
@@ -36,12 +36,13 @@ where
 }
 
 async fn index_route(
+    method: Method,
     State(state): State<AppState>,
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
-    let e = EvalBuilder::new(state.script.into(), Cursor::new(body))
-        .with_name(state.name.into())
+    let e = EvalBuilder::new(state.script, Cursor::new(body))
+        .with_name(state.name)
         .with_timeout(state.timeout)
         .with_store(state.store.clone())
         .build();
@@ -55,7 +56,7 @@ async fn index_route(
     }
 
     let mut request_map = HashMap::new();
-    request_map.insert("method".into(), "POST".into());
+    request_map.insert("method".into(), method.as_str().into());
     request_map.insert("headers".into(), headers_map.into());
 
     let eval_state = LamState::new();
@@ -105,7 +106,7 @@ where
         timeout: opts.timeout,
     };
     let app = Router::new()
-        .route("/", post(index_route))
+        .route("/", any(index_route))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(trace::DefaultMakeSpan::new().level(Level::INFO))

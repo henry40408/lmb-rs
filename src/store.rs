@@ -227,9 +227,7 @@ mod tests {
         for _ in 0..=1000 {
             let store = store.clone();
             threads.push(thread::spawn(move || {
-                let e = EvalBuilder::new(script.into(), empty())
-                    .with_store(store)
-                    .build();
+                let e = EvalBuilder::new(script, empty()).with_store(store).build();
                 e.evaluate().unwrap();
             }));
         }
@@ -251,7 +249,7 @@ mod tests {
         let store = LamStore::default();
         store.insert("a", &1.23.into()).unwrap();
 
-        let e = EvalBuilder::new(script.into(), empty())
+        let e = EvalBuilder::new(script, empty())
             .with_store(store.clone())
             .build();
 
@@ -290,7 +288,7 @@ mod tests {
         let store = LamStore::default();
         store.insert("a", &LamValue::Number(1f64)).unwrap();
 
-        let e = EvalBuilder::new(script.into(), empty())
+        let e = EvalBuilder::new(script, empty())
             .with_store(store.clone())
             .build();
 
@@ -316,7 +314,7 @@ mod tests {
         let store = LamStore::default();
         store.insert("a", &LamValue::Number(1f64)).unwrap();
 
-        let e = EvalBuilder::new(script.into(), empty())
+        let e = EvalBuilder::new(script, empty())
             .with_store(store.clone())
             .build();
 
@@ -338,7 +336,7 @@ mod tests {
         let store = LamStore::default();
         store.insert("a", &LamValue::Number(1f64)).unwrap();
 
-        let e = EvalBuilder::new(script.into(), empty())
+        let e = EvalBuilder::new(script, empty())
             .with_store(store.clone())
             .build();
 
