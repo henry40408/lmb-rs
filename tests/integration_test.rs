@@ -49,10 +49,13 @@ mod tests {
         cmd.args(["--json", "eval", "--file", "lua-examples/return-table.lua"]);
         cmd.assert().success();
         let s = String::from_utf8(cmd.output().unwrap().stdout).unwrap();
-        let parsed: Value = serde_json::from_str(&s).unwrap();
-        assert_eq!(json!(true), *parsed.get("bool").unwrap());
-        assert_eq!(json!(1.23f64), *parsed.get("num").unwrap());
-        assert_eq!(json!("hello"), *parsed.get("str").unwrap());
+        let value: Value = serde_json::from_str(&s).unwrap();
+        let expected = json!({
+            "bool": true,
+            "num": 1.23,
+            "str": "hello",
+        });
+        assert_eq!(expected, value);
     }
 
     #[test]
