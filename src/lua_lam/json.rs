@@ -49,4 +49,17 @@ mod tests {
         let value: Value = serde_json::from_str(&res.result.to_string()).unwrap();
         assert_eq!(json!({"bool":true,"num":2.0,"str":"hello"}), value);
     }
+
+    #[test]
+    fn json_decode_encode() {
+        // https://github.com/rxi/json.lua/issues/19
+        let script = r#"
+        local m = require('@lam/json');
+        return m:encode(m:decode('{"a":[{}]}'))
+        "#;
+        let e = EvalBuilder::new(script, empty()).build();
+        let res = e.evaluate().unwrap();
+        let value: Value = serde_json::from_str(&res.result.to_string()).unwrap();
+        assert_eq!(json!({"a":[{}]}), value);
+    }
 }
