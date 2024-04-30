@@ -77,12 +77,12 @@ where
 fn lua_lam_read<'lua, R>(
     vm: &'lua Lua,
     lam: &mut LuaLam<R>,
-    f: LuaValue<'lua>,
+    f: LamValue,
 ) -> LuaResult<LuaValue<'lua>>
 where
     R: Read + 'lua,
 {
-    if let Some(f) = f.as_str() {
+    if let LamValue::String(f) = &f {
         if f == "*a" || f == "*all" {
             // accepts *a or *all
             let mut buf = Vec::new();
@@ -117,7 +117,8 @@ where
         }
     }
 
-    if let Some(i) = f.as_usize() {
+    if let LamValue::Number(i) = &f {
+        let i = *i as usize;
         let s = trace_span!("read bytes from input", count = field::Empty).entered();
         let mut buf = vec![0; i];
         let count = lam.input.lock().read(&mut buf).into_lua_err()?;
@@ -126,10 +127,12 @@ where
             return Ok(LuaNil);
         }
         buf.truncate(count);
+        // Unlike Rust strings, Lua strings may not be valid UTF-8.
+        // We leverage this trait to give Lua the power to handle binary.
         return Ok(mlua::Value::String(vm.create_string(&buf)?));
     }
 
-    let f = f.to_string().into_lua_err()?;
+    let f = f.to_string();
     Err(LuaError::runtime(format!("unexpected format {f}")))
 }
 
@@ -199,7 +202,7 @@ fn lua_lam_update<'lua, R>(
     vm: &'lua Lua,
     lam: &LuaLam<R>,
     (key, f, default_v): (String, LuaFunction<'lua>, Option<LamValue>),
-) -> LuaResult<LuaValue<'lua>>
+) -> LuaResult<LamValue>
 where
     R: Read + 'lua,
 {
@@ -211,11 +214,10 @@ where
     };
 
     let Some(store) = &lam.store else {
-        return Ok(LuaNil);
+        return Ok(LamValue::None);
     };
 
-    let v = store.update(key, update_fn, default_v).into_lua_err()?;
-    vm.to_value(&v)
+    store.update(key, update_fn, default_v).into_lua_err()
 }
 
 impl<R> LuaUserData for LuaLam<R>
@@ -253,9 +255,20 @@ mod tests {
     #[test]
     fn read_binary() {
         let input: &[u8] = &[1, 2, 3];
-        let e = EvalBuilder::new(r#"return #require('@lam'):read('*a')"#, input).build();
+        let script = r#"
+        local s = require('@lam'):read('*a')
+        local t = {}
+        for b in (s or ""):gmatch('.') do
+          table.insert(t, string.byte(b))
+        end
+        return t
+        "#;
+        let e = EvalBuilder::new(script, input).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::Number(3f64), res.result);
+        assert_eq!(
+            LamValue::List(vec![1.0.into(), 2.0.into(), 3.0.into()]),
+            res.result
+        );
     }
 
     #[test_case(r#"assert(not require('@lam'):read('*a'))"#)]
