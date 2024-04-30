@@ -29,12 +29,12 @@ mod tests {
         "#;
         let e = EvalBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        let h = maplit::hashmap! {
+        let expected: LamValue = maplit::hashmap! {
             "bool" => true.into(),
             "num" => 2.into(),
             "str" => "hello".into()
-        };
-        let expected: LamValue = h.into();
+        }
+        .into();
         assert_eq!(expected, res.result);
     }
 

@@ -53,16 +53,16 @@ macro_rules! impl_numeric_to_lam_value {
         )*
     };
 }
-impl_numeric_to_lam_value!(f32, f64, i8, i16, i32, i64, u8, u16, u32, u64);
+impl_numeric_to_lam_value!(f32, f64, i8, i16, i32, i64, u8, u16, u32, u64, usize);
 
 impl<S> From<HashMap<S, LamValue>> for LamValue
 where
-    S: ToString,
+    S: AsRef<str>,
 {
     fn from(value: HashMap<S, LamValue>) -> Self {
         let mut h = HashMap::new();
         for (k, v) in value {
-            h.insert(k.to_string(), v.clone());
+            h.insert(k.as_ref().to_string(), v.clone());
         }
         Self::Table(h)
     }

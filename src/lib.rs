@@ -37,5 +37,11 @@ pub enum LamStateKey {
     String(String),
 }
 
+impl From<&str> for LamStateKey {
+    fn from(value: &str) -> Self {
+        Self::String(value.to_string())
+    }
+}
+
 /// State of each evaluation.
 pub type LamState = DashMap<LamStateKey, LamValue>;

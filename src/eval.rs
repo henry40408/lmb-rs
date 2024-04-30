@@ -114,7 +114,7 @@ where
     /// use lam::*;
     /// let e = EvalBuilder::new("return true", empty()).build();
     /// let res = e.evaluate().unwrap();
-    /// assert_eq!(LamValue::Boolean(true), res.result);
+    /// assert_eq!(LamValue::from(true), res.result);
     /// ```
     pub fn build(self) -> Evaluation<R> {
         let vm = Lua::new();
@@ -170,7 +170,7 @@ where
     /// use lam::*;
     /// let e = EvalBuilder::new("return 1+1", empty()).build();
     /// let res = e.evaluate().unwrap();
-    /// assert_eq!(LamValue::Number(2f64), res.result);
+    /// assert_eq!(LamValue::from(2f64), res.result);
     /// ```
     pub fn evaluate(&self) -> LamResult<EvalResult> {
         self.do_evaluate(None)
@@ -183,9 +183,9 @@ where
     /// use lam::*;
     /// let e = EvalBuilder::new("return 1+1", empty()).build();
     /// let state = LamState::new();
-    /// state.insert(LamStateKey::String("bool".into()), true.into());
+    /// state.insert(LamStateKey::from("bool"), true.into());
     /// let res = e.evaluate_with_state(state).unwrap();
-    /// assert_eq!(LamValue::Number(2f64), res.result);
+    /// assert_eq!(LamValue::from(2f64), res.result);
     /// ```
     pub fn evaluate_with_state(&self, state: LamState) -> LamResult<EvalResult> {
         self.do_evaluate(Some(state))
@@ -201,12 +201,12 @@ where
     /// let mut e = EvalBuilder::new(script, Cursor::new("1")).build();
     ///
     /// let r = e.evaluate().unwrap();
-    /// assert_eq!(LamValue::String("1".into()), r.result);
+    /// assert_eq!(LamValue::from("1"), r.result);
     ///
     /// e.set_input(Cursor::new("2"));
     ///
     /// let r = e.evaluate().unwrap();
-    /// assert_eq!(LamValue::String("2".into()), r.result);
+    /// assert_eq!(LamValue::from("2"), r.result);
     /// ```
     pub fn set_input(&mut self, input: R) {
         self.input = Arc::new(Mutex::new(BufReader::new(input)));
@@ -319,10 +319,10 @@ mod tests {
         let e = EvalBuilder::new(script, input.as_bytes()).build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::String("foo".into()), res.result);
+        assert_eq!(LamValue::from("foo"), res.result);
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::String("bar".into()), res.result);
+        assert_eq!(LamValue::from("bar"), res.result);
     }
 
     #[test_case(r#""#, "")]
@@ -352,11 +352,11 @@ mod tests {
         let mut e = EvalBuilder::new("return require('@lam'):read('*a')", &b"0"[..]).build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::String("0".into()), res.result);
+        assert_eq!(LamValue::from("0"), res.result);
 
         e.set_input(&b"1"[..]);
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::String("1".into()), res.result);
+        assert_eq!(LamValue::from("1"), res.result);
     }
 }

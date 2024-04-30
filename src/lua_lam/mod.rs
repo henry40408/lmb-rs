@@ -166,7 +166,7 @@ where
     }
     Ok(std::str::from_utf8(&buf)
         .ok()
-        .map_or(LamValue::None, |s| LamValue::String(s.into())))
+        .map_or(LamValue::None, LamValue::from))
 }
 
 fn lua_lam_get<'lua, R>(_: &'lua Lua, lam: &LuaLam<R>, key: String) -> LuaResult<LamValue>
@@ -266,7 +266,7 @@ mod tests {
         let e = EvalBuilder::new(script, input).build();
         let res = e.evaluate().unwrap();
         assert_eq!(
-            LamValue::List(vec![1.0.into(), 2.0.into(), 3.0.into()]),
+            LamValue::from(vec![1.0.into(), 2.0.into(), 3.0.into()]),
             res.result
         );
     }
@@ -349,7 +349,7 @@ mod tests {
         let script = r#"return require('@lam'):read_unicode(12)"#;
         let e = EvalBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::String(input.into()), res.result);
+        assert_eq!(LamValue::from(input), res.result);
     }
 
     #[test_case(1, "a")]
