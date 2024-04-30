@@ -1,6 +1,6 @@
 use crate::*;
 use mlua::prelude::*;
-use std::io::{BufRead as _, Read};
+use std::io::BufRead;
 use tracing::field;
 use tracing::{error, trace_span};
 
@@ -14,7 +14,7 @@ const K_LOADED: &str = "_LOADED";
 /// Interface of between Lua and Rust.
 pub struct LuaLam<R>
 where
-    R: Read,
+    R: BufRead,
 {
     input: LamInput<R>,
     state: Option<LamState>,
@@ -23,7 +23,7 @@ where
 
 impl<R> LuaLam<R>
 where
-    for<'lua> R: Read + 'lua,
+    for<'lua> R: BufRead + 'lua,
 {
     /// Create a new instance of interface with input [`LamInput`] and store [`LamStore`].
     ///
@@ -80,7 +80,7 @@ fn lua_lam_read<'lua, R>(
     f: LamValue,
 ) -> LuaResult<LuaValue<'lua>>
 where
-    R: Read + 'lua,
+    R: BufRead + 'lua,
 {
     if let LamValue::String(f) = &f {
         if f == "*a" || f == "*all" {
@@ -142,7 +142,7 @@ fn lua_lam_read_unicode<'lua, R>(
     i: Option<usize>,
 ) -> LuaResult<LamValue>
 where
-    R: Read + 'lua,
+    R: BufRead + 'lua,
 {
     let mut buf = vec![];
     let mut remaining = i.unwrap_or(0);
@@ -171,7 +171,7 @@ where
 
 fn lua_lam_get<'lua, R>(_: &'lua Lua, lam: &LuaLam<R>, key: String) -> LuaResult<LamValue>
 where
-    R: Read + 'lua,
+    R: BufRead + 'lua,
 {
     let Some(store) = &lam.store else {
         return Ok(LamValue::None);
@@ -184,7 +184,7 @@ where
 
 fn lua_lam_set<R>(_: &Lua, lam: &LuaLam<R>, (key, value): (String, LamValue)) -> LuaResult<LamValue>
 where
-    R: Read,
+    R: BufRead,
 {
     let Some(store) = &lam.store else {
         return Ok(LamValue::None);
@@ -204,7 +204,7 @@ fn lua_lam_update<'lua, R>(
     (key, f, default_v): (String, LuaFunction<'lua>, Option<LamValue>),
 ) -> LuaResult<LamValue>
 where
-    R: Read + 'lua,
+    R: BufRead + 'lua,
 {
     let update_fn = |old: &mut LamValue| -> LuaResult<()> {
         let old_v = vm.to_value(old)?;
@@ -222,7 +222,7 @@ where
 
 impl<R> LuaUserData for LuaLam<R>
 where
-    for<'lua> R: Read + 'lua,
+    for<'lua> R: BufRead + 'lua,
 {
     fn add_fields<'lua, F: LuaUserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field("_VERSION", env!("CARGO_PKG_VERSION"));
