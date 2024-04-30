@@ -4,7 +4,7 @@
 
 use dashmap::DashMap;
 use parking_lot::Mutex;
-use std::{io::BufReader, sync::Arc};
+use std::sync::Arc;
 
 pub use check::*;
 pub use error::*;
@@ -23,7 +23,7 @@ mod store;
 mod value;
 
 /// Function input.
-pub type LamInput<R> = Arc<Mutex<BufReader<R>>>;
+pub type LamInput<R> = Arc<Mutex<R>>;
 
 /// Generic result type of Lam.
 pub type LamResult<T> = Result<T, LamError>;

@@ -1,7 +1,7 @@
 use crate::*;
 use mlua::{prelude::*, Compiler};
 use std::{
-    io::{BufReader, Read},
+    io::{BufRead, Read},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -127,7 +127,7 @@ where
         };
         Evaluation {
             compiled,
-            input: Arc::new(Mutex::new(BufReader::new(self.input))),
+            input: Arc::new(Mutex::new(self.input)),
             name: self.name.unwrap_or_default(),
             store: self.store,
             timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
@@ -161,7 +161,7 @@ where
 
 impl<R> Evaluation<R>
 where
-    for<'lua> R: Read + 'lua,
+    for<'lua> R: BufRead + 'lua,
 {
     /// Evaluate the function and return a [`EvalResult`] as result.
     ///
@@ -209,7 +209,7 @@ where
     /// assert_eq!(LamValue::from("2"), r.result);
     /// ```
     pub fn set_input(&mut self, input: R) {
-        self.input = Arc::new(Mutex::new(BufReader::new(input)));
+        self.input = Arc::new(Mutex::new(input));
     }
 
     fn do_evaluate(&self, state: Option<LamState>) -> LamResult<EvalResult> {
