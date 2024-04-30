@@ -117,7 +117,7 @@ where
         }
     }
 
-    if let LamValue::Number(i) = &f {
+    if let LamValue::Integer(i) = &f {
         let i = *i as usize;
         let s = trace_span!("read bytes from input", count = field::Empty).entered();
         let mut buf = vec![0; i];
@@ -266,7 +266,7 @@ mod tests {
         let e = EvalBuilder::new(script, input).build();
         let res = e.evaluate().unwrap();
         assert_eq!(
-            LamValue::from(vec![1.0.into(), 2.0.into(), 3.0.into()]),
+            LamValue::from(vec![1.into(), 2.into(), 3.into()]),
             res.result
         );
     }

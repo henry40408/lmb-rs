@@ -182,7 +182,7 @@ mod tests {
         let server = TestServer::new(router.into_make_service()).unwrap();
         let res = server.post("/").await;
         assert_eq!(200, res.status_code());
-        assert_eq!("1.0", res.text());
+        assert_eq!("1", res.text());
     }
 
     #[tokio::test]
