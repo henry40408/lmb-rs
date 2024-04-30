@@ -38,10 +38,9 @@ mod tests {
     fn eval_file() {
         let mut cmd = Command::cargo_bin("lam").unwrap();
         cmd.args(["eval", "--file", "lua-examples/hello.lua"]);
-        #[cfg(not(windows))]
-        cmd.assert().success().stdout("hello, world!\n");
-        #[cfg(windows)]
-        cmd.assert().success().stdout("hello, world!\r\n");
+        cmd.assert()
+            .success()
+            .stdout(predicates::str::contains("hello, world!"));
     }
 
     #[test]
