@@ -4,6 +4,10 @@ use std::io::{BufRead as _, Read};
 use tracing::field;
 use tracing::{error, trace_span};
 
+use json::*;
+
+mod json;
+
 // ref: https://www.lua.org/pil/8.1.html
 const K_LOADED: &str = "_LOADED";
 
@@ -61,20 +65,24 @@ where
     ) -> LamResult<()> {
         let loaded = vm.named_registry_value::<LuaTable<'_>>(K_LOADED)?;
         loaded.set("@lam", Self::new(input, store, state))?;
+        loaded.set("@lam/json", LuaLamJSON {})?;
         vm.set_named_registry_value(K_LOADED, loaded)?;
         Ok(())
     }
 }
 
+// This function intentionally uses Lua values instead of Lam values to pass bytes as partial,
+// invalid strings, allowing Lua to handle the bytes.
+// For a demonstration, see 'count-bytes.lua'.
 fn lua_lam_read<'lua, R>(
     vm: &'lua Lua,
     lam: &mut LuaLam<R>,
-    f: LuaValue<'lua>,
+    f: LamValue,
 ) -> LuaResult<LuaValue<'lua>>
 where
     R: Read + 'lua,
 {
-    if let Some(f) = f.as_str() {
+    if let LamValue::String(f) = &f {
         if f == "*a" || f == "*all" {
             // accepts *a or *all
             let mut buf = Vec::new();
@@ -109,7 +117,8 @@ where
         }
     }
 
-    if let Some(i) = f.as_usize() {
+    if let LamValue::Number(i) = &f {
+        let i = *i as usize;
         let s = trace_span!("read bytes from input", count = field::Empty).entered();
         let mut buf = vec![0; i];
         let count = lam.input.lock().read(&mut buf).into_lua_err()?;
@@ -118,18 +127,20 @@ where
             return Ok(LuaNil);
         }
         buf.truncate(count);
+        // Unlike Rust strings, Lua strings may not be valid UTF-8.
+        // We leverage this trait to give Lua the power to handle binary.
         return Ok(mlua::Value::String(vm.create_string(&buf)?));
     }
 
-    let f = f.to_string().into_lua_err()?;
+    let f = f.to_string();
     Err(LuaError::runtime(format!("unexpected format {f}")))
 }
 
 fn lua_lam_read_unicode<'lua, R>(
-    vm: &'lua Lua,
+    _: &'lua Lua,
     lam: &mut LuaLam<R>,
     i: Option<usize>,
-) -> LuaResult<LuaValue<'lua>>
+) -> LuaResult<LamValue>
 where
     R: Read + 'lua,
 {
@@ -151,36 +162,34 @@ where
         }
     }
     if buf.is_empty() {
-        return vm.to_value(&LamValue::None);
+        return Ok(LamValue::None);
     }
-    vm.to_value(&std::str::from_utf8(&buf).ok())
+    Ok(std::str::from_utf8(&buf)
+        .ok()
+        .map_or(LamValue::None, LamValue::from))
 }
 
-fn lua_lam_get<'lua, R>(vm: &'lua Lua, lam: &LuaLam<R>, key: String) -> LuaResult<LuaValue<'lua>>
+fn lua_lam_get<'lua, R>(_: &'lua Lua, lam: &LuaLam<R>, key: String) -> LuaResult<LamValue>
 where
     R: Read + 'lua,
 {
     let Some(store) = &lam.store else {
-        return Ok(LuaNil);
+        return Ok(LamValue::None);
     };
     if let Ok(v) = store.get(key.as_str()) {
-        return vm.to_value(&v.clone());
+        return Ok(v.clone());
     }
-    Ok(LuaNil)
+    Ok(LamValue::None)
 }
 
-fn lua_lam_set<'lua, R>(
-    vm: &'lua Lua,
-    lam: &LuaLam<R>,
-    (key, value): (String, LuaValue<'lua>),
-) -> LuaResult<LuaValue<'lua>>
+fn lua_lam_set<R>(_: &Lua, lam: &LuaLam<R>, (key, value): (String, LamValue)) -> LuaResult<LamValue>
 where
     R: Read,
 {
     let Some(store) = &lam.store else {
-        return Ok(LuaNil);
+        return Ok(LamValue::None);
     };
-    match store.insert(key, &vm.from_value(value.clone())?) {
+    match store.insert(key, &value) {
         Ok(_) => Ok(value),
         Err(err) => {
             error!(?err, "failed to insert value");
@@ -192,27 +201,23 @@ where
 fn lua_lam_update<'lua, R>(
     vm: &'lua Lua,
     lam: &LuaLam<R>,
-    (key, f, default_v): (String, LuaFunction<'lua>, LuaValue<'lua>),
-) -> LuaResult<LuaValue<'lua>>
+    (key, f, default_v): (String, LuaFunction<'lua>, Option<LamValue>),
+) -> LuaResult<LamValue>
 where
     R: Read + 'lua,
 {
     let update_fn = |old: &mut LamValue| -> LuaResult<()> {
         let old_v = vm.to_value(old)?;
-        let new_v = f.call(old_v).into_lua_err()?;
-        let new = vm.from_value(new_v)?;
+        let new = f.call::<_, LamValue>(old_v).into_lua_err()?;
         *old = new;
         Ok(())
     };
 
     let Some(store) = &lam.store else {
-        return Ok(LuaNil);
+        return Ok(LamValue::None);
     };
 
-    let v = store
-        .update(key, update_fn, vm.from_value(default_v)?)
-        .into_lua_err()?;
-    vm.to_value(&v)
+    store.update(key, update_fn, default_v).into_lua_err()
 }
 
 impl<R> LuaUserData for LuaLam<R>
@@ -250,9 +255,20 @@ mod tests {
     #[test]
     fn read_binary() {
         let input: &[u8] = &[1, 2, 3];
-        let e = EvalBuilder::new(r#"return #require('@lam'):read('*a')"#, input).build();
+        let script = r#"
+        local s = require('@lam'):read('*a')
+        local t = {}
+        for b in (s or ""):gmatch('.') do
+          table.insert(t, string.byte(b))
+        end
+        return t
+        "#;
+        let e = EvalBuilder::new(script, input).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::Number(3f64), res.result);
+        assert_eq!(
+            LamValue::from(vec![1.0.into(), 2.0.into(), 3.0.into()]),
+            res.result
+        );
     }
 
     #[test_case(r#"assert(not require('@lam'):read('*a'))"#)]
@@ -333,7 +349,7 @@ mod tests {
         let script = r#"return require('@lam'):read_unicode(12)"#;
         let e = EvalBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::String(input.into()), res.result);
+        assert_eq!(LamValue::from(input), res.result);
     }
 
     #[test_case(1, "a")]

@@ -20,6 +20,18 @@ pub enum LamValue {
     Table(HashMap<String, LamValue>),
 }
 
+impl<'lua> IntoLua<'lua> for LamValue {
+    fn into_lua(self, lua: &'lua Lua) -> LuaResult<LuaValue<'lua>> {
+        lua.to_value(&self)
+    }
+}
+
+impl<'lua> FromLua<'lua> for LamValue {
+    fn from_lua(value: LuaValue<'lua>, lua: &'lua Lua) -> LuaResult<Self> {
+        lua.from_value(value)
+    }
+}
+
 impl From<bool> for LamValue {
     fn from(value: bool) -> Self {
         Self::Boolean(value)
@@ -41,11 +53,18 @@ macro_rules! impl_numeric_to_lam_value {
         )*
     };
 }
-impl_numeric_to_lam_value!(f32, f64, i8, i16, i32, i64, u8, u16, u32, u64);
+impl_numeric_to_lam_value!(f32, f64, i8, i16, i32, i64, u8, u16, u32, u64, usize);
 
-impl From<HashMap<String, LamValue>> for LamValue {
-    fn from(value: HashMap<String, LamValue>) -> Self {
-        Self::Table(value)
+impl<S> From<HashMap<S, LamValue>> for LamValue
+where
+    S: AsRef<str>,
+{
+    fn from(value: HashMap<S, LamValue>) -> Self {
+        let mut h = HashMap::new();
+        for (k, v) in value {
+            h.insert(k.as_ref().to_string(), v.clone());
+        }
+        Self::Table(h)
     }
 }
 
@@ -66,5 +85,3 @@ impl std::fmt::Display for LamValue {
         }
     }
 }
-
-impl LuaUserData for LamValue {}

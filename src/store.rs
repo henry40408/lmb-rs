@@ -75,11 +75,11 @@ impl LamStore {
     /// use lam::*;
     /// let store = LamStore::default();
     /// store.insert("a", &true.into());
-    /// assert_eq!(LamValue::Boolean(true), store.get("a").unwrap());
+    /// assert_eq!(LamValue::from(true), store.get("a").unwrap());
     /// store.insert("b", &1.into());
-    /// assert_eq!(LamValue::Number(1f64), store.get("b").unwrap());
+    /// assert_eq!(LamValue::from(1f64), store.get("b").unwrap());
     /// store.insert("c", &"hello".into());
-    /// assert_eq!(LamValue::String("hello".into()), store.get("c").unwrap());
+    /// assert_eq!(LamValue::from("hello"), store.get("c").unwrap());
     /// ```
     pub fn insert<S: AsRef<str>>(&self, name: S, value: &LamValue) -> LamResult<()> {
         let conn = self.conn.lock();
@@ -99,7 +99,7 @@ impl LamStore {
     /// let store = LamStore::default();
     /// assert_eq!(LamValue::None, store.get("a").unwrap());
     /// store.insert("a", &true.into());
-    /// assert_eq!(LamValue::Boolean(true), store.get("a").unwrap());
+    /// assert_eq!(LamValue::from(true), store.get("a").unwrap());
     /// ```
     pub fn get<S: AsRef<str>>(&self, name: S) -> LamResult<LamValue> {
         let conn = self.conn.lock();
@@ -128,12 +128,12 @@ impl LamStore {
     /// let store = LamStore::default();
     /// let x = store.update("b", |old| {
     ///     if let LamValue::Number(n) = old {
-    ///         *old = LamValue::Number(*n + 1f64);
+    ///         *old = LamValue::from(*n + 1f64);
     ///     }
     ///     Ok(())
     /// }, Some(1.into()));
-    /// assert_eq!(LamValue::Number(2f64), x.unwrap());
-    /// assert_eq!(LamValue::Number(2f64), store.get("b").unwrap());
+    /// assert_eq!(LamValue::from(2f64), x.unwrap());
+    /// assert_eq!(LamValue::from(2f64), store.get("b").unwrap());
     /// ```
     ///
     /// # Do nothing when an error is returned
@@ -147,12 +147,12 @@ impl LamStore {
     ///        if *n == 1f64 {
     ///            return Err(mlua::Error::runtime("something went wrong"));
     ///        }
-    ///        *old = LamValue::Number(*n + 1f64);
+    ///        *old = LamValue::from(*n + 1f64);
     ///     }
     ///     Ok(())
     /// }, Some(1.into()));
-    /// assert_eq!(LamValue::Number(1f64), x.unwrap());
-    /// assert_eq!(LamValue::Number(1f64), store.get("a").unwrap());
+    /// assert_eq!(LamValue::from(1f64), x.unwrap());
+    /// assert_eq!(LamValue::from(1f64), store.get("a").unwrap());
     /// ```
     pub fn update<S: AsRef<str>>(
         &self,
@@ -206,7 +206,7 @@ mod tests {
     use test_case::test_case;
 
     #[test_case(vec![true.into(), 1f64.into(), "hello".into()].into())]
-    #[test_case(hashmap! { "b".into() => true.into() }.into())]
+    #[test_case(hashmap! { "b" => true.into() }.into())]
     fn complicated_types(value: LamValue) {
         let store = LamStore::default();
         store.insert("value", &value).unwrap();
@@ -234,7 +234,7 @@ mod tests {
         for t in threads {
             let _ = t.join();
         }
-        assert_eq!(LamValue::Number(1001f64), store.get("a").unwrap());
+        assert_eq!(LamValue::from(1001f64), store.get("a").unwrap());
     }
 
     #[test]
@@ -254,8 +254,8 @@ mod tests {
             .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::Number(1.23), res.result);
-        assert_eq!(LamValue::Number(4.56), store.get("a").unwrap());
+        assert_eq!(LamValue::from(1.23), res.result);
+        assert_eq!(LamValue::from(4.56), store.get("a").unwrap());
     }
 
     #[test]
@@ -286,7 +286,7 @@ mod tests {
         "#;
 
         let store = LamStore::default();
-        store.insert("a", &LamValue::Number(1f64)).unwrap();
+        store.insert("a", &LamValue::from(1f64)).unwrap();
 
         let e = EvalBuilder::new(script, empty())
             .with_store(store.clone())
@@ -294,14 +294,14 @@ mod tests {
 
         {
             let res = e.evaluate().unwrap();
-            assert_eq!(LamValue::Number(1f64), res.result);
-            assert_eq!(LamValue::Number(2f64), store.get("a").unwrap());
+            assert_eq!(LamValue::from(1f64), res.result);
+            assert_eq!(LamValue::from(2f64), store.get("a").unwrap());
         }
 
         {
             let res = e.evaluate().unwrap();
-            assert_eq!(LamValue::Number(2f64), res.result);
-            assert_eq!(LamValue::Number(3f64), store.get("a").unwrap());
+            assert_eq!(LamValue::from(2f64), res.result);
+            assert_eq!(LamValue::from(3f64), store.get("a").unwrap());
         }
     }
 
@@ -312,15 +312,15 @@ mod tests {
         end)"#;
 
         let store = LamStore::default();
-        store.insert("a", &LamValue::Number(1f64)).unwrap();
+        store.insert("a", &LamValue::from(1f64)).unwrap();
 
         let e = EvalBuilder::new(script, empty())
             .with_store(store.clone())
             .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::Number(2f64), res.result);
-        assert_eq!(LamValue::Number(2f64), store.get("a").unwrap());
+        assert_eq!(LamValue::from(2f64), res.result);
+        assert_eq!(LamValue::from(2f64), store.get("a").unwrap());
     }
 
     #[test_log::test]
@@ -334,14 +334,14 @@ mod tests {
         end, 0)"#;
 
         let store = LamStore::default();
-        store.insert("a", &LamValue::Number(1f64)).unwrap();
+        store.insert("a", &LamValue::from(1f64)).unwrap();
 
         let e = EvalBuilder::new(script, empty())
             .with_store(store.clone())
             .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::Number(1f64), res.result);
-        assert_eq!(LamValue::Number(1f64), store.get("a").unwrap());
+        assert_eq!(LamValue::from(1f64), res.result);
+        assert_eq!(LamValue::from(1f64), store.get("a").unwrap());
     }
 }

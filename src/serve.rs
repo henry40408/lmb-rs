@@ -60,9 +60,9 @@ where
     }
 
     let mut request_map = HashMap::new();
-    request_map.insert("method".into(), method.as_str().into());
-    request_map.insert("path".into(), path.as_ref().into());
-    request_map.insert("headers".into(), headers_map.into());
+    request_map.insert("method", method.as_str().into());
+    request_map.insert("path", path.as_ref().into());
+    request_map.insert("headers", headers_map.into());
 
     let eval_state = LamState::new();
     eval_state.insert(LamStateKey::Request, request_map.into());
@@ -209,19 +209,16 @@ mod tests {
         assert_eq!(200, res.status_code());
 
         let value: Value = serde_json::from_str(&res.text()).unwrap();
-
-        let request = value.get("request").unwrap();
-        assert_eq!(Some(&Value::String("POST".into())), request.get("method"));
-
-        assert_eq!(
-            Some(&Value::String("/foo/bar/baz".into())),
-            request.get("path")
-        );
-
-        let headers = request.get("headers").unwrap();
-        assert_eq!(
-            Some(&Value::String("application/json".into())),
-            headers.get("content-type")
-        );
+        let expected = json!({
+            "body": r#"{"a":1}"#,
+            "request": {
+                "headers": {
+                    "content-type": "application/json",
+                },
+                "method": "POST",
+                "path": "/foo/bar/baz",
+            },
+        });
+        assert_eq!(expected, value);
     }
 }
