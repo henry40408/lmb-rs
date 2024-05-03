@@ -37,7 +37,7 @@ dashmap = "5.5.3"
 
 [dev-dependencies]
 assert_cmd = "2.0.14"
-axum-test = "14.8.0"
+axum-test = "14.9.1"
 bencher = "0.1.5"
 maplit = "1.0.2"
 predicates = "3.1.0"
