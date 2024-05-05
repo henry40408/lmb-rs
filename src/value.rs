@@ -10,7 +10,9 @@ pub enum LamValue {
     None,
     /// Boolean.
     Boolean(bool),
-    /// Numbers, includes float and integer.
+    /// Numbers that can be converted to integer.
+    Integer(i64),
+    /// Numbers that cannot be converted to integer but float.
     Number(f64),
     /// String.
     String(String),
@@ -44,7 +46,7 @@ impl From<&str> for LamValue {
     }
 }
 
-macro_rules! impl_numeric_to_lam_value {
+macro_rules! impl_float_to_lam_value {
     ($($t:ty),*) => {
         $(
             impl From<$t> for LamValue {
@@ -53,7 +55,18 @@ macro_rules! impl_numeric_to_lam_value {
         )*
     };
 }
-impl_numeric_to_lam_value!(f32, f64, i8, i16, i32, i64, u8, u16, u32, u64, usize);
+impl_float_to_lam_value!(f32, f64);
+
+macro_rules! impl_integer_to_lam_value {
+    ($($t:ty),*) => {
+        $(
+            impl From<$t> for LamValue {
+                fn from(value: $t) -> Self { Self::Integer(value as i64) }
+            }
+        )*
+    };
+}
+impl_integer_to_lam_value!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize);
 
 impl<S> From<HashMap<S, LamValue>> for LamValue
 where
@@ -79,6 +92,7 @@ impl std::fmt::Display for LamValue {
         match self {
             LamValue::None => write!(f, ""),
             LamValue::Boolean(b) => write!(f, "{}", if *b { "true" } else { "false" }),
+            LamValue::Integer(n) => write!(f, "{}", n),
             LamValue::Number(n) => write!(f, "{}", n),
             LamValue::String(s) => write!(f, r#"{}"#, s),
             LamValue::List(_) | LamValue::Table(_) => write!(f, "table: 0x0"),

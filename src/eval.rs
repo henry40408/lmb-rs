@@ -170,7 +170,7 @@ where
     /// use lam::*;
     /// let e = EvalBuilder::new("return 1+1", empty()).build();
     /// let res = e.evaluate().unwrap();
-    /// assert_eq!(LamValue::from(2f64), res.result);
+    /// assert_eq!(LamValue::from(2), res.result);
     /// ```
     pub fn evaluate(&self) -> LamResult<EvalResult> {
         self.do_evaluate(None)
@@ -185,7 +185,7 @@ where
     /// let state = LamState::new();
     /// state.insert(LamStateKey::from("bool"), true.into());
     /// let res = e.evaluate_with_state(state).unwrap();
-    /// assert_eq!(LamValue::from(2f64), res.result);
+    /// assert_eq!(LamValue::from(2), res.result);
     /// ```
     pub fn evaluate_with_state(&self, state: LamState) -> LamResult<EvalResult> {
         self.do_evaluate(Some(state))
