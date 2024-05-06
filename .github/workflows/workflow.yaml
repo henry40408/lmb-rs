@@ -78,3 +78,37 @@ jobs:
       - uses: cargo-bins/cargo-binstall@v1.6.4
       - run: cargo binstall --no-confirm cargo-tarpaulin@0.28.0
       - run: cargo tarpaulin
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.1.1
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-qemu-action@v3.0.0
+      - uses: docker/setup-buildx-action@v3.0.0
+      - uses: docker/login-action@v3.0.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5.0.0
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ghcr.io/henry40408/lam:nightly
+        if: github.ref_type == 'branch' && github.ref_name == 'main'
+      - uses: docker/build-push-action@v5.0.0
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ghcr.io/henry40408/lam:${{ github.ref_name }}
+        if: github.ref_type == 'tag'
+      - uses: docker/build-push-action@v5.0.0
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ghcr.io/henry40408/lam:latest
+        if: github.ref_type == 'tag'

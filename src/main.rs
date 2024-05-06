@@ -9,8 +9,10 @@ use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
 
 mod serve;
 
+static VERSION: &str = env!("APP_VERSION");
+
 #[derive(Parser)]
-#[command(about, author, version)]
+#[command(about, author, version=VERSION)]
 /// lam is a Lua function runner.
 struct Cli {
     /// Checks the syntax of the function, disabled by default for performance reasons

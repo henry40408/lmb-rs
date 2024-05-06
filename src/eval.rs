@@ -305,7 +305,7 @@ mod tests {
 
     #[test_case("return 1+1", "2")]
     #[test_case("return 'a'..1", "a1")]
-    #[test_case("return require('@lam')._VERSION", "0.1.0")]
+    #[test_case("return require('@lam')._VERSION", env!("APP_VERSION"))]
     fn evaluate_scripts(script: &str, expected: &str) {
         let e = EvalBuilder::new(script, empty()).build();
         let res = e.evaluate().expect(script);
