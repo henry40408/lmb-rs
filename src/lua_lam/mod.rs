@@ -225,7 +225,7 @@ where
     for<'lua> R: BufRead + 'lua,
 {
     fn add_fields<'lua, F: LuaUserDataFields<'lua, Self>>(fields: &mut F) {
-        fields.add_field("_VERSION", env!("CARGO_PKG_VERSION"));
+        fields.add_field("_VERSION", env!("APP_VERSION"));
         fields.add_field_method_get("request", |vm, this| {
             let Some(m) = &this.state else {
                 return Ok(LuaNil);
