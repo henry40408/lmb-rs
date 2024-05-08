@@ -15,7 +15,7 @@
 
 ### Prerequisites
 
-- Rust >= 1.77.2
+- Rust >= 1.78.0
 
 ```bash
 git clone https://github.com/henry40408/lam
@@ -30,7 +30,6 @@ Find some examples:
 ```bash
 $ ./target/release/lam example ls
 ```
-
 
 Evaluate an example:
 
