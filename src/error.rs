@@ -13,7 +13,7 @@ pub enum LamError {
     /// Error when encoding store value to message pack.
     #[error("RMP encode error: {0}")]
     RMPEncode(#[from] rmp_serde::encode::Error),
-    /// Error from SQLite.
+    /// Error from `SQLite`.
     #[error("sqlite error: {0}")]
     SQLite(#[from] rusqlite::Error),
 }

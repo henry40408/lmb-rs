@@ -18,7 +18,7 @@ pub enum LamValue {
     String(String),
     /// Table without explicit key in Lua, Vec in Rust.
     List(Vec<LamValue>),
-    /// Table with explicit key in Lua, HashMap in Rust.
+    /// Table with explicit key in Lua, `HashMap` in Rust.
     Table(HashMap<String, LamValue>),
 }
 

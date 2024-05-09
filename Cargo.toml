@@ -63,13 +63,13 @@ harness = false
 
 # https://github.com/EmbarkStudios/rust-ecosystem/blob/732513edfd9172f4eda358b2d0cefc6cad1585ee/lints.rs
 [lints.rust]
-future_incompatible = "warn"
-nonstandard_style = "warn"
-rust_2018_idioms = "warn"
+future_incompatible = { level = "warn", priority = -1 }
+nonstandard_style = { level = "warn", priority = -1 }
+rust_2018_idioms = { level = "warn", priority = -1 }
 unsafe_code = "deny"
 
 [lints.clippy]
-all = "warn"
+all = { level = "warn", priority = -1 }
 await_holding_lock = "warn"
 char_lit_as_u8 = "warn"
 checked_conversions = "warn"

@@ -27,7 +27,7 @@ struct Cli {
     #[arg(long)]
     json: bool,
 
-    /// No color https://no-color.org/
+    /// No color <https://no-color.org/>
     #[arg(long, env = "NO_COLOR")]
     no_color: bool,
 
