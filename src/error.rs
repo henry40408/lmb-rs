@@ -16,4 +16,7 @@ pub enum LamError {
     /// Error from `SQLite`.
     #[error("sqlite error: {0}")]
     SQLite(#[from] rusqlite::Error),
+    /// Invalid key length for HMAC
+    #[error("invalid length: {0}")]
+    InvalidLength(#[from] crypto_common::InvalidLength),
 }

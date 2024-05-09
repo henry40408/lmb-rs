@@ -1,7 +1,7 @@
 use crate::*;
 use mlua::prelude::*;
 
-/// JSON module for Lua
+/// JSON module
 pub struct LuaLamJSON {}
 
 impl LuaUserData for LuaLamJSON {
