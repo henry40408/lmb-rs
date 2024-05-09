@@ -203,7 +203,7 @@ async fn main() -> anyhow::Result<()> {
             }
             let timeout = timeout.map(Duration::from_secs);
             let stdin_lock = io::stdin().lock();
-            let e = EvalBuilder::new(script, stdin_lock)
+            let e = EvaluationBuilder::new(script, stdin_lock)
                 .with_name(name)
                 .with_timeout(timeout)
                 .build();
@@ -225,7 +225,7 @@ async fn main() -> anyhow::Result<()> {
             };
             let script = found.script.trim();
             let locked_stdin = io::stdin().lock();
-            let e = EvalBuilder::new(script, locked_stdin)
+            let e = EvaluationBuilder::new(script, locked_stdin)
                 .with_name(name)
                 .build();
             let res = e.evaluate()?;
