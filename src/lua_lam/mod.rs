@@ -11,7 +11,7 @@ mod json;
 // ref: https://www.lua.org/pil/8.1.html
 const K_LOADED: &str = "_LOADED";
 
-/// Interface of between Lua and Rust.
+/// Interface of Lam between Lua and Rust.
 pub struct LuaLam<R>
 where
     R: BufRead,

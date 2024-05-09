@@ -137,7 +137,7 @@ where
 }
 
 /// Evaluation result.
-pub struct EvalResult {
+pub struct EvaluationResult {
     /// Execution duration.
     pub duration: Duration,
     /// Max memory usage in bytes.
@@ -146,7 +146,7 @@ pub struct EvalResult {
     pub result: LamValue,
 }
 
-/// A container that holds the compiled function for execution.
+/// A container that holds the compiled function and input for evaluation.
 pub struct Evaluation<R>
 where
     for<'lua> R: Read + 'lua,
@@ -163,7 +163,7 @@ impl<R> Evaluation<R>
 where
     for<'lua> R: BufRead + 'lua,
 {
-    /// Evaluate the function and return a [`EvalResult`] as result.
+    /// Evaluate the function and return a [`EvaluationResult`] as result.
     ///
     /// ```rust
     /// # use std::io::empty;
@@ -172,7 +172,7 @@ where
     /// let res = e.evaluate().unwrap();
     /// assert_eq!(LamValue::from(2), res.result);
     /// ```
-    pub fn evaluate(&self) -> LamResult<EvalResult> {
+    pub fn evaluate(&self) -> LamResult<EvaluationResult> {
         self.do_evaluate(None)
     }
 
@@ -187,7 +187,7 @@ where
     /// let res = e.evaluate_with_state(state).unwrap();
     /// assert_eq!(LamValue::from(2), res.result);
     /// ```
-    pub fn evaluate_with_state(&self, state: LamState) -> LamResult<EvalResult> {
+    pub fn evaluate_with_state(&self, state: LamState) -> LamResult<EvaluationResult> {
         self.do_evaluate(Some(state))
     }
 
@@ -212,7 +212,7 @@ where
         self.input = Arc::new(Mutex::new(input));
     }
 
-    fn do_evaluate(&self, state: Option<LamState>) -> LamResult<EvalResult> {
+    fn do_evaluate(&self, state: Option<LamState>) -> LamResult<EvaluationResult> {
         let vm = &self.vm;
         LuaLam::register(vm, self.input.clone(), self.store.clone(), state)?;
 
@@ -245,7 +245,7 @@ where
             if unresumable || timed_out {
                 let max_memory = max_memory.load(Ordering::SeqCst);
                 debug!(?duration, name, ?max_memory, "evaluated");
-                return Ok(EvalResult {
+                return Ok(EvaluationResult {
                     duration,
                     max_memory,
                     result,
