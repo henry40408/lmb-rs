@@ -59,8 +59,8 @@ where
     /// use lam::*;
     /// let _ = EvaluationBuilder::new("", empty()).with_default_store();
     /// ```
-    pub fn with_default_store(mut self) -> Self {
-        self.store = Some(LamStore::default());
+    pub async fn with_default_store(mut self) -> Self {
+        self.store = Some(LamStore::new_in_memory().await);
         self
     }
 
@@ -253,6 +253,47 @@ where
             }
         }
     }
+
+    /// test
+    pub async fn evaluate_async(&self) -> LamResult<EvaluationResult> {
+        self.do_evaluate_async(None).await
+    }
+
+    async fn do_evaluate_async(&self, state: Option<LamState>) -> LamResult<EvaluationResult> {
+        let vm = &self.vm;
+        LuaLam::register(vm, self.input.clone(), self.store.clone(), state)?;
+
+        let max_memory = Arc::new(AtomicUsize::new(0));
+        let timeout = self.timeout;
+
+        let start = Instant::now();
+        self.vm.set_interrupt({
+            let max_memory = Arc::clone(&max_memory);
+            move |vm| {
+                let used_memory = vm.used_memory();
+                max_memory.fetch_max(used_memory, Ordering::SeqCst);
+                if start.elapsed() > timeout {
+                    vm.remove_interrupt();
+                    return Err(mlua::Error::runtime("timeout"));
+                }
+                Ok(LuaVmState::Continue)
+            }
+        });
+
+        let name = &self.name;
+        let chunk = vm.load(&self.compiled).set_name(name);
+        let func = chunk.into_function()?;
+        let _ = trace_span!("evaluate", name).entered();
+        let result = func.call_async(()).await?;
+        let max_memory = max_memory.load(Ordering::SeqCst);
+        let duration = start.elapsed();
+        debug!(?duration, name, ?max_memory, "evaluated");
+        Ok(EvaluationResult {
+            duration,
+            max_memory,
+            result,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -263,7 +304,8 @@ mod tests {
     use test_case::test_case;
 
     #[test_case("./lua-examples/error.lua")]
-    fn error_in_script(path: &str) {
+    #[tokio::test]
+    async fn error_in_script(path: &str) {
         let script = fs::read_to_string(path).unwrap();
         let e = EvaluationBuilder::new(script, empty()).build();
         assert!(e.evaluate().is_err());
@@ -280,40 +322,40 @@ mod tests {
         "str" => "hello".into()
     }.into())]
     #[test_case("read-unicode.lua", "你好，世界", "你好".into())]
-    fn evaluate_examples(filename: &str, input: &'static str, expected: LamValue) {
+    #[tokio::test]
+    async fn evaluate_examples(filename: &str, input: &'static str, expected: LamValue) {
         let script = fs::read_to_string(format!("./lua-examples/{filename}")).unwrap();
         let e = EvaluationBuilder::new(&script, input.as_bytes())
             .with_default_store()
+            .await
             .build();
-        let res = e.evaluate().expect(&script);
+        let res = e.evaluate_async().await.expect(&script);
         assert_eq!(expected, res.result);
     }
 
-    #[test]
-    fn evaluate_infinite_loop() {
+    #[tokio::test]
+    async fn evaluate_infinite_loop() {
         let timeout = Duration::from_secs(1);
 
         let e = EvaluationBuilder::new(r#"while true do end"#, empty())
             .with_timeout(Some(timeout))
             .build();
-        let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::None, res.result);
-
-        let duration = res.duration;
-        assert_eq!(timeout.as_secs(), duration.as_secs());
+        let res = e.evaluate_async().await;
+        assert!(res.is_err());
     }
 
     #[test_case("return 1+1", "2")]
     #[test_case("return 'a'..1", "a1")]
     #[test_case("return require('@lam')._VERSION", env!("APP_VERSION"))]
-    fn evaluate_scripts(script: &str, expected: &str) {
+    #[tokio::test]
+    async fn evaluate_scripts(script: &str, expected: &str) {
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().expect(script);
         assert_eq!(expected, res.result.to_string());
     }
 
-    #[test]
-    fn reevaluate() {
+    #[tokio::test]
+    async fn reevaluate() {
         let input = "foo\nbar";
         let script = "return require('@lam'):read('*l')";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
@@ -334,21 +376,22 @@ mod tests {
     #[test_case(r#"return 'hello'"#, "hello")]
     #[test_case(r#"return {a=true,b=1.23,c="hello"}"#, "table: 0x0")]
     #[test_case(r#"return {true,1.23,"hello"}"#, "table: 0x0")]
-    fn return_to_string(script: &str, expected: &str) {
+    #[tokio::test]
+    async fn return_to_string(script: &str, expected: &str) {
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().expect(script);
         assert_eq!(expected, res.result.to_string());
     }
 
-    #[test]
-    fn syntax_error() {
+    #[tokio::test]
+    async fn syntax_error() {
         let script = "ret true"; // code with syntax error
         let e = EvaluationBuilder::new(script, empty()).build();
         assert!(e.evaluate().is_err());
     }
 
-    #[test]
-    fn replace_input() {
+    #[tokio::test]
+    async fn replace_input() {
         let script = "return require('@lam'):read('*a')";
         let mut e = EvaluationBuilder::new(script, &b"0"[..]).build();
 

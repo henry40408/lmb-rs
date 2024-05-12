@@ -13,10 +13,16 @@ pub enum LamError {
     /// Error when encoding store value to message pack.
     #[error("RMP encode error: {0}")]
     RMPEncode(#[from] rmp_serde::encode::Error),
-    /// Error from `SQLite`.
-    #[error("sqlite error: {0}")]
-    SQLite(#[from] rusqlite::Error),
+    /// Error from `sqlx`.
+    #[error("sqlx error: {0}")]
+    SQLx(#[from] sqlx::Error),
+    /// Error from `sqlx` during migration.
+    #[error("sqlx migration error: {0}")]
+    SQLxMigrate(#[from] sqlx::migrate::MigrateError),
     /// Invalid key length for HMAC
     #[error("invalid length: {0}")]
     InvalidLength(#[from] crypto_common::InvalidLength),
+    /// Timeout
+    #[error("timeout: {0} (limit={1})")]
+    Timeout(u64, u64),
 }

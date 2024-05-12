@@ -1,19 +1,19 @@
 use crate::*;
-use include_dir::{include_dir, Dir};
-use parking_lot::Mutex;
-use rusqlite::Connection;
-use std::{path::Path, sync::Arc};
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
+    SqlitePool,
+};
+use sqlx::{Acquire as _, Row as _};
+use std::{str::FromStr as _, time::Duration};
 use stmt::*;
-use tracing::{debug, trace_span};
+use tracing::trace_span;
 
 mod stmt;
-
-static MIGRATIONS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/migrations");
 
 /// Store that persists data across executions.
 #[derive(Clone)]
 pub struct LamStore {
-    conn: Arc<Mutex<Connection>>,
+    conn: SqlitePool,
 }
 
 impl LamStore {
@@ -26,15 +26,32 @@ impl LamStore {
     /// let path = dir.path().join("db.sqlite3");
     /// let _ = LamStore::new(&path);
     /// ```
-    pub fn new(path: &Path) -> LamResult<Self> {
-        let conn = Connection::open(path)?;
-        conn.pragma_update(None, "busy_timeout", 5000)?;
-        conn.pragma_update(None, "foreign_keys", "OFF")?;
-        conn.pragma_update(None, "journal_mode", "wal")?;
-        conn.pragma_update(None, "synchronous", "NORMAL")?;
-        Ok(Self {
-            conn: Arc::new(Mutex::new(conn)),
-        })
+    pub async fn new(path: &str) -> LamResult<Self> {
+        let options = SqliteConnectOptions::from_str(path)?
+            .busy_timeout(Duration::from_secs(5))
+            .foreign_keys(false)
+            .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Normal);
+        let conn = SqlitePoolOptions::new()
+            .max_connections(1) // TODO remove if not deadlocked
+            .connect_with(options)
+            .await?;
+        Ok(Self { conn })
+    }
+
+    /// Create and migrate a database in memory. For testing purpose only.
+    pub async fn new_in_memory() -> Self {
+        let conn = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("cannot create in-memory database");
+        let store = Self { conn };
+        store
+            .migrate()
+            .await
+            .expect("cannot migrate in-memory database");
+        store
     }
 
     /// Perform migration on the database. Migrations should be idempotent.
@@ -47,21 +64,10 @@ impl LamStore {
     /// let store = LamStore::new(&path).unwrap();
     /// store.migrate().unwrap();
     /// ```
-    pub fn migrate(&self) -> LamResult<()> {
+    pub async fn migrate(&self) -> LamResult<()> {
         let _ = trace_span!("run migrations").entered();
-        let conn = self.conn.lock();
-        for e in MIGRATIONS_DIR.entries() {
-            let path = e.path();
-            debug!(?path, "open migration");
-            let sql = e
-                .as_file()
-                .expect("invalid file")
-                .contents_utf8()
-                .expect("invalid contents");
-            let _ = trace_span!("run migration SQL", ?sql).entered();
-            debug!(?sql, "run migration SQL");
-            conn.execute(sql, ())?;
-        }
+        let migrator = sqlx::migrate!();
+        migrator.run(&self.conn).await?;
         Ok(())
     }
 
@@ -80,13 +86,14 @@ impl LamStore {
     /// store.insert("c", &"hello".into());
     /// assert_eq!(LamValue::from("hello"), store.get("c").unwrap());
     /// ```
-    pub fn insert<S: AsRef<str>>(&self, name: S, value: &LamValue) -> LamResult<()> {
-        let conn = self.conn.lock();
-
+    pub async fn insert<S: AsRef<str>>(&self, name: S, value: &LamValue) -> LamResult<()> {
         let name = name.as_ref();
         let value = rmp_serde::to_vec(&value)?;
-        conn.execute(SQL_UPSERT_STORE, (name, value))?;
-
+        sqlx::query(SQL_UPSERT_STORE)
+            .bind(name)
+            .bind(value)
+            .execute(&self.conn)
+            .await?;
         Ok(())
     }
 
@@ -100,16 +107,17 @@ impl LamStore {
     /// store.insert("a", &true.into());
     /// assert_eq!(LamValue::from(true), store.get("a").unwrap());
     /// ```
-    pub fn get<S: AsRef<str>>(&self, name: S) -> LamResult<LamValue> {
-        let conn = self.conn.lock();
-
+    pub async fn get<S: AsRef<str>>(&self, name: S) -> LamResult<LamValue> {
         let name = name.as_ref();
-        let v: Vec<u8> = match conn.query_row(SQL_GET_VALUE_BY_NAME, (name,), |row| row.get(0)) {
-            Err(_) => return Ok(LamValue::None),
-            Ok(v) => v,
+        let rows = sqlx::query(SQL_GET_VALUE_BY_NAME)
+            .bind(name)
+            .fetch_all(&self.conn)
+            .await?;
+        let value = match rows.first() {
+            Some(r) => r.get::<Vec<u8>, usize>(0),
+            None => rmp_serde::to_vec(&LamValue::None)?,
         };
-
-        Ok(rmp_serde::from_slice::<LamValue>(&v)?)
+        Ok(rmp_serde::from_slice::<LamValue>(&value)?)
     }
 
     /// Insert or update the value into the store.
@@ -153,20 +161,24 @@ impl LamStore {
     /// assert_eq!(LamValue::from(1), x.unwrap());
     /// assert_eq!(LamValue::from(1), store.get("a").unwrap());
     /// ```
-    pub fn update<S: AsRef<str>>(
+    pub async fn update<S: AsRef<str>>(
         &self,
         name: S,
         f: impl FnOnce(&mut LamValue) -> mlua::Result<()>,
         default_v: Option<LamValue>,
     ) -> LamResult<LamValue> {
-        let mut conn = self.conn.lock();
-        let tx = conn.transaction()?;
+        let mut conn = self.conn.acquire().await?;
+        let mut tx = conn.begin().await?;
 
         let name = name.as_ref();
 
-        let v: Vec<u8> = match tx.query_row(SQL_GET_VALUE_BY_NAME, (name,), |row| row.get(0)) {
-            Err(_) => rmp_serde::to_vec(&default_v.unwrap_or(LamValue::None))?,
-            Ok(v) => v,
+        let rows = sqlx::query(SQL_GET_VALUE_BY_NAME)
+            .bind(name)
+            .fetch_all(&mut *tx)
+            .await?;
+        let v: Vec<u8> = match rows.first() {
+            Some(r) => r.get::<Vec<u8>, usize>(0),
+            None => rmp_serde::to_vec(&default_v.unwrap_or(LamValue::None))?,
         };
 
         let mut deserialized = rmp_serde::from_slice(&v)?;
@@ -177,23 +189,14 @@ impl LamStore {
         };
         let serialized = rmp_serde::to_vec(&deserialized)?;
 
-        tx.execute(SQL_UPSERT_STORE, (name, serialized))?;
-        tx.commit()?;
+        sqlx::query(SQL_UPSERT_STORE)
+            .bind(name)
+            .bind(serialized)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
 
         Ok(deserialized)
-    }
-}
-
-impl Default for LamStore {
-    fn default() -> Self {
-        let conn = Connection::open_in_memory().expect("failed to open sqlite in memory");
-        let store = Self {
-            conn: Arc::new(Mutex::new(conn)),
-        };
-        store
-            .migrate()
-            .expect("failed to migrate database in memory");
-        store
     }
 }
 
@@ -201,45 +204,44 @@ impl Default for LamStore {
 mod tests {
     use crate::*;
     use maplit::hashmap;
-    use std::{io::empty, thread};
+    use std::io::empty;
     use test_case::test_case;
 
     #[test_case(vec![true.into(), 1.into(), "hello".into()].into())]
     #[test_case(hashmap! { "b" => true.into() }.into())]
-    fn complicated_types(value: LamValue) {
-        let store = LamStore::default();
-        store.insert("value", &value).unwrap();
-        assert_eq!("table: 0x0", store.get("value").unwrap().to_string());
+    #[tokio::test]
+    async fn complicated_types(value: LamValue) {
+        let store = LamStore::new_in_memory().await;
+        store.insert("value", &value).await.unwrap();
+        assert_eq!("table: 0x0", store.get("value").await.unwrap().to_string());
     }
 
-    #[test]
-    fn concurrency() {
+    #[tokio::test]
+    async fn concurrency() {
         let script = r#"
         return require('@lam'):update('a', function(v)
             return v+1
         end, 0)
         "#;
-
-        let store = LamStore::default();
-
-        let mut threads = vec![];
+        let local = tokio::task::LocalSet::new();
+        let store = LamStore::new_in_memory().await;
         for _ in 0..=1000 {
-            let store = store.clone();
-            threads.push(thread::spawn(move || {
-                let e = EvaluationBuilder::new(script, empty())
-                    .with_store(store)
-                    .build();
-                e.evaluate().unwrap();
-            }));
+            local.spawn_local({
+                let store = store.clone();
+                async move {
+                    let e = EvaluationBuilder::new(script, empty())
+                        .with_store(store)
+                        .build();
+                    e.evaluate_async().await.unwrap();
+                }
+            });
         }
-        for t in threads {
-            let _ = t.join();
-        }
-        assert_eq!(LamValue::from(1001), store.get("a").unwrap());
+        local.await;
+        assert_eq!(LamValue::from(1001), store.get("a").await.unwrap());
     }
 
-    #[test]
-    fn get_set() {
+    #[tokio::test]
+    async fn get_set() {
         let script = r#"
         local m = require('@lam')
         local a = m:get('a')
@@ -247,22 +249,22 @@ mod tests {
         return a
         "#;
 
-        let store = LamStore::default();
-        store.insert("a", &1.23.into()).unwrap();
+        let store = LamStore::new_in_memory().await;
+        store.insert("a", &1.23.into()).await.unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
             .with_store(store.clone())
             .build();
 
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate_async().await.unwrap();
         assert_eq!(LamValue::from(1.23), res.result);
-        assert_eq!(LamValue::from(4.56), store.get("a").unwrap());
+        assert_eq!(LamValue::from(4.56), store.get("a").await.unwrap());
     }
 
-    #[test]
-    fn migrate() {
-        let store = LamStore::default();
-        store.migrate().unwrap(); // duplicated
+    #[tokio::test]
+    async fn migrate() {
+        let store = LamStore::new_in_memory().await;
+        store.migrate().await.unwrap(); // duplicated
     }
 
     #[test_case("nil", LamValue::None)]
@@ -271,14 +273,15 @@ mod tests {
     #[test_case("ni", 1.into())]
     #[test_case("nf", 1.23.into())]
     #[test_case("s", "hello".into())]
-    fn primitive_types(key: &'static str, value: LamValue) {
-        let store = LamStore::default();
-        store.insert(key, &value).unwrap();
-        assert_eq!(value, store.get(key).unwrap());
+    #[tokio::test]
+    async fn primitive_types(key: &'static str, value: LamValue) {
+        let store = LamStore::new_in_memory().await;
+        store.insert(key, &value).await.unwrap();
+        assert_eq!(value, store.get(key).await.unwrap());
     }
 
-    #[test]
-    fn reuse() {
+    #[tokio::test]
+    async fn reuse() {
         let script = r#"
         local m = require('@lam')
         local a = m:get('a')
@@ -286,48 +289,48 @@ mod tests {
         return a
         "#;
 
-        let store = LamStore::default();
-        store.insert("a", &1.into()).unwrap();
+        let store = LamStore::new_in_memory().await;
+        store.insert("a", &1.into()).await.unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
             .with_store(store.clone())
             .build();
 
         {
-            let res = e.evaluate().unwrap();
+            let res = e.evaluate_async().await.unwrap();
             assert_eq!(LamValue::from(1), res.result);
-            assert_eq!(LamValue::from(2), store.get("a").unwrap());
+            assert_eq!(LamValue::from(2), store.get("a").await.unwrap());
         }
 
         {
-            let res = e.evaluate().unwrap();
+            let res = e.evaluate_async().await.unwrap();
             assert_eq!(LamValue::from(2), res.result);
-            assert_eq!(LamValue::from(3), store.get("a").unwrap());
+            assert_eq!(LamValue::from(3), store.get("a").await.unwrap());
         }
     }
 
-    #[test]
-    fn update_without_default_value() {
+    #[tokio::test]
+    async fn update_without_default_value() {
         let script = r#"
         return require('@lam'):update('a', function(v)
             return v+1
         end)
         "#;
 
-        let store = LamStore::default();
-        store.insert("a", &1.into()).unwrap();
+        let store = LamStore::new_in_memory().await;
+        store.insert("a", &1.into()).await.unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
             .with_store(store.clone())
             .build();
 
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate_async().await.unwrap();
         assert_eq!(LamValue::from(2), res.result);
-        assert_eq!(LamValue::from(2), store.get("a").unwrap());
+        assert_eq!(LamValue::from(2), store.get("a").await.unwrap());
     }
 
-    #[test_log::test]
-    fn rollback_when_error() {
+    #[tokio::test]
+    async fn rollback_when_error() {
         let script = r#"
         return require('@lam'):update('a', function(v)
             if v == 1 then
@@ -338,15 +341,15 @@ mod tests {
         end, 0)
         "#;
 
-        let store = LamStore::default();
-        store.insert("a", &1.into()).unwrap();
+        let store = LamStore::new_in_memory().await;
+        store.insert("a", &1.into()).await.unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
             .with_store(store.clone())
             .build();
 
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate_async().await.unwrap();
         assert_eq!(LamValue::from(1), res.result);
-        assert_eq!(LamValue::from(1), store.get("a").unwrap());
+        assert_eq!(LamValue::from(1), store.get("a").await.unwrap());
     }
 }

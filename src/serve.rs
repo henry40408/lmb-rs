@@ -1,6 +1,7 @@
 use crate::StoreOptions;
 use axum::{
     body::Bytes,
+    debug_handler,
     extract::{Path, State},
     http::{HeaderMap, Method, StatusCode},
     response::IntoResponse,
@@ -35,7 +36,7 @@ where
     pub store_options: StoreOptions,
 }
 
-fn do_handle_request<S>(
+async fn do_handle_request<S>(
     state: AppState,
     method: Method,
     path: S,
@@ -86,15 +87,17 @@ where
     }
 }
 
+#[debug_handler]
 async fn index_route(
     State(state): State<AppState>,
     method: Method,
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
-    do_handle_request(state, method, "/", headers, body)
+    do_handle_request(state, method, "/", headers, body).await
 }
 
+#[debug_handler]
 async fn match_all_route(
     State(state): State<AppState>,
     method: Method,
@@ -103,23 +106,23 @@ async fn match_all_route(
     body: Bytes,
 ) -> impl IntoResponse {
     let path = format!("/{path}");
-    do_handle_request(state, method, path, headers, body)
+    do_handle_request(state, method, path, headers, body).await
 }
 
-pub fn init_route<S, T>(opts: &ServeOptions<S, T>) -> anyhow::Result<Router>
+pub async fn init_route<S, T>(opts: &ServeOptions<S, T>) -> anyhow::Result<Router>
 where
     S: AsRef<str>,
     T: std::fmt::Display + tokio::net::ToSocketAddrs,
 {
     let store = if let Some(path) = &opts.store_options.store_path {
-        let store = LamStore::new(path.as_path())?;
+        let store = LamStore::new(path.as_path().to_string_lossy().as_ref()).await?;
         if opts.store_options.run_migrations {
-            store.migrate()?;
+            store.migrate().await?;
         }
         info!(?path, "open store");
         store
     } else {
-        let store = LamStore::default();
+        let store = LamStore::new_in_memory().await;
         warn!("no store path is specified, an in-memory store will be used and values will be lost when process ends");
         store
     };
@@ -148,7 +151,7 @@ where
     T: std::fmt::Display + tokio::net::ToSocketAddrs,
 {
     let bind = &opts.bind;
-    let app = init_route(opts)?;
+    let app = init_route(opts).await?;
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     info!(%bind, "serving lua script");
     axum::serve(listener, app).await?;
@@ -178,7 +181,7 @@ mod tests {
             store_options,
             ..Default::default()
         };
-        let router = init_route(&opts).unwrap();
+        let router = init_route(&opts).await.unwrap();
         let server = TestServer::new(router.into_make_service()).unwrap();
         let res = server.post("/").await;
         assert_eq!(200, res.status_code());
@@ -203,7 +206,7 @@ mod tests {
             store_options,
             ..Default::default()
         };
-        let router = init_route(&opts).unwrap();
+        let router = init_route(&opts).await.unwrap();
         let server = TestServer::new(router.into_make_service()).unwrap();
         let res = server.post("/foo/bar/baz").json(&json!({"a":1})).await;
         assert_eq!(200, res.status_code());

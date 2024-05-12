@@ -293,8 +293,8 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Store(c) => match c {
             StoreCommands::Migrate { store_path } => {
-                let store = LamStore::new(&store_path)?;
-                store.migrate()?;
+                let store = LamStore::new(store_path.to_string_lossy().as_ref()).await?;
+                store.migrate().await?;
             }
         },
     }

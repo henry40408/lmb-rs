@@ -172,27 +172,31 @@ where
         .map_or(LamValue::None, LamValue::from))
 }
 
-fn lua_lam_get<'lua, R>(_: &'lua Lua, lam: &LuaLam<R>, key: String) -> LuaResult<LamValue>
+async fn lua_lam_get<'lua, R>(_: &'lua Lua, lam: &LuaLam<R>, key: String) -> LuaResult<LamValue>
 where
     R: BufRead + 'lua,
 {
     let Some(store) = &lam.store else {
         return Ok(LamValue::None);
     };
-    if let Ok(v) = store.get(key.as_str()) {
+    if let Ok(v) = store.get(key.as_str()).await {
         return Ok(v.clone());
     }
     Ok(LamValue::None)
 }
 
-fn lua_lam_set<R>(_: &Lua, lam: &LuaLam<R>, (key, value): (String, LamValue)) -> LuaResult<LamValue>
+async fn lua_lam_set<R>(
+    _: &Lua,
+    lam: &LuaLam<R>,
+    (key, value): (String, LamValue),
+) -> LuaResult<LamValue>
 where
     R: BufRead,
 {
     let Some(store) = &lam.store else {
         return Ok(LamValue::None);
     };
-    match store.insert(key, &value) {
+    match store.insert(key, &value).await {
         Ok(_) => Ok(value),
         Err(err) => {
             error!(?err, "failed to insert value");
@@ -201,7 +205,7 @@ where
     }
 }
 
-fn lua_lam_update<'lua, R>(
+async fn lua_lam_update<'lua, R>(
     vm: &'lua Lua,
     lam: &LuaLam<R>,
     (key, f, default_v): (String, LuaFunction<'lua>, Option<LamValue>),
@@ -220,7 +224,7 @@ where
         return Ok(LamValue::None);
     };
 
-    store.update(key, update_fn, default_v).into_lua_err()
+    store.update(key, update_fn, default_v).await.into_lua_err()
 }
 
 impl<R> LuaUserData for LuaLam<R>
@@ -241,11 +245,11 @@ where
     }
 
     fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_method("get", lua_lam_get);
+        methods.add_async_method("get", lua_lam_get);
         methods.add_method_mut("read", lua_lam_read);
         methods.add_method_mut("read_unicode", lua_lam_read_unicode);
-        methods.add_method("set", lua_lam_set);
-        methods.add_method("update", lua_lam_update);
+        methods.add_async_method("set", lua_lam_set);
+        methods.add_async_method("update", lua_lam_update);
     }
 }
 
@@ -366,8 +370,8 @@ mod tests {
         assert_eq!(LamValue::from(expected), res.result);
     }
 
-    #[test]
-    fn sha256() {
+    #[tokio::test]
+    async fn sha256() {
         let input = "lam";
         let script = r#"
         local m = require('@lam');
@@ -379,8 +383,8 @@ mod tests {
         assert_eq!(LamValue::from(expected), res.result);
     }
 
-    #[test]
-    fn hmac_sha256() {
+    #[tokio::test]
+    async fn hmac_sha256() {
         let input = "lam";
         let script = r#"
         local m = require('@lam');
