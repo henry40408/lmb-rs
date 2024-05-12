@@ -3,13 +3,12 @@ use include_dir::{include_dir, Dir};
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use std::{path::Path, sync::Arc};
+use stmt::*;
 use tracing::{debug, trace_span};
 
-static MIGRATIONS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/migrations");
+mod stmt;
 
-const FIND_SQL: &str = r#"SELECT value FROM store WHERE name = ?1"#;
-const UPDATE_SQL: &str = r#"INSERT INTO store (name, value) VALUES (?1, ?2)
-    ON CONFLICT(name) DO UPDATE SET value = ?2"#;
+static MIGRATIONS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/migrations");
 
 /// Store that persists data across executions.
 #[derive(Clone)]
@@ -86,7 +85,7 @@ impl LamStore {
 
         let name = name.as_ref();
         let value = rmp_serde::to_vec(&value)?;
-        conn.execute(UPDATE_SQL, (name, value))?;
+        conn.execute(SQL_UPSERT_STORE, (name, value))?;
 
         Ok(())
     }
@@ -105,7 +104,7 @@ impl LamStore {
         let conn = self.conn.lock();
 
         let name = name.as_ref();
-        let v: Vec<u8> = match conn.query_row(FIND_SQL, (name,), |row| row.get(0)) {
+        let v: Vec<u8> = match conn.query_row(SQL_GET_VALUE_BY_NAME, (name,), |row| row.get(0)) {
             Err(_) => return Ok(LamValue::None),
             Ok(v) => v,
         };
@@ -165,7 +164,7 @@ impl LamStore {
 
         let name = name.as_ref();
 
-        let v: Vec<u8> = match tx.query_row(FIND_SQL, (name,), |row| row.get(0)) {
+        let v: Vec<u8> = match tx.query_row(SQL_GET_VALUE_BY_NAME, (name,), |row| row.get(0)) {
             Err(_) => rmp_serde::to_vec(&default_v.unwrap_or(LamValue::None))?,
             Ok(v) => v,
         };
@@ -178,7 +177,7 @@ impl LamStore {
         };
         let serialized = rmp_serde::to_vec(&deserialized)?;
 
-        tx.execute(UPDATE_SQL, (name, serialized))?;
+        tx.execute(SQL_UPSERT_STORE, (name, serialized))?;
         tx.commit()?;
 
         Ok(deserialized)
@@ -309,9 +308,11 @@ mod tests {
 
     #[test]
     fn update_without_default_value() {
-        let script = r#"return require('@lam'):update('a', function(v)
+        let script = r#"
+        return require('@lam'):update('a', function(v)
             return v+1
-        end)"#;
+        end)
+        "#;
 
         let store = LamStore::default();
         store.insert("a", &1.into()).unwrap();
@@ -327,13 +328,15 @@ mod tests {
 
     #[test_log::test]
     fn rollback_when_error() {
-        let script = r#"return require('@lam'):update('a', function(v)
+        let script = r#"
+        return require('@lam'):update('a', function(v)
             if v == 1 then
                 error('something went wrong')
             else
                 return v+1
             end
-        end, 0)"#;
+        end, 0)
+        "#;
 
         let store = LamStore::default();
         store.insert("a", &1.into()).unwrap();

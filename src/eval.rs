@@ -315,7 +315,7 @@ mod tests {
     #[test]
     fn reevaluate() {
         let input = "foo\nbar";
-        let script = r#"return require('@lam'):read('*l')"#;
+        let script = "return require('@lam'):read('*l')";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
 
         let res = e.evaluate().unwrap();
@@ -349,7 +349,8 @@ mod tests {
 
     #[test]
     fn replace_input() {
-        let mut e = EvaluationBuilder::new("return require('@lam'):read('*a')", &b"0"[..]).build();
+        let script = "return require('@lam'):read('*a')";
+        let mut e = EvaluationBuilder::new(script, &b"0"[..]).build();
 
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::from("0"), res.result);
