@@ -4,14 +4,16 @@ use std::io::BufRead;
 use tracing::field;
 use tracing::{error, trace_span};
 
+use crypto::*;
 use json::*;
 
+mod crypto;
 mod json;
 
 // ref: https://www.lua.org/pil/8.1.html
 const K_LOADED: &str = "_LOADED";
 
-/// Interface of between Lua and Rust.
+/// Interface of Lam between Lua and Rust.
 pub struct LuaLam<R>
 where
     R: BufRead,
@@ -65,6 +67,7 @@ where
     ) -> LamResult<()> {
         let loaded = vm.named_registry_value::<LuaTable<'_>>(K_LOADED)?;
         loaded.set("@lam", Self::new(input, store, state))?;
+        loaded.set("@lam/crypto", LuaLamCrypto {})?;
         loaded.set("@lam/json", LuaLamJSON {})?;
         vm.set_named_registry_value(K_LOADED, loaded)?;
         Ok(())
@@ -263,7 +266,7 @@ mod tests {
         end
         return t
         "#;
-        let e = EvalBuilder::new(script, input).build();
+        let e = EvaluationBuilder::new(script, input).build();
         let res = e.evaluate().unwrap();
         assert_eq!(
             LamValue::from(vec![1.into(), 2.into(), 3.into()]),
@@ -276,7 +279,7 @@ mod tests {
     #[test_case(r#"assert(not require('@lam'):read('*n'))"#)]
     #[test_case(r#"assert(not require('@lam'):read(1))"#)]
     fn read_empty(script: &'static str) {
-        let e = EvalBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build();
         let _ = e.evaluate().expect(script);
     }
 
@@ -288,7 +291,7 @@ mod tests {
     #[test_case("1\n", 1.into())]
     fn read_number(input: &'static str, expected: LamValue) {
         let script = r#"return require('@lam'):read('*n')"#;
-        let e = EvalBuilder::new(script, input.as_bytes()).build();
+        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().expect(input);
         assert_eq!(expected, res.result);
     }
@@ -299,7 +302,7 @@ mod tests {
     #[test_case(r#"return require('@lam'):read(4)"#, "foo\n".into())]
     fn read_string(script: &str, expected: LamValue) {
         let input = "foo\nbar";
-        let e = EvalBuilder::new(script, input.as_bytes()).build();
+        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().expect(script);
         assert_eq!(expected, res.result);
     }
@@ -310,7 +313,7 @@ mod tests {
     fn read_unicode_cjk_characters(n: usize, expected: &str) {
         let script = format!("return require('@lam'):read_unicode({n})");
         let input = "你好";
-        let e = EvalBuilder::new(script, input.as_bytes()).build();
+        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::from(expected), res.result);
     }
@@ -320,7 +323,7 @@ mod tests {
         let input = "你好";
         let script = "return require('@lam'):read_unicode(1)";
 
-        let e = EvalBuilder::new(script, input.as_bytes()).build();
+        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
 
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::from("你"), res.result);
@@ -337,7 +340,7 @@ mod tests {
         // ref: https://www.php.net/manual/en/reference.pcre.pattern.modifiers.php#54805
         let input: &[u8] = &[0xf0, 0x28, 0x8c, 0xbc];
         let script = r#"return require('@lam'):read_unicode(1)"#;
-        let e = EvalBuilder::new(script, input).build();
+        let e = EvaluationBuilder::new(script, input).build();
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::None, res.result);
     }
@@ -347,7 +350,7 @@ mod tests {
         // mix CJK and non-CJK characters
         let input = r#"{"key":"你好"}"#;
         let script = r#"return require('@lam'):read_unicode(12)"#;
-        let e = EvalBuilder::new(script, input.as_bytes()).build();
+        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::from(input), res.result);
     }
@@ -358,8 +361,34 @@ mod tests {
     fn read_unicode_non_cjk_characters(n: usize, expected: &str) {
         let input = "ab";
         let script = format!("return require('@lam'):read_unicode({n})");
-        let e = EvalBuilder::new(script, input.as_bytes()).build();
+        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
+        assert_eq!(LamValue::from(expected), res.result);
+    }
+
+    #[test]
+    fn sha256() {
+        let input = "lam";
+        let script = r#"
+        local m = require('@lam');
+        return require('@lam/crypto'):sha256(m:read('*a'))
+        "#;
+        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
+        let res = e.evaluate().unwrap();
+        let expected = "7f1b55b860590406f84f9394f4e73356902dad022a8cd6f43221086d3c70699e";
+        assert_eq!(LamValue::from(expected), res.result);
+    }
+
+    #[test]
+    fn hmac_sha256() {
+        let input = "lam";
+        let script = r#"
+        local m = require('@lam');
+        return require('@lam/crypto'):hmac("sha256",m:read('*a'),"secret")
+        "#;
+        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
+        let res = e.evaluate().unwrap();
+        let expected = "8ef120dc5b07ab464dae787f89077001dbf720132277132e7db9af154f2221a4";
         assert_eq!(LamValue::from(expected), res.result);
     }
 }

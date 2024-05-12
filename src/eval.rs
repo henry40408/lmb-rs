@@ -14,7 +14,7 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Evaluation builder.
 #[derive(Default)]
-pub struct EvalBuilder<R>
+pub struct EvaluationBuilder<R>
 where
     for<'lua> R: Read + 'lua,
 {
@@ -30,7 +30,7 @@ where
     pub timeout: Option<Duration>,
 }
 
-impl<R> EvalBuilder<R>
+impl<R> EvaluationBuilder<R>
 where
     for<'lua> R: Read + 'lua,
 {
@@ -39,7 +39,7 @@ where
     /// ```rust
     /// # use std::io::empty;
     /// use lam::*;
-    /// let _ = EvalBuilder::new("", empty());
+    /// let _ = EvaluationBuilder::new("", empty());
     /// ```
     pub fn new<S: AsRef<str>>(script: S, input: R) -> Self {
         Self {
@@ -57,7 +57,7 @@ where
     /// ```rust
     /// # use std::io::empty;
     /// use lam::*;
-    /// let _ = EvalBuilder::new("", empty()).with_default_store();
+    /// let _ = EvaluationBuilder::new("", empty()).with_default_store();
     /// ```
     pub fn with_default_store(mut self) -> Self {
         self.store = Some(LamStore::default());
@@ -69,7 +69,7 @@ where
     /// ```rust
     /// # use std::io::empty;
     /// use lam::*;
-    /// let _ = EvalBuilder::new("", empty()).with_name("script");
+    /// let _ = EvaluationBuilder::new("", empty()).with_name("script");
     /// ```
     pub fn with_name<S: AsRef<str>>(mut self, name: S) -> Self {
         self.name = Some(name.as_ref().to_string());
@@ -82,7 +82,7 @@ where
     /// # use std::{io::empty, time::Duration};
     /// use lam::*;
     /// let timeout = Duration::from_secs(30);
-    /// let _ = EvalBuilder::new("", empty()).with_timeout(Some(timeout));
+    /// let _ = EvaluationBuilder::new("", empty()).with_timeout(Some(timeout));
     /// ```
     pub fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
         self.timeout = timeout;
@@ -95,7 +95,7 @@ where
     /// # use std::io::empty;
     /// use lam::*;
     /// let store = LamStore::default();
-    /// let _ = EvalBuilder::new("", empty()).with_store(store);
+    /// let _ = EvaluationBuilder::new("", empty()).with_store(store);
     /// ```
     pub fn with_store(mut self, store: LamStore) -> Self {
         self.store = Some(store);
@@ -112,7 +112,7 @@ where
     /// ```rust
     /// # use std::io::empty;
     /// use lam::*;
-    /// let e = EvalBuilder::new("return true", empty()).build();
+    /// let e = EvaluationBuilder::new("return true", empty()).build();
     /// let res = e.evaluate().unwrap();
     /// assert_eq!(LamValue::from(true), res.result);
     /// ```
@@ -137,7 +137,7 @@ where
 }
 
 /// Evaluation result.
-pub struct EvalResult {
+pub struct EvaluationResult {
     /// Execution duration.
     pub duration: Duration,
     /// Max memory usage in bytes.
@@ -146,7 +146,7 @@ pub struct EvalResult {
     pub result: LamValue,
 }
 
-/// A container that holds the compiled function for execution.
+/// A container that holds the compiled function and input for evaluation.
 pub struct Evaluation<R>
 where
     for<'lua> R: Read + 'lua,
@@ -163,16 +163,16 @@ impl<R> Evaluation<R>
 where
     for<'lua> R: BufRead + 'lua,
 {
-    /// Evaluate the function and return a [`EvalResult`] as result.
+    /// Evaluate the function and return a [`EvaluationResult`] as result.
     ///
     /// ```rust
     /// # use std::io::empty;
     /// use lam::*;
-    /// let e = EvalBuilder::new("return 1+1", empty()).build();
+    /// let e = EvaluationBuilder::new("return 1+1", empty()).build();
     /// let res = e.evaluate().unwrap();
     /// assert_eq!(LamValue::from(2), res.result);
     /// ```
-    pub fn evaluate(&self) -> LamResult<EvalResult> {
+    pub fn evaluate(&self) -> LamResult<EvaluationResult> {
         self.do_evaluate(None)
     }
 
@@ -181,13 +181,13 @@ where
     /// ```rust
     /// # use std::io::empty;
     /// use lam::*;
-    /// let e = EvalBuilder::new("return 1+1", empty()).build();
+    /// let e = EvaluationBuilder::new("return 1+1", empty()).build();
     /// let state = LamState::new();
     /// state.insert(LamStateKey::from("bool"), true.into());
     /// let res = e.evaluate_with_state(state).unwrap();
     /// assert_eq!(LamValue::from(2), res.result);
     /// ```
-    pub fn evaluate_with_state(&self, state: LamState) -> LamResult<EvalResult> {
+    pub fn evaluate_with_state(&self, state: LamState) -> LamResult<EvaluationResult> {
         self.do_evaluate(Some(state))
     }
 
@@ -198,7 +198,7 @@ where
     /// use lam::*;
     ///
     /// let script = "return require('@lam'):read('*a')";
-    /// let mut e = EvalBuilder::new(script, Cursor::new("1")).build();
+    /// let mut e = EvaluationBuilder::new(script, Cursor::new("1")).build();
     ///
     /// let r = e.evaluate().unwrap();
     /// assert_eq!(LamValue::from("1"), r.result);
@@ -212,7 +212,7 @@ where
         self.input = Arc::new(Mutex::new(input));
     }
 
-    fn do_evaluate(&self, state: Option<LamState>) -> LamResult<EvalResult> {
+    fn do_evaluate(&self, state: Option<LamState>) -> LamResult<EvaluationResult> {
         let vm = &self.vm;
         LuaLam::register(vm, self.input.clone(), self.store.clone(), state)?;
 
@@ -245,7 +245,7 @@ where
             if unresumable || timed_out {
                 let max_memory = max_memory.load(Ordering::SeqCst);
                 debug!(?duration, name, ?max_memory, "evaluated");
-                return Ok(EvalResult {
+                return Ok(EvaluationResult {
                     duration,
                     max_memory,
                     result,
@@ -265,7 +265,7 @@ mod tests {
     #[test_case("./lua-examples/error.lua")]
     fn error_in_script(path: &str) {
         let script = fs::read_to_string(path).unwrap();
-        let e = EvalBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build();
         assert!(e.evaluate().is_err());
     }
 
@@ -282,7 +282,7 @@ mod tests {
     #[test_case("read-unicode.lua", "你好，世界", "你好".into())]
     fn evaluate_examples(filename: &str, input: &'static str, expected: LamValue) {
         let script = fs::read_to_string(format!("./lua-examples/{filename}")).unwrap();
-        let e = EvalBuilder::new(&script, input.as_bytes())
+        let e = EvaluationBuilder::new(&script, input.as_bytes())
             .with_default_store()
             .build();
         let res = e.evaluate().expect(&script);
@@ -293,7 +293,7 @@ mod tests {
     fn evaluate_infinite_loop() {
         let timeout = Duration::from_secs(1);
 
-        let e = EvalBuilder::new(r#"while true do end"#, empty())
+        let e = EvaluationBuilder::new(r#"while true do end"#, empty())
             .with_timeout(Some(timeout))
             .build();
         let res = e.evaluate().unwrap();
@@ -307,7 +307,7 @@ mod tests {
     #[test_case("return 'a'..1", "a1")]
     #[test_case("return require('@lam')._VERSION", env!("APP_VERSION"))]
     fn evaluate_scripts(script: &str, expected: &str) {
-        let e = EvalBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().expect(script);
         assert_eq!(expected, res.result.to_string());
     }
@@ -316,7 +316,7 @@ mod tests {
     fn reevaluate() {
         let input = "foo\nbar";
         let script = r#"return require('@lam'):read('*l')"#;
-        let e = EvalBuilder::new(script, input.as_bytes()).build();
+        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
 
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::from("foo"), res.result);
@@ -335,7 +335,7 @@ mod tests {
     #[test_case(r#"return {a=true,b=1.23,c="hello"}"#, "table: 0x0")]
     #[test_case(r#"return {true,1.23,"hello"}"#, "table: 0x0")]
     fn return_to_string(script: &str, expected: &str) {
-        let e = EvalBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().expect(script);
         assert_eq!(expected, res.result.to_string());
     }
@@ -343,13 +343,13 @@ mod tests {
     #[test]
     fn syntax_error() {
         let script = "ret true"; // code with syntax error
-        let e = EvalBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build();
         assert!(e.evaluate().is_err());
     }
 
     #[test]
     fn replace_input() {
-        let mut e = EvalBuilder::new("return require('@lam'):read('*a')", &b"0"[..]).build();
+        let mut e = EvaluationBuilder::new("return require('@lam'):read('*a')", &b"0"[..]).build();
 
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::from("0"), res.result);

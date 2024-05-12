@@ -1,7 +1,7 @@
 use crate::*;
 use mlua::prelude::*;
 
-/// JSON module for Lua
+/// JSON module
 pub struct LuaLamJSON {}
 
 impl LuaUserData for LuaLamJSON {
@@ -17,7 +17,7 @@ impl LuaUserData for LuaLamJSON {
 
 #[cfg(test)]
 mod tests {
-    use crate::{EvalBuilder, LamValue};
+    use crate::{EvaluationBuilder, LamValue};
     use serde_json::{json, Value};
     use std::io::empty;
 
@@ -27,7 +27,7 @@ mod tests {
         local m = require('@lam/json');
         return m:decode('{"bool":true,"num":2,"str":"hello"}')
         "#;
-        let e = EvalBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
         let expected: LamValue = maplit::hashmap! {
             "bool" => true.into(),
@@ -44,7 +44,7 @@ mod tests {
         local m = require('@lam/json');
         return m:encode({ bool = true, num = 2, str = 'hello' })
         "#;
-        let e = EvalBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
         let value: Value = serde_json::from_str(&res.result.to_string()).unwrap();
         assert_eq!(json!({"bool":true,"num":2,"str":"hello"}), value);
@@ -57,7 +57,7 @@ mod tests {
         local m = require('@lam/json');
         return m:encode(m:decode('{"a":[{}]}'))
         "#;
-        let e = EvalBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
         let value: Value = serde_json::from_str(&res.result.to_string()).unwrap();
         assert_eq!(json!({"a":[{}]}), value);

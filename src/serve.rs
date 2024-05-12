@@ -45,7 +45,7 @@ fn do_handle_request<S>(
 where
     S: AsRef<str>,
 {
-    let e = EvalBuilder::new(state.script, Cursor::new(body))
+    let e = EvaluationBuilder::new(state.script, Cursor::new(body))
         .with_name(state.name)
         .with_timeout(state.timeout)
         .with_store(state.store.clone())
