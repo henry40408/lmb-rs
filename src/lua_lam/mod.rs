@@ -274,10 +274,10 @@ mod tests {
         );
     }
 
-    #[test_case(r#"assert(not require('@lam'):read('*a'))"#)]
-    #[test_case(r#"assert(not require('@lam'):read('*l'))"#)]
-    #[test_case(r#"assert(not require('@lam'):read('*n'))"#)]
-    #[test_case(r#"assert(not require('@lam'):read(1))"#)]
+    #[test_case("assert(not require('@lam'):read('*a'))")]
+    #[test_case("assert(not require('@lam'):read('*l'))")]
+    #[test_case("assert(not require('@lam'):read('*n'))")]
+    #[test_case("assert(not require('@lam'):read(1))")]
     fn read_empty(script: &'static str) {
         let e = EvaluationBuilder::new(script, empty()).build();
         let _ = e.evaluate().expect(script);
@@ -290,16 +290,16 @@ mod tests {
     #[test_case("x", LamValue::None)]
     #[test_case("1\n", 1.into())]
     fn read_number(input: &'static str, expected: LamValue) {
-        let script = r#"return require('@lam'):read('*n')"#;
+        let script = "return require('@lam'):read('*n')";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().expect(input);
         assert_eq!(expected, res.result);
     }
 
-    #[test_case(r#"return require('@lam'):read('*a')"#, "foo\nbar".into())]
-    #[test_case(r#"return require('@lam'):read('*l')"#, "foo".into())]
-    #[test_case(r#"return require('@lam'):read(1)"#, "f".into())]
-    #[test_case(r#"return require('@lam'):read(4)"#, "foo\n".into())]
+    #[test_case("return require('@lam'):read('*a')", "foo\nbar".into())]
+    #[test_case("return require('@lam'):read('*l')", "foo".into())]
+    #[test_case("return require('@lam'):read(1)", "f".into())]
+    #[test_case("return require('@lam'):read(4)", "foo\n".into())]
     fn read_string(script: &str, expected: LamValue) {
         let input = "foo\nbar";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
@@ -339,7 +339,7 @@ mod tests {
     fn read_unicode_invalid_sequence() {
         // ref: https://www.php.net/manual/en/reference.pcre.pattern.modifiers.php#54805
         let input: &[u8] = &[0xf0, 0x28, 0x8c, 0xbc];
-        let script = r#"return require('@lam'):read_unicode(1)"#;
+        let script = "return require('@lam'):read_unicode(1)";
         let e = EvaluationBuilder::new(script, input).build();
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::None, res.result);
@@ -349,7 +349,7 @@ mod tests {
     fn read_unicode_mixed_characters() {
         // mix CJK and non-CJK characters
         let input = r#"{"key":"你好"}"#;
-        let script = r#"return require('@lam'):read_unicode(12)"#;
+        let script = "return require('@lam'):read_unicode(12)";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::from(input), res.result);
