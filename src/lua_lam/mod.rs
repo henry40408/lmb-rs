@@ -80,51 +80,53 @@ where
 fn lua_lam_read<'lua, R>(
     vm: &'lua Lua,
     lam: &mut LuaLam<R>,
-    f: LamValue,
+    f: LuaValue<'lua>,
 ) -> LuaResult<LuaValue<'lua>>
 where
     R: BufRead,
 {
-    if let LamValue::String(f) = &f {
-        if f == "*a" || f == "*all" {
-            // accepts *a or *all
-            let mut buf = Vec::new();
-            let count = lam.input.lock().read_to_end(&mut buf).into_lua_err()?;
-            if count == 0 {
-                return Ok(LuaValue::Nil);
+    if let Some(f) = f.as_str() {
+        match f {
+            "*a" | "*all" => {
+                // accepts *a or *all
+                let mut buf = Vec::new();
+                let count = lam.input.lock().read_to_end(&mut buf)?;
+                if count == 0 {
+                    return Ok(LuaNil);
+                }
+                return String::from_utf8(buf).into_lua_err()?.into_lua(vm);
             }
-            return String::from_utf8(buf).into_lua_err()?.into_lua(vm);
-        }
-        if f == "*l" || f == "*line" {
-            // accepts *l or *line
-            let mut buf = String::new();
-            let count = lam.input.lock().read_line(&mut buf).into_lua_err()?;
-            if count == 0 {
-                return Ok(LuaNil);
+            "*l" | "*line" => {
+                // accepts *l or *line
+                let mut buf = String::new();
+                let count = lam.input.lock().read_line(&mut buf)?;
+                if count == 0 {
+                    return Ok(LuaNil);
+                }
+                // in Lua, *l doesn't include newline character
+                return buf.trim().into_lua(vm);
             }
-            // in Lua, *l doesn't include newline character
-            return buf.trim().into_lua(vm);
-        }
-        if f == "*n" || f == "*number" {
-            // accepts *n or *number
-            let mut buf = String::new();
-            let count = lam.input.lock().read_to_string(&mut buf).into_lua_err()?;
-            if count == 0 {
-                return Ok(LuaNil);
+            "*n" | "*number" => {
+                // accepts *n or *number
+                let mut buf = String::new();
+                let count = lam.input.lock().read_to_string(&mut buf)?;
+                if count == 0 {
+                    return Ok(LuaNil);
+                }
+                return Ok(buf
+                    .trim()
+                    .parse::<f64>()
+                    .map(LuaValue::Number)
+                    .unwrap_or(LuaNil));
             }
-            return Ok(buf
-                .trim()
-                .parse::<f64>()
-                .map(LuaValue::Number)
-                .unwrap_or(LuaNil));
+            _ => {}
         }
     }
 
-    if let LamValue::Integer(i) = &f {
-        let i = *i as usize;
+    if let Some(i) = f.as_usize() {
         let s = trace_span!("read bytes from input", count = field::Empty).entered();
         let mut buf = vec![0; i];
-        let count = lam.input.lock().read(&mut buf).into_lua_err()?;
+        let count = lam.input.lock().read(&mut buf)?;
         s.record("count", count);
         if count == 0 {
             return Ok(LuaNil);
@@ -135,7 +137,7 @@ where
         return Ok(mlua::Value::String(vm.create_string(&buf)?));
     }
 
-    let f = f.to_string();
+    let f = f.to_string()?;
     Err(LuaError::runtime(format!("unexpected format {f}")))
 }
 
@@ -143,15 +145,11 @@ fn lua_lam_read_unicode<R>(_: &Lua, lam: &mut LuaLam<R>, n: Option<usize>) -> Lu
 where
     R: BufRead,
 {
-    let mut buf = vec![];
     let mut remaining = n.unwrap_or(0);
+    let mut buf = vec![];
     let mut single = 0;
     while remaining > 0 {
-        let count = lam
-            .input
-            .lock()
-            .read(std::slice::from_mut(&mut single))
-            .into_lua_err()?;
+        let count = lam.input.lock().read(std::slice::from_mut(&mut single))?;
         if count == 0 {
             break;
         }
@@ -202,7 +200,7 @@ where
 {
     let update_fn = |old: &mut LamValue| -> LuaResult<()> {
         let old_v = vm.to_value(old)?;
-        let new = f.call::<_, LamValue>(old_v).into_lua_err()?;
+        let new = f.call::<_, LamValue>(old_v)?;
         *old = new;
         Ok(())
     };
