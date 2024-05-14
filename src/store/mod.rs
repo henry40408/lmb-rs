@@ -85,7 +85,9 @@ impl LamStore {
 
         let name = name.as_ref();
         let value = rmp_serde::to_vec(&value)?;
-        conn.execute(SQL_UPSERT_STORE, (name, value))?;
+
+        let mut cached_stmt = conn.prepare_cached(SQL_UPSERT_STORE)?;
+        cached_stmt.execute((name, value))?;
 
         Ok(())
     }
@@ -104,7 +106,9 @@ impl LamStore {
         let conn = self.conn.lock();
 
         let name = name.as_ref();
-        let v: Vec<u8> = match conn.query_row(SQL_GET_VALUE_BY_NAME, (name,), |row| row.get(0)) {
+
+        let mut cached_stmt = conn.prepare_cached(SQL_GET_VALUE_BY_NAME)?;
+        let v: Vec<u8> = match cached_stmt.query_row((name,), |row| row.get(0)) {
             Err(_) => return Ok(LamValue::None),
             Ok(v) => v,
         };
@@ -164,9 +168,12 @@ impl LamStore {
 
         let name = name.as_ref();
 
-        let v: Vec<u8> = match tx.query_row(SQL_GET_VALUE_BY_NAME, (name,), |row| row.get(0)) {
-            Err(_) => rmp_serde::to_vec(&default_v.unwrap_or(LamValue::None))?,
-            Ok(v) => v,
+        let v: Vec<u8> = {
+            let mut cached_stmt = tx.prepare_cached(SQL_GET_VALUE_BY_NAME)?;
+            match cached_stmt.query_row((name,), |row| row.get(0)) {
+                Err(_) => rmp_serde::to_vec(&default_v.unwrap_or(LamValue::None))?,
+                Ok(v) => v,
+            }
         };
 
         let mut deserialized = rmp_serde::from_slice(&v)?;
@@ -177,7 +184,10 @@ impl LamStore {
         };
         let serialized = rmp_serde::to_vec(&deserialized)?;
 
-        tx.execute(SQL_UPSERT_STORE, (name, serialized))?;
+        {
+            let mut cached_stmt = tx.prepare_cached(SQL_UPSERT_STORE)?;
+            cached_stmt.execute((name, serialized))?;
+        }
         tx.commit()?;
 
         Ok(deserialized)
