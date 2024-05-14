@@ -1,7 +1,7 @@
 use crate::*;
 use mlua::{prelude::*, Compiler};
 use std::{
-    io::{BufRead, Read},
+    io::{BufReader, Read},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -32,7 +32,7 @@ where
 
 impl<R> EvaluationBuilder<R>
 where
-    for<'lua> R: Read + 'lua,
+    for<'lua> R: Read + 'lua + Send,
 {
     /// Create a builder.
     ///
@@ -127,7 +127,7 @@ where
         };
         Evaluation {
             compiled,
-            input: Arc::new(Mutex::new(self.input)),
+            input: Arc::new(Mutex::new(BufReader::new(self.input))),
             name: self.name.unwrap_or_default(),
             store: self.store,
             timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
@@ -149,10 +149,10 @@ pub struct EvaluationResult {
 /// A container that holds the compiled function and input for evaluation.
 pub struct Evaluation<R>
 where
-    for<'lua> R: Read + 'lua,
+    for<'lua> R: Read + 'lua + Send,
 {
     compiled: Vec<u8>,
-    input: LamInput<R>,
+    input: LamInput<BufReader<R>>,
     name: String,
     store: Option<LamStore>,
     timeout: Duration,
@@ -161,7 +161,7 @@ where
 
 impl<R> Evaluation<R>
 where
-    for<'lua> R: BufRead + 'lua,
+    for<'lua> R: Read + 'lua + Send,
 {
     /// Evaluate the function and return a [`EvaluationResult`] as result.
     ///
@@ -194,7 +194,7 @@ where
     /// Replace the function input after the container is built.
     ///
     /// ```rust
-    /// # use std::io::{Cursor, empty};
+    /// # use std::io::{BufReader, Cursor, empty};
     /// use lam::*;
     ///
     /// let script = "return require('@lam'):read('*a')";
@@ -209,7 +209,7 @@ where
     /// assert_eq!(LamValue::from("2"), r.result);
     /// ```
     pub fn set_input(&mut self, input: R) {
-        self.input = Arc::new(Mutex::new(input));
+        self.input = Arc::new(Mutex::new(BufReader::new(input)));
     }
 
     fn do_evaluate(&self, state: Option<LamState>) -> LamResult<EvaluationResult> {
