@@ -46,6 +46,18 @@ fn lam_default_store(bencher: &mut Bencher) {
     bencher.iter(|| e.evaluate().unwrap());
 }
 
+fn lam_update(bencher: &mut Bencher) {
+    let script = r#"
+    return require('@lam'):update('a', function(v)
+        return v+1
+    end, 0)
+    "#;
+    let e = EvaluationBuilder::new(script, empty())
+        .with_default_store()
+        .build();
+    bencher.iter(|| e.evaluate().unwrap());
+}
+
 /// read
 
 fn lam_read_all(bencher: &mut Bencher) {
@@ -111,5 +123,5 @@ benchmark_group!(
     lam_read_unicode,
     read_from_buf_reader,
 );
-benchmark_group!(store, lam_default_store, lam_no_store);
+benchmark_group!(store, lam_default_store, lam_no_store, lam_update);
 benchmark_main!(evaluation, read, store);
