@@ -25,7 +25,7 @@ where
 
 impl<R> LuaLam<R>
 where
-    for<'lua> R: BufRead + 'lua,
+    for<'lua> R: BufRead + 'lua + Send,
 {
     /// Create a new instance of interface with input [`LamInput`] and store [`LamStore`].
     ///
