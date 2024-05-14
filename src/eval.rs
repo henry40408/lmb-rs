@@ -259,6 +259,11 @@ where
         self.do_evaluate_async(None).await
     }
 
+    /// test
+    pub async fn evaluate_with_state_async(&self, state: LamState) -> LamResult<EvaluationResult> {
+        self.do_evaluate_async(Some(state)).await
+    }
+
     async fn do_evaluate_async(&self, state: Option<LamState>) -> LamResult<EvaluationResult> {
         let vm = &self.vm;
         LuaLam::register(vm, self.input.clone(), self.store.clone(), state)?;

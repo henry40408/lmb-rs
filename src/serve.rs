@@ -68,7 +68,7 @@ where
     let eval_state = LamState::new();
     eval_state.insert(LamStateKey::Request, request_map.into());
 
-    let res = e.evaluate_with_state(eval_state);
+    let res = e.evaluate_with_state_async(eval_state).await;
     match res {
         Ok(res) => {
             if state.json {
