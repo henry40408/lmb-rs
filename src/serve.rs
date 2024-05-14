@@ -8,7 +8,8 @@ use axum::{
     Router,
 };
 use lam::*;
-use std::{collections::HashMap, io::Cursor, time::Duration};
+use std::{collections::HashMap, fmt::Display, io::Cursor, time::Duration};
+use tokio::net::ToSocketAddrs;
 use tower_http::trace::{self, TraceLayer};
 use tracing::{error, info, warn, Level};
 
@@ -25,7 +26,7 @@ struct AppState {
 pub struct ServeOptions<S, T>
 where
     S: AsRef<str>,
-    T: std::fmt::Display + tokio::net::ToSocketAddrs,
+    T: Display + ToSocketAddrs,
 {
     pub json: bool,
     pub bind: T,
@@ -109,7 +110,7 @@ async fn match_all_route(
 pub fn init_route<S, T>(opts: &ServeOptions<S, T>) -> anyhow::Result<Router>
 where
     S: AsRef<str>,
-    T: std::fmt::Display + tokio::net::ToSocketAddrs,
+    T: Display + ToSocketAddrs,
 {
     let store = if let Some(path) = &opts.store_options.store_path {
         let store = LamStore::new(path.as_path())?;
@@ -145,7 +146,7 @@ where
 pub async fn serve_file<'a, S, T>(opts: &ServeOptions<S, T>) -> anyhow::Result<()>
 where
     S: AsRef<str>,
-    T: std::fmt::Display + tokio::net::ToSocketAddrs,
+    T: Display + ToSocketAddrs,
 {
     let bind = &opts.bind;
     let app = init_route(opts)?;

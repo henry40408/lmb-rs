@@ -16,7 +16,7 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 #[derive(Default)]
 pub struct EvaluationBuilder<R>
 where
-    for<'lua> R: Read + 'lua,
+    R: Read,
 {
     /// Function input, such as anything that implements [`std::io::Read`].
     pub input: R,
@@ -32,7 +32,7 @@ where
 
 impl<R> EvaluationBuilder<R>
 where
-    for<'lua> R: Read + 'lua + Send,
+    for<'lua> R: 'lua + Read + Send,
 {
     /// Create a builder.
     ///
@@ -149,7 +149,7 @@ pub struct EvaluationResult {
 /// A container that holds the compiled function and input for evaluation.
 pub struct Evaluation<R>
 where
-    for<'lua> R: Read + 'lua + Send,
+    for<'lua> R: 'lua + Read,
 {
     compiled: Vec<u8>,
     input: LamInput<BufReader<R>>,
@@ -161,7 +161,7 @@ where
 
 impl<R> Evaluation<R>
 where
-    for<'lua> R: Read + 'lua + Send,
+    for<'lua> R: 'lua + Read + Send,
 {
     /// Evaluate the function and return a [`EvaluationResult`] as result.
     ///

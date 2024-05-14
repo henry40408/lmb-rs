@@ -2,7 +2,7 @@ use crate::*;
 use mlua::prelude::*;
 use std::io::BufRead;
 use tracing::field;
-use tracing::{error, trace_span};
+use tracing::trace_span;
 
 use crypto::*;
 use json::*;
@@ -25,7 +25,7 @@ where
 
 impl<R> LuaLam<R>
 where
-    for<'lua> R: BufRead + 'lua + Send,
+    for<'lua> R: 'lua + BufRead + Send,
 {
     /// Create a new instance of interface with input [`LamInput`] and store [`LamStore`].
     ///
@@ -76,14 +76,14 @@ where
 
 // This function intentionally uses Lua values instead of Lam values to pass bytes as partial,
 // invalid strings, allowing Lua to handle the bytes.
-// For a demonstration, see 'count-bytes.lua'.
+// For a demonstration, see "count-bytes.lua".
 fn lua_lam_read<'lua, R>(
     vm: &'lua Lua,
     lam: &mut LuaLam<R>,
     f: LamValue,
 ) -> LuaResult<LuaValue<'lua>>
 where
-    R: BufRead + 'lua,
+    R: BufRead,
 {
     if let LamValue::String(f) = &f {
         if f == "*a" || f == "*all" {
@@ -139,16 +139,12 @@ where
     Err(LuaError::runtime(format!("unexpected format {f}")))
 }
 
-fn lua_lam_read_unicode<'lua, R>(
-    _: &'lua Lua,
-    lam: &mut LuaLam<R>,
-    i: Option<usize>,
-) -> LuaResult<LamValue>
+fn lua_lam_read_unicode<R>(_: &Lua, lam: &mut LuaLam<R>, n: Option<usize>) -> LuaResult<LamValue>
 where
-    R: BufRead + 'lua,
+    R: BufRead,
 {
     let mut buf = vec![];
-    let mut remaining = i.unwrap_or(0);
+    let mut remaining = n.unwrap_or(0);
     let mut single = 0;
     while remaining > 0 {
         let count = lam
@@ -172,9 +168,9 @@ where
         .map_or(LamValue::None, LamValue::from))
 }
 
-fn lua_lam_get<'lua, R>(_: &'lua Lua, lam: &LuaLam<R>, key: String) -> LuaResult<LamValue>
+fn lua_lam_get<R>(_: &Lua, lam: &LuaLam<R>, key: String) -> LuaResult<LamValue>
 where
-    R: BufRead + 'lua,
+    R: BufRead,
 {
     let Some(store) = &lam.store else {
         return Ok(LamValue::None);
@@ -192,13 +188,8 @@ where
     let Some(store) = &lam.store else {
         return Ok(LamValue::None);
     };
-    match store.insert(key, &value) {
-        Ok(_) => Ok(value),
-        Err(err) => {
-            error!(?err, "failed to insert value");
-            Err(LuaError::runtime("failed to insert value"))
-        }
-    }
+    store.insert(key, &value).into_lua_err()?;
+    Ok(value)
 }
 
 fn lua_lam_update<'lua, R>(
@@ -207,7 +198,7 @@ fn lua_lam_update<'lua, R>(
     (key, f, default_v): (String, LuaFunction<'lua>, Option<LamValue>),
 ) -> LuaResult<LamValue>
 where
-    R: BufRead + 'lua,
+    R: BufRead,
 {
     let update_fn = |old: &mut LamValue| -> LuaResult<()> {
         let old_v = vm.to_value(old)?;
@@ -225,7 +216,7 @@ where
 
 impl<R> LuaUserData for LuaLam<R>
 where
-    for<'lua> R: BufRead + 'lua,
+    for<'lua> R: 'lua + BufRead,
 {
     fn add_fields<'lua, F: LuaUserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field("_VERSION", env!("APP_VERSION"));
