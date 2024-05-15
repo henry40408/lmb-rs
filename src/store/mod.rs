@@ -1,10 +1,11 @@
-use crate::*;
 use include_dir::{include_dir, Dir};
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use std::{path::Path, sync::Arc};
 use stmt::*;
 use tracing::{debug, trace_span};
+
+use crate::{LamResult, LamValue};
 
 mod stmt;
 
@@ -209,10 +210,11 @@ impl Default for LamStore {
 
 #[cfg(test)]
 mod tests {
-    use crate::*;
     use maplit::hashmap;
     use std::{io::empty, thread};
     use test_case::test_case;
+
+    use crate::{EvaluationBuilder, LamStore, LamValue};
 
     #[test_case(vec![true.into(), 1.into(), "hello".into()].into())]
     #[test_case(hashmap! { "b" => true.into() }.into())]

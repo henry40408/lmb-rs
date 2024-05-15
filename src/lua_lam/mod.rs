@@ -1,8 +1,9 @@
-use crate::*;
 use mlua::prelude::*;
 use std::io::BufRead;
 use tracing::field;
 use tracing::trace_span;
+
+use crate::{LamInput, LamResult, LamState, LamStateKey, LamStore, LamValue};
 
 use crypto::*;
 use json::*;
@@ -240,9 +241,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::*;
     use std::io::empty;
     use test_case::test_case;
+
+    use crate::{EvaluationBuilder, LamValue};
 
     #[test]
     fn read_binary() {

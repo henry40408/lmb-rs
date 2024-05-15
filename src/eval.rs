@@ -1,5 +1,5 @@
-use crate::*;
 use mlua::{prelude::*, Compiler};
+use parking_lot::Mutex;
 use std::{
     io::{BufReader, Read},
     sync::{
@@ -9,6 +9,8 @@ use std::{
     time::{Duration, Instant},
 };
 use tracing::{debug, trace_span};
+
+use crate::{LamInput, LamResult, LamState, LamStore, LamValue, LuaLam};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -257,10 +259,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::*;
     use maplit::hashmap;
     use std::{fs, io::empty, time::Duration};
     use test_case::test_case;
+
+    use crate::{EvaluationBuilder, LamValue};
 
     #[test_case("./lua-examples/error.lua")]
     fn error_in_script(path: &str) {
