@@ -1,5 +1,6 @@
-use crate::*;
 use mlua::prelude::*;
+
+use crate::LamValue;
 
 /// JSON module
 pub struct LuaLamJSON {}
