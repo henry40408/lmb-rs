@@ -1,15 +1,17 @@
 use mlua::prelude::*;
 use std::io::BufRead;
-use tracing::field;
-use tracing::trace_span;
 
 use crate::{LamInput, LamResult, LamState, LamStateKey, LamStore, LamValue};
 
 use crypto::*;
+use http::*;
 use json::*;
+use read::*;
 
 mod crypto;
+mod http;
 mod json;
+mod read;
 
 // ref: https://www.lua.org/pil/8.1.html
 const K_LOADED: &str = "_LOADED";
@@ -69,102 +71,11 @@ where
         let loaded = vm.named_registry_value::<LuaTable<'_>>(K_LOADED)?;
         loaded.set("@lam", Self::new(input, store, state))?;
         loaded.set("@lam/crypto", LuaLamCrypto {})?;
+        loaded.set("@lam/http", LuaLamHTTP {})?;
         loaded.set("@lam/json", LuaLamJSON {})?;
         vm.set_named_registry_value(K_LOADED, loaded)?;
         Ok(())
     }
-}
-
-// This function intentionally uses Lua values instead of Lam values to pass bytes as partial,
-// invalid strings, allowing Lua to handle the bytes.
-// For a demonstration, see "count-bytes.lua".
-fn lua_lam_read<'lua, R>(
-    vm: &'lua Lua,
-    lam: &mut LuaLam<R>,
-    f: LuaValue<'lua>,
-) -> LuaResult<LuaValue<'lua>>
-where
-    R: BufRead,
-{
-    if let Some(f) = f.as_str() {
-        match f {
-            "*a" | "*all" => {
-                // accepts *a or *all
-                let mut buf = Vec::new();
-                let count = lam.input.lock().read_to_end(&mut buf)?;
-                if count == 0 {
-                    return Ok(LuaNil);
-                }
-                return String::from_utf8(buf).into_lua_err()?.into_lua(vm);
-            }
-            "*l" | "*line" => {
-                // accepts *l or *line
-                let mut buf = String::new();
-                let count = lam.input.lock().read_line(&mut buf)?;
-                if count == 0 {
-                    return Ok(LuaNil);
-                }
-                // in Lua, *l doesn't include newline character
-                return buf.trim().into_lua(vm);
-            }
-            "*n" | "*number" => {
-                // accepts *n or *number
-                let mut buf = String::new();
-                let count = lam.input.lock().read_to_string(&mut buf)?;
-                if count == 0 {
-                    return Ok(LuaNil);
-                }
-                return Ok(buf
-                    .trim()
-                    .parse::<f64>()
-                    .map(LuaValue::Number)
-                    .unwrap_or(LuaNil));
-            }
-            _ => {}
-        }
-    }
-
-    if let Some(i) = f.as_usize() {
-        let s = trace_span!("read bytes from input", count = field::Empty).entered();
-        let mut buf = vec![0; i];
-        let count = lam.input.lock().read(&mut buf)?;
-        s.record("count", count);
-        if count == 0 {
-            return Ok(LuaNil);
-        }
-        buf.truncate(count);
-        // Unlike Rust strings, Lua strings may not be valid UTF-8.
-        // We leverage this trait to give Lua the power to handle binary.
-        return Ok(mlua::Value::String(vm.create_string(&buf)?));
-    }
-
-    let f = f.to_string()?;
-    Err(LuaError::runtime(format!("unexpected format {f}")))
-}
-
-fn lua_lam_read_unicode<R>(_: &Lua, lam: &mut LuaLam<R>, n: Option<usize>) -> LuaResult<LamValue>
-where
-    R: BufRead,
-{
-    let mut remaining = n.unwrap_or(0);
-    let mut buf = vec![];
-    let mut single = 0;
-    while remaining > 0 {
-        let count = lam.input.lock().read(std::slice::from_mut(&mut single))?;
-        if count == 0 {
-            break;
-        }
-        buf.extend_from_slice(std::slice::from_ref(&single));
-        if std::str::from_utf8(&buf).is_ok() {
-            remaining -= 1;
-        }
-    }
-    if buf.is_empty() {
-        return Ok(LamValue::None);
-    }
-    Ok(std::str::from_utf8(&buf)
-        .ok()
-        .map_or(LamValue::None, LamValue::from))
 }
 
 fn lua_lam_get<R>(_: &Lua, lam: &LuaLam<R>, key: String) -> LuaResult<LamValue>
@@ -232,8 +143,10 @@ where
 
     fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method("get", lua_lam_get);
-        methods.add_method_mut("read", lua_lam_read);
-        methods.add_method_mut("read_unicode", lua_lam_read_unicode);
+        methods.add_method_mut("read", |vm, this, f| lua_lam_read(vm, &mut this.input, f));
+        methods.add_method_mut("read_unicode", |vm, this, f| {
+            lua_lam_read_unicode(vm, &mut this.input, f)
+        });
         methods.add_method("set", lua_lam_set);
         methods.add_method("update", lua_lam_update);
     }
@@ -241,10 +154,102 @@ where
 
 #[cfg(test)]
 mod tests {
+    use httpmock::{
+        Method::{GET, POST},
+        MockServer,
+    };
+    use serde_json::{json, Value};
     use std::io::empty;
     use test_case::test_case;
 
     use crate::{EvaluationBuilder, LamValue};
+
+    #[test]
+    fn http_get() {
+        let server = MockServer::start();
+
+        let body = "<html>content</html>";
+        let get_mock = server.mock(|when, then| {
+            when.method(GET).path("/html");
+            then.status(200)
+                .header("content-type", "text/html")
+                .body(body);
+        });
+
+        let url = server.url("/html");
+        let script = format!(
+            r#"
+            local m = require('@lam/http')
+            local res = m:fetch('{url}')
+            return res:read('*a')
+            "#
+        );
+        let e = EvaluationBuilder::new(script, empty()).build();
+        let res = e.evaluate().unwrap();
+        assert_eq!(LamValue::from(body), res.result);
+
+        get_mock.assert();
+    }
+
+    #[test]
+    fn http_get_json() {
+        let server = MockServer::start();
+
+        let body = r#"{"a":1}"#;
+        let get_mock = server.mock(|when, then| {
+            when.method(GET).path("/json");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(body);
+        });
+
+        let url = server.url("/json");
+        let script = format!(
+            r#"
+            local m = require('@lam/http')
+            local j = require('@lam/json')
+            local res = m:fetch('{url}')
+            return j:encode(res:json())
+            "#
+        );
+        let e = EvaluationBuilder::new(script, empty()).build();
+        let res = e.evaluate().unwrap();
+
+        let actual: Value = serde_json::from_str(&res.result.to_string()).unwrap();
+        let expected = json!({ "a": 1 });
+        assert_eq!(expected, actual);
+
+        get_mock.assert();
+    }
+
+    #[test]
+    fn http_post() {
+        let server = MockServer::start();
+
+        let get_mock = server.mock(|when, then| {
+            when.method(POST).path("/add").body("1+1");
+            then.status(200)
+                .header("content-type", "text/html")
+                .body("2");
+        });
+
+        let url = server.url("/add");
+        let script = format!(
+            r#"
+            local m = require('@lam/http')
+            local res = m:fetch('{url}', {{
+              method = 'POST',
+              body = '1+1',
+            }})
+            return res:read('*a')
+            "#
+        );
+        let e = EvaluationBuilder::new(script, empty()).build();
+        let res = e.evaluate().unwrap();
+        assert_eq!(LamValue::from("2"), res.result);
+
+        get_mock.assert();
+    }
 
     #[test]
     fn read_binary() {
