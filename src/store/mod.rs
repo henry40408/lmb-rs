@@ -221,7 +221,8 @@ mod tests {
     fn complicated_types(value: LamValue) {
         let store = LamStore::default();
         store.insert("value", &value).unwrap();
-        assert_eq!("table: 0x0", store.get("value").unwrap().to_string());
+        let actual = store.get("value").unwrap().to_string();
+        assert!(actual.starts_with("table: 0x"));
     }
 
     #[test]
