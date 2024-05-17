@@ -95,7 +95,8 @@ impl std::fmt::Display for LamValue {
             LamValue::Integer(n) => write!(f, "{}", n),
             LamValue::Number(n) => write!(f, "{}", n),
             LamValue::String(s) => write!(f, r#"{}"#, s),
-            LamValue::List(_) | LamValue::Table(_) => write!(f, "table: 0x0"),
+            LamValue::List(l) => write!(f, "table: {l:p}"),
+            LamValue::Table(t) => write!(f, "table: {t:p}"),
         }
     }
 }

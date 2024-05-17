@@ -315,6 +315,15 @@ mod tests {
         assert_eq!(expected, res.result.to_string());
     }
 
+    #[test_case(r#"return {a=true,b=1.23,c="hello"}"#)]
+    #[test_case(r#"return {true,1.23,"hello"}"#)]
+    fn collection_to_string(script: &str) {
+        let e = EvaluationBuilder::new(script, empty()).build();
+        let res = e.evaluate().expect(script);
+        let actual = res.result.to_string();
+        assert!(actual.starts_with("table: 0x"));
+    }
+
     #[test]
     fn reevaluate() {
         let input = "foo\nbar";
@@ -335,8 +344,6 @@ mod tests {
     #[test_case(r#"return 1"#, "1")]
     #[test_case(r#"return 1.23"#, "1.23")]
     #[test_case(r#"return 'hello'"#, "hello")]
-    #[test_case(r#"return {a=true,b=1.23,c="hello"}"#, "table: 0x0")]
-    #[test_case(r#"return {true,1.23,"hello"}"#, "table: 0x0")]
     fn return_to_string(script: &str, expected: &str) {
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().expect(script);
