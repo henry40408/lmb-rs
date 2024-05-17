@@ -44,7 +44,6 @@ impl Visitor for Example {
 static EXAMPLES_DIR: Dir<'_> = include_dir!("lua-examples");
 
 /// Embedded Lua examples
-#[cfg(not(tarpaulin_include))]
 pub static EXAMPLES: Lazy<Vec<Example>> = Lazy::new(|| {
     let mut examples = vec![];
     for f in EXAMPLES_DIR
@@ -85,7 +84,15 @@ pub fn print_script<S: AsRef<str>>(no_color: bool, script: S) -> anyhow::Result<
 
 #[cfg(test)]
 mod tests {
-    use crate::print_script;
+    use crate::{print_script, EXAMPLES};
+
+    #[test]
+    fn description_of_examples() {
+        for e in EXAMPLES.iter() {
+            let name = &e.name;
+            assert!(!e.description.is_empty(), "{name} has no description");
+        }
+    }
 
     #[test]
     fn print_lua_code() {
