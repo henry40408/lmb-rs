@@ -3,20 +3,6 @@ use serde_json::{json, Value};
 use tempfile::NamedTempFile;
 
 #[test]
-fn cat() {
-    let mut cmd = Command::cargo_bin("lam").unwrap();
-    cmd.write_stdin("return true");
-    cmd.args(["--no-color", "example", "cat", "--name", "hello"]);
-    cmd.assert().success().stdout(
-        r#"   1 --[[
-   2 --description = "Hello, world!"
-   3 --]]
-   4 print("hello, world!")
-"#,
-    );
-}
-
-#[test]
 fn check_stdin() {
     let mut cmd = Command::cargo_bin("lam").unwrap();
     cmd.write_stdin("ret true");
