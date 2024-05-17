@@ -17,6 +17,7 @@ pub struct Example {
 }
 
 impl Visitor for Example {
+    #[cfg(not(tarpaulin_include))]
     fn visit_multi_line_comment(&mut self, token: &full_moon::tokenizer::Token) {
         if self._done {
             return;
@@ -43,6 +44,7 @@ impl Visitor for Example {
 static EXAMPLES_DIR: Dir<'_> = include_dir!("lua-examples");
 
 /// Embedded Lua examples
+#[cfg(not(tarpaulin_include))]
 pub static EXAMPLES: Lazy<Vec<Example>> = Lazy::new(|| {
     let mut examples = vec![];
     for f in EXAMPLES_DIR
@@ -71,10 +73,23 @@ pub static EXAMPLES: Lazy<Vec<Example>> = Lazy::new(|| {
 });
 
 /// Print script with syntax highlighting
-pub fn print_script<S: AsRef<str>>(script: S) -> anyhow::Result<()> {
+pub fn print_script<S: AsRef<str>>(no_color: bool, script: S) -> anyhow::Result<()> {
     PrettyPrinter::new()
+        .colored_output(!no_color)
+        .line_numbers(true)
         .input_from_bytes(script.as_ref().as_bytes())
         .language("lua")
         .print()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::print_script;
+
+    #[test]
+    fn print_lua_code() {
+        print_script(false, "return true").unwrap();
+        print_script(true, "return true").unwrap();
+    }
 }
