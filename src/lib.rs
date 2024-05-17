@@ -23,9 +23,11 @@ mod store;
 mod value;
 
 /// Function input.
+#[cfg(not(tarpaulin_include))]
 pub type LamInput<R> = Arc<Mutex<R>>;
 
 /// Generic result type of Lam.
+#[cfg(not(tarpaulin_include))]
 pub type LamResult<T> = Result<T, LamError>;
 
 /// State key
@@ -37,11 +39,25 @@ pub enum LamStateKey {
     String(String),
 }
 
-impl From<&str> for LamStateKey {
-    fn from(value: &str) -> Self {
-        Self::String(value.to_string())
+impl<S> From<S> for LamStateKey
+where
+    S: AsRef<str>,
+{
+    fn from(value: S) -> Self {
+        Self::String(value.as_ref().to_string())
     }
 }
 
 /// State of each evaluation.
+#[cfg(not(tarpaulin_include))]
 pub type LamState = DashMap<LamStateKey, LamValue>;
+
+#[cfg(test)]
+mod tests {
+    use crate::LamStateKey;
+
+    #[test]
+    fn state_key_from_str() {
+        let _ = LamStateKey::from("key");
+    }
+}

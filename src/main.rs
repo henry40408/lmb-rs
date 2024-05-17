@@ -215,7 +215,7 @@ async fn main() -> anyhow::Result<()> {
                 return Ok(());
             };
             let script = &found.script.trim();
-            print_script(script)?;
+            print_script(cli.no_color, script)?;
         }
         Commands::Example(ExampleCommands::Evaluate { name }) => {
             let Some(found) = EXAMPLES.iter().find(|e| e.name == name) else {
