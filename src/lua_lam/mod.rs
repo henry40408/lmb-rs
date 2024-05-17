@@ -154,10 +154,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use httpmock::{
-        Method::{GET, POST},
-        MockServer,
-    };
+    use mockito::Server;
     use serde_json::{json, Value};
     use std::io::empty;
     use test_case::test_case;
@@ -166,21 +163,20 @@ mod tests {
 
     #[test]
     fn http_get() {
-        let server = MockServer::start();
+        let mut server = Server::new();
 
         let body = "<html>content</html>";
-        let get_mock = server.mock(|when, then| {
-            when.method(GET).path("/html");
-            then.status(200)
-                .header("content-type", "text/html")
-                .body(body);
-        });
+        let get_mock = server
+            .mock("GET", "/html")
+            .with_header("content-type", "text/html")
+            .with_body(body)
+            .create();
 
-        let url = server.url("/html");
+        let url = server.url();
         let script = format!(
             r#"
             local m = require('@lam/http')
-            local res = m:fetch('{url}')
+            local res = m:fetch('{url}/html')
             return res:read('*a')
             "#
         );
@@ -193,22 +189,21 @@ mod tests {
 
     #[test]
     fn http_get_json() {
-        let server = MockServer::start();
+        let mut server = Server::new();
 
         let body = r#"{"a":1}"#;
-        let get_mock = server.mock(|when, then| {
-            when.method(GET).path("/json");
-            then.status(200)
-                .header("content-type", "application/json")
-                .body(body);
-        });
+        let get_mock = server
+            .mock("GET", "/json")
+            .with_header("content-type", "application/json")
+            .with_body(body)
+            .create();
 
-        let url = server.url("/json");
+        let url = server.url();
         let script = format!(
             r#"
             local m = require('@lam/http')
             local j = require('@lam/json')
-            local res = m:fetch('{url}')
+            local res = m:fetch('{url}/json')
             return j:encode(res:json())
             "#
         );
@@ -224,20 +219,20 @@ mod tests {
 
     #[test]
     fn http_post() {
-        let server = MockServer::start();
+        let mut server = Server::new();
 
-        let get_mock = server.mock(|when, then| {
-            when.method(POST).path("/add").body("1+1");
-            then.status(200)
-                .header("content-type", "text/html")
-                .body("2");
-        });
+        let post_mock = server
+            .mock("POST", "/add")
+            .match_body("1+1")
+            .with_header("content-type", "text/plain")
+            .with_body("2")
+            .create();
 
-        let url = server.url("/add");
+        let url = server.url();
         let script = format!(
             r#"
             local m = require('@lam/http')
-            local res = m:fetch('{url}', {{
+            local res = m:fetch('{url}/add', {{
               method = 'POST',
               body = '1+1',
             }})
@@ -248,7 +243,7 @@ mod tests {
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::from("2"), res.result);
 
-        get_mock.assert();
+        post_mock.assert();
     }
 
     #[test]

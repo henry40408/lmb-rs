@@ -227,40 +227,39 @@ where
             move |vm| {
                 let used_memory = vm.used_memory();
                 max_memory.fetch_max(used_memory, Ordering::SeqCst);
-                Ok(if start.elapsed() > timeout {
-                    LuaVmState::Yield
-                } else {
-                    LuaVmState::Continue
-                })
+                if start.elapsed() > timeout {
+                    vm.remove_interrupt();
+                    return Err(mlua::Error::runtime("timeout"));
+                }
+                Ok(LuaVmState::Continue)
             }
         });
 
         let name = &self.name;
         let chunk = vm.load(&self.compiled).set_name(name);
-        let co = vm.create_thread(chunk.into_function()?)?;
+
         let _ = trace_span!("evaluate", name).entered();
-        loop {
-            let result = co.resume::<_, LamValue>(())?;
-            let unresumable = co.status() != LuaThreadStatus::Resumable;
-            let duration = start.elapsed();
-            let timed_out = duration > self.timeout;
-            if unresumable || timed_out {
-                let max_memory = max_memory.load(Ordering::SeqCst);
-                debug!(?duration, name, ?max_memory, "evaluated");
-                return Ok(EvaluationResult {
-                    duration,
-                    max_memory,
-                    result,
-                });
-            }
-        }
+        let result = chunk.eval()?;
+
+        let duration = start.elapsed();
+        let max_memory = max_memory.load(Ordering::SeqCst);
+        debug!(?duration, name, ?max_memory, "evaluated");
+        Ok(EvaluationResult {
+            duration,
+            max_memory,
+            result,
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use maplit::hashmap;
-    use std::{fs, io::empty, time::Duration};
+    use std::{
+        fs,
+        io::empty,
+        time::{Duration, Instant},
+    };
     use test_case::test_case;
 
     use crate::{EvaluationBuilder, LamValue};
@@ -294,16 +293,17 @@ mod tests {
 
     #[test]
     fn evaluate_infinite_loop() {
-        let timeout = Duration::from_secs(1);
+        let timer = Instant::now();
+        let timeout = Duration::from_millis(100);
 
         let e = EvaluationBuilder::new(r#"while true do end"#, empty())
             .with_timeout(Some(timeout))
             .build();
-        let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::None, res.result);
+        let res = e.evaluate();
+        assert!(res.is_err());
 
-        let duration = res.duration;
-        assert_eq!(timeout.as_secs(), duration.as_secs());
+        let elapsed = timer.elapsed().as_millis();
+        assert!(elapsed < 300, "actual elapsed {elapsed:?}"); // 300% error
     }
 
     #[test_case("return 1+1", "2")]
