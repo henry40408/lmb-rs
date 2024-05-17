@@ -16,7 +16,7 @@
 
 ### Prerequisites
 
-- Rust >= 1.78.0
+- Rust ≥ 1.78.0
 
 ```bash
 git clone https://github.com/henry40408/lam
