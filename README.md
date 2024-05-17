@@ -5,6 +5,7 @@
 [![Casual Maintenance Intended](https://casuallymaintained.tech/badge.svg)](https://casuallymaintained.tech/)
 ![GitHub Workflow Status (with event)](https://img.shields.io/github/actions/workflow/status/henry40408/lam/.github%2Fworkflows%2Fworkflow.yaml)
 ![GitHub](https://img.shields.io/github/license/henry40408/lam)
+[![codecov](https://codecov.io/gh/henry40408/lam/graph/badge.svg?token=O7WLYVEX0E)](https://codecov.io/gh/henry40408/lam)
 
 ## Features
 
