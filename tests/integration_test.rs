@@ -7,7 +7,7 @@ fn check_stdin() {
     let mut cmd = Command::cargo_bin("lam").unwrap();
     cmd.write_stdin("ret true");
     cmd.args(["--no-color", "check", "--file", "-"]);
-    cmd.assert().success().stderr(
+    cmd.assert().failure().stderr(
         r#"Error: leftover token
    ,-[(stdin):1:1]
  1 |ret true
