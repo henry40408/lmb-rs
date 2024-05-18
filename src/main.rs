@@ -1,14 +1,22 @@
+use anyhow::bail;
 use clap::{Parser, Subcommand};
 use clap_stdin::{FileOrStdin, Source};
 use comfy_table::{presets, Table};
+use fancy_regex::Regex;
 use lam::*;
+use mlua::prelude::*;
+use once_cell::sync::Lazy;
 use serve::ServeOptions;
-use std::{io, path::PathBuf, time::Duration};
-use tracing::{warn, Level};
+use std::{io, path::PathBuf, process::ExitCode, time::Duration};
+use tracing::Level;
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
 
 mod serve;
 
+static LUA_ERROR_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\[[^\]]+\]:(\d+):.+")
+        .expect("failed to compile regular expression for Lua error message")
+});
 static VERSION: &str = env!("APP_VERSION");
 
 #[derive(Parser)]
@@ -132,31 +140,60 @@ enum StoreCommands {
     },
 }
 
-#[cfg(not(tarpaulin_include))]
-fn do_check_syntax<S: AsRef<str>>(no_color: bool, name: S, script: S) -> bool {
+fn do_check_syntax<S: AsRef<str>>(no_color: bool, name: S, script: S) -> anyhow::Result<()> {
     let res = check_syntax(script.as_ref());
-    if let Some(message) = render_error(no_color, name, script, res) {
-        eprint!("{message}");
-        false
-    } else {
-        true
+    if let Err(e) = res {
+        if let Some(message) = render_fullmoon_result(no_color, name, script, &e) {
+            bail!(message);
+        }
+        bail!(e);
+    }
+    Ok(())
+}
+
+fn print_result<S>(
+    json: bool,
+    no_color: bool,
+    result: LamResult<EvaluationResult>,
+    script: S,
+) -> anyhow::Result<()>
+where
+    S: AsRef<str>,
+{
+    match result {
+        Ok(eval_result) => {
+            let output = if json {
+                serde_json::to_string(&eval_result.result)?
+            } else {
+                eval_result.result.to_string()
+            };
+            print!("{output}");
+            Ok(())
+        }
+        Err(e) => match &e {
+            LamError::Lua(LuaError::RuntimeError(message)) => {
+                let first_line = message.lines().next().unwrap_or_default();
+                eprintln!("{first_line}");
+                if let Ok(Some(c)) = LUA_ERROR_REGEX.captures(first_line) {
+                    if let Some(n) = c.get(1).and_then(|n| n.as_str().parse::<usize>().ok()) {
+                        print_script(
+                            script,
+                            &PrintOptions {
+                                highlighted: Some(n),
+                                no_color: Some(no_color),
+                            },
+                        )?;
+                    }
+                }
+                Err(e.into())
+            }
+            _ => Err(e.into()),
+        },
     }
 }
 
 #[cfg(not(tarpaulin_include))]
-fn print_result(json: bool, result: &LamValue) -> anyhow::Result<()> {
-    let output = if json {
-        serde_json::to_string(result)?
-    } else {
-        result.to_string()
-    };
-    print!("{output}");
-    Ok(())
-}
-
-#[cfg(not(tarpaulin_include))]
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn try_main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     let default_directive = if cli.debug {
@@ -189,7 +226,7 @@ async fn main() -> anyhow::Result<()> {
                 "(stdin)".to_string()
             };
             let script = file.contents()?;
-            do_check_syntax(cli.no_color, name, script);
+            do_check_syntax(cli.no_color, name, script)
         }
         Commands::Evaluate { file, timeout, .. } => {
             let name = if let Source::Arg(path) = &file.source {
@@ -198,36 +235,40 @@ async fn main() -> anyhow::Result<()> {
                 "(stdin)".to_string()
             };
             let script = file.contents()?;
-            if cli.check_syntax && !do_check_syntax(cli.no_color, &name, &script) {
-                return Ok(());
+            if cli.check_syntax {
+                do_check_syntax(cli.no_color, &name, &script)?;
             }
             let timeout = timeout.map(Duration::from_secs);
-            let e = EvaluationBuilder::new(script, io::stdin())
+            let e = EvaluationBuilder::new(&script, io::stdin())
                 .with_name(name)
                 .with_timeout(timeout)
                 .build();
-            let res = e.evaluate()?;
-            print_result(cli.json, &res.result)?;
+            let res = e.evaluate();
+            print_result(cli.json, cli.no_color, res, &script)
         }
         Commands::Example(ExampleCommands::Cat { name }) => {
             let Some(found) = EXAMPLES.iter().find(|e| e.name == name) else {
-                warn!("example with {name} not found");
-                return Ok(());
+                bail!("example with {name} not found");
             };
             let script = &found.script.trim();
-            print_script(cli.no_color, script)?;
+            print_script(
+                script,
+                &PrintOptions {
+                    highlighted: None,
+                    no_color: Some(cli.no_color),
+                },
+            )
         }
         Commands::Example(ExampleCommands::Evaluate { name }) => {
             let Some(found) = EXAMPLES.iter().find(|e| e.name == name) else {
-                warn!("example with {name} not found");
-                return Ok(());
+                bail!("example with {name} not found");
             };
             let script = found.script.trim();
             let e = EvaluationBuilder::new(script, io::stdin())
                 .with_name(name)
                 .build();
-            let res = e.evaluate()?;
-            print_result(cli.json, &res.result)?;
+            let res = e.evaluate();
+            print_result(cli.json, cli.no_color, res, script)
         }
         Commands::Example(ExampleCommands::List) => {
             let mut table = Table::new();
@@ -239,6 +280,7 @@ async fn main() -> anyhow::Result<()> {
                 table.add_row(vec![name, description]);
             }
             println!("{table}");
+            Ok(())
         }
         Commands::Example(ExampleCommands::Serve {
             store_options,
@@ -247,12 +289,11 @@ async fn main() -> anyhow::Result<()> {
             timeout,
         }) => {
             let Some(found) = EXAMPLES.iter().find(|e| e.name == name) else {
-                warn!("example with {name} not found");
-                return Ok(());
+                bail!("example with {name} not found");
             };
             let script = &found.script;
-            if cli.check_syntax && !do_check_syntax(cli.no_color, &name, script) {
-                return Ok(());
+            if cli.check_syntax {
+                do_check_syntax(cli.no_color, &name, script)?;
             }
             let timeout = timeout.map(Duration::from_secs);
             serve::serve_file(&ServeOptions {
@@ -264,6 +305,7 @@ async fn main() -> anyhow::Result<()> {
                 store_options,
             })
             .await?;
+            Ok(())
         }
         Commands::Serve {
             bind,
@@ -277,8 +319,8 @@ async fn main() -> anyhow::Result<()> {
                 "(stdin)".to_string()
             };
             let script = file.contents()?;
-            if cli.check_syntax && !do_check_syntax(cli.no_color, &name, &script) {
-                return Ok(());
+            if cli.check_syntax {
+                do_check_syntax(cli.no_color, &name, &script)?;
             }
             let timeout = timeout.map(Duration::from_secs);
             serve::serve_file(&ServeOptions {
@@ -290,13 +332,57 @@ async fn main() -> anyhow::Result<()> {
                 store_options,
             })
             .await?;
+            Ok(())
         }
         Commands::Store(c) => match c {
             StoreCommands::Migrate { store_path } => {
                 let store = LamStore::new(&store_path)?;
                 store.migrate()?;
+                Ok(())
             }
         },
     }
-    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> ExitCode {
+    if let Err(e) = try_main().await {
+        match e.downcast_ref::<LamError>() {
+            // handled, do nothing
+            Some(&LamError::Lua(LuaError::RuntimeError(_))) => {}
+            _ => eprint!("{e:?}"),
+        }
+        return ExitCode::FAILURE;
+    }
+    ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::empty;
+
+    use lam::EvaluationBuilder;
+
+    use crate::{do_check_syntax, print_result};
+
+    #[test]
+    fn print_evaluation_result() {
+        let script = "return true";
+        let e = EvaluationBuilder::new(script, empty()).build();
+
+        let res = e.evaluate();
+        let no_color = true;
+        print_result(false, no_color, res, script).unwrap();
+
+        let res = e.evaluate();
+        print_result(true, no_color, res, script).unwrap();
+    }
+
+    #[test]
+    fn syntax_check() {
+        let no_color = true;
+        let name = "test";
+        do_check_syntax(no_color, name, "return true").unwrap();
+        assert!(do_check_syntax(no_color, name, "ret true").is_err());
+    }
 }

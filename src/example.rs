@@ -13,13 +13,12 @@ pub struct Example {
     pub description: String,
     /// Script
     pub script: String,
-    _done: bool,
+    done: bool,
 }
 
 impl Visitor for Example {
-    #[cfg(not(tarpaulin_include))]
     fn visit_multi_line_comment(&mut self, token: &full_moon::tokenizer::Token) {
-        if self._done {
+        if self.done {
             return;
         }
         let TokenType::MultiLineComment { comment, .. } = token.token_type() else {
@@ -37,7 +36,7 @@ impl Visitor for Example {
             return;
         };
         self.description = description.to_string();
-        self._done = true;
+        self.done = true;
     }
 }
 
@@ -71,10 +70,23 @@ pub static EXAMPLES: Lazy<Vec<Example>> = Lazy::new(|| {
     examples
 });
 
+/// Options to print script
+#[derive(Default)]
+pub struct PrintOptions {
+    /// No colors
+    pub no_color: Option<bool>,
+    /// Line number to be highlighted.
+    pub highlighted: Option<usize>,
+}
+
 /// Print script with syntax highlighting
-pub fn print_script<S: AsRef<str>>(no_color: bool, script: S) -> anyhow::Result<()> {
-    PrettyPrinter::new()
-        .colored_output(!no_color)
+pub fn print_script<S: AsRef<str>>(script: S, options: &PrintOptions) -> anyhow::Result<()> {
+    let mut printer = PrettyPrinter::new();
+    printer.colored_output(!options.no_color.unwrap_or_default());
+    if let Some(h) = options.highlighted {
+        printer.highlight(h);
+    }
+    printer
         .line_numbers(true)
         .input_from_bytes(script.as_ref().as_bytes())
         .language("lua")
@@ -84,7 +96,7 @@ pub fn print_script<S: AsRef<str>>(no_color: bool, script: S) -> anyhow::Result<
 
 #[cfg(test)]
 mod tests {
-    use crate::{print_script, EXAMPLES};
+    use crate::{print_script, PrintOptions, EXAMPLES};
 
     #[test]
     fn description_of_examples() {
@@ -96,7 +108,7 @@ mod tests {
 
     #[test]
     fn print_lua_code() {
-        print_script(false, "return true").unwrap();
-        print_script(true, "return true").unwrap();
+        let options = PrintOptions::default();
+        print_script("return true", &options).unwrap();
     }
 }
