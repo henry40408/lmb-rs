@@ -11,6 +11,7 @@ pub use error::*;
 pub use eval::*;
 pub use example::*;
 pub use lua_lam::*;
+pub use printer::*;
 pub use store::*;
 pub use value::*;
 
@@ -19,6 +20,7 @@ mod error;
 mod eval;
 mod example;
 mod lua_lam;
+mod printer;
 mod store;
 mod value;
 

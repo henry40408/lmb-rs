@@ -132,7 +132,6 @@ where
             input: Arc::new(Mutex::new(BufReader::new(self.input))),
             name: self.name.unwrap_or_default(),
             store: self.store,
-            script: self.script,
             timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
             vm,
         })
@@ -162,7 +161,6 @@ where
     compiled: Vec<u8>,
     input: LamInput<BufReader<R>>,
     name: String,
-    script: String,
     store: Option<LamStore>,
     timeout: Duration,
     vm: Lua,
