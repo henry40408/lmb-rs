@@ -116,7 +116,7 @@ where
     /// use lam::*;
     /// let e = EvaluationBuilder::new("return true", empty()).build();
     /// let res = e.evaluate().unwrap();
-    /// assert_eq!(LamValue::from(true), res.result);
+    /// assert_eq!(LamValue::from(true), res.payload);
     /// ```
     pub fn build(self) -> Evaluation<R> {
         let vm = Lua::new();
@@ -138,14 +138,14 @@ where
     }
 }
 
-/// Evaluation result.
-pub struct EvaluationResult {
+/// Solution obtained by the function.
+pub struct Solution {
     /// Execution duration.
     pub duration: Duration,
     /// Max memory usage in bytes.
     pub max_memory: usize,
     /// Result returned by the function.
-    pub result: LamValue,
+    pub payload: LamValue,
 }
 
 /// A container that holds the compiled function and input for evaluation.
@@ -172,9 +172,9 @@ where
     /// use lam::*;
     /// let e = EvaluationBuilder::new("return 1+1", empty()).build();
     /// let res = e.evaluate().unwrap();
-    /// assert_eq!(LamValue::from(2), res.result);
+    /// assert_eq!(LamValue::from(2), res.payload);
     /// ```
-    pub fn evaluate(&self) -> LamResult<EvaluationResult> {
+    pub fn evaluate(&self) -> LamResult<Solution> {
         self.do_evaluate(None)
     }
 
@@ -187,9 +187,9 @@ where
     /// let state = LamState::new();
     /// state.insert(LamStateKey::from("bool"), true.into());
     /// let res = e.evaluate_with_state(state).unwrap();
-    /// assert_eq!(LamValue::from(2), res.result);
+    /// assert_eq!(LamValue::from(2), res.payload);
     /// ```
-    pub fn evaluate_with_state(&self, state: LamState) -> LamResult<EvaluationResult> {
+    pub fn evaluate_with_state(&self, state: LamState) -> LamResult<Solution> {
         self.do_evaluate(Some(state))
     }
 
@@ -203,18 +203,18 @@ where
     /// let mut e = EvaluationBuilder::new(script, Cursor::new("1")).build();
     ///
     /// let r = e.evaluate().unwrap();
-    /// assert_eq!(LamValue::from("1"), r.result);
+    /// assert_eq!(LamValue::from("1"), r.payload);
     ///
     /// e.set_input(Cursor::new("2"));
     ///
     /// let r = e.evaluate().unwrap();
-    /// assert_eq!(LamValue::from("2"), r.result);
+    /// assert_eq!(LamValue::from("2"), r.payload);
     /// ```
     pub fn set_input(&mut self, input: R) {
         self.input = Arc::new(Mutex::new(BufReader::new(input)));
     }
 
-    fn do_evaluate(&self, state: Option<LamState>) -> LamResult<EvaluationResult> {
+    fn do_evaluate(&self, state: Option<LamState>) -> LamResult<Solution> {
         let vm = &self.vm;
         LuaLam::register(vm, self.input.clone(), self.store.clone(), state)?;
 
@@ -244,10 +244,10 @@ where
         let duration = start.elapsed();
         let max_memory = max_memory.load(Ordering::SeqCst);
         debug!(?duration, name, ?max_memory, "evaluated");
-        Ok(EvaluationResult {
+        Ok(Solution {
             duration,
             max_memory,
-            result,
+            payload: result,
         })
     }
 }
@@ -288,7 +288,7 @@ mod tests {
             .with_default_store()
             .build();
         let res = e.evaluate().expect(&script);
-        assert_eq!(expected, res.result);
+        assert_eq!(expected, res.payload);
     }
 
     #[test]
@@ -312,7 +312,7 @@ mod tests {
     fn evaluate_scripts(script: &str, expected: &str) {
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().expect(script);
-        assert_eq!(expected, res.result.to_string());
+        assert_eq!(expected, res.payload.to_string());
     }
 
     #[test_case(r#"return {a=true,b=1.23,c="hello"}"#)]
@@ -320,7 +320,7 @@ mod tests {
     fn collection_to_string(script: &str) {
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().expect(script);
-        let actual = res.result.to_string();
+        let actual = res.payload.to_string();
         assert!(actual.starts_with("table: 0x"));
     }
 
@@ -331,10 +331,10 @@ mod tests {
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from("foo"), res.result);
+        assert_eq!(LamValue::from("foo"), res.payload);
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from("bar"), res.result);
+        assert_eq!(LamValue::from("bar"), res.payload);
     }
 
     #[test_case(r#""#, "")]
@@ -347,7 +347,7 @@ mod tests {
     fn return_to_string(script: &str, expected: &str) {
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().expect(script);
-        assert_eq!(expected, res.result.to_string());
+        assert_eq!(expected, res.payload.to_string());
     }
 
     #[test]
@@ -363,11 +363,11 @@ mod tests {
         let mut e = EvaluationBuilder::new(script, &b"0"[..]).build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from("0"), res.result);
+        assert_eq!(LamValue::from("0"), res.payload);
 
         e.set_input(&b"1"[..]);
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from("1"), res.result);
+        assert_eq!(LamValue::from("1"), res.payload);
     }
 }

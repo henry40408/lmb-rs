@@ -154,7 +154,7 @@ fn do_check_syntax<S: AsRef<str>>(no_color: bool, name: S, script: S) -> anyhow:
 fn print_result<S>(
     json: bool,
     no_color: bool,
-    result: LamResult<EvaluationResult>,
+    result: LamResult<Solution>,
     script: S,
 ) -> anyhow::Result<()>
 where
@@ -163,9 +163,9 @@ where
     match result {
         Ok(eval_result) => {
             let output = if json {
-                serde_json::to_string(&eval_result.result)?
+                serde_json::to_string(&eval_result.payload)?
             } else {
-                eval_result.result.to_string()
+                eval_result.payload.to_string()
             };
             print!("{output}");
             Ok(())

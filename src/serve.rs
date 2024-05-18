@@ -72,12 +72,12 @@ where
     match res {
         Ok(res) => {
             if state.json {
-                let Ok(serialized) = serde_json::to_string(&res.result) else {
+                let Ok(serialized) = serde_json::to_string(&res.payload) else {
                     return (StatusCode::INTERNAL_SERVER_ERROR, "".to_string());
                 };
                 (StatusCode::OK, serialized)
             } else {
-                (StatusCode::OK, res.result.to_string())
+                (StatusCode::OK, res.payload.to_string())
             }
         }
         Err(err) => {

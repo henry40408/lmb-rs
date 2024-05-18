@@ -268,7 +268,7 @@ mod tests {
             .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from(1.23), res.result);
+        assert_eq!(LamValue::from(1.23), res.payload);
         assert_eq!(LamValue::from(4.56), store.get("a").unwrap());
     }
 
@@ -308,13 +308,13 @@ mod tests {
 
         {
             let res = e.evaluate().unwrap();
-            assert_eq!(LamValue::from(1), res.result);
+            assert_eq!(LamValue::from(1), res.payload);
             assert_eq!(LamValue::from(2), store.get("a").unwrap());
         }
 
         {
             let res = e.evaluate().unwrap();
-            assert_eq!(LamValue::from(2), res.result);
+            assert_eq!(LamValue::from(2), res.payload);
             assert_eq!(LamValue::from(3), store.get("a").unwrap());
         }
     }
@@ -335,7 +335,7 @@ mod tests {
             .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from(2), res.result);
+        assert_eq!(LamValue::from(2), res.payload);
         assert_eq!(LamValue::from(2), store.get("a").unwrap());
     }
 
@@ -359,7 +359,7 @@ mod tests {
             .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from(1), res.result);
+        assert_eq!(LamValue::from(1), res.payload);
         assert_eq!(LamValue::from(1), store.get("a").unwrap());
     }
 }
