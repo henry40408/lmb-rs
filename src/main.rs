@@ -344,6 +344,7 @@ async fn try_main() -> anyhow::Result<()> {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 #[tokio::main]
 async fn main() -> ExitCode {
     if let Err(e) = try_main().await {
