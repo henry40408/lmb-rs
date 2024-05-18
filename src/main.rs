@@ -7,7 +7,12 @@ use lam::*;
 use mlua::prelude::*;
 use once_cell::sync::Lazy;
 use serve::ServeOptions;
-use std::{io, path::PathBuf, process::ExitCode, time::Duration};
+use std::{
+    io::{self, Read},
+    path::PathBuf,
+    process::ExitCode,
+    time::Duration,
+};
 use tracing::Level;
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
 
@@ -151,13 +156,14 @@ fn do_check_syntax<S: AsRef<str>>(no_color: bool, name: S, script: S) -> anyhow:
     Ok(())
 }
 
-fn print_result<S>(
+fn print_result<R, S>(
     json: bool,
     no_color: bool,
-    result: LamResult<Solution>,
+    result: LamResult<Solution<R>>,
     script: S,
 ) -> anyhow::Result<()>
 where
+    for<'lua> R: 'lua + Read,
     S: AsRef<str>,
 {
     match result {

@@ -118,7 +118,7 @@ where
     /// let res = e.evaluate().unwrap();
     /// assert_eq!(LamValue::from(true), res.payload);
     /// ```
-    pub fn build(self) -> Evaluation<R> {
+    pub fn build(self) -> Arc<Evaluation<R>> {
         let vm = Lua::new();
         vm.sandbox(true).expect("failed to enable sandbox");
 
@@ -127,21 +127,27 @@ where
             let _ = trace_span!("compile script").entered();
             compiler.compile(&self.script)
         };
-        Evaluation {
+        Arc::new(Evaluation {
             compiled,
             input: Arc::new(Mutex::new(BufReader::new(self.input))),
             name: self.name.unwrap_or_default(),
             store: self.store,
+            script: self.script,
             timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
             vm,
-        }
+        })
     }
 }
 
 /// Solution obtained by the function.
-pub struct Solution {
+pub struct Solution<R>
+where
+    for<'lua> R: 'lua + Read,
+{
     /// Execution duration.
     pub duration: Duration,
+    /// Container of function that obtained the solution.
+    pub evaluation: Arc<Evaluation<R>>,
     /// Max memory usage in bytes.
     pub max_memory: usize,
     /// Result returned by the function.
@@ -156,6 +162,7 @@ where
     compiled: Vec<u8>,
     input: LamInput<BufReader<R>>,
     name: String,
+    script: String,
     store: Option<LamStore>,
     timeout: Duration,
     vm: Lua,
@@ -174,7 +181,7 @@ where
     /// let res = e.evaluate().unwrap();
     /// assert_eq!(LamValue::from(2), res.payload);
     /// ```
-    pub fn evaluate(&self) -> LamResult<Solution> {
+    pub fn evaluate(self: &Arc<Self>) -> LamResult<Solution<R>> {
         self.do_evaluate(None)
     }
 
@@ -189,7 +196,7 @@ where
     /// let res = e.evaluate_with_state(state).unwrap();
     /// assert_eq!(LamValue::from(2), res.payload);
     /// ```
-    pub fn evaluate_with_state(&self, state: LamState) -> LamResult<Solution> {
+    pub fn evaluate_with_state(self: &Arc<Self>, state: LamState) -> LamResult<Solution<R>> {
         self.do_evaluate(Some(state))
     }
 
@@ -210,11 +217,11 @@ where
     /// let r = e.evaluate().unwrap();
     /// assert_eq!(LamValue::from("2"), r.payload);
     /// ```
-    pub fn set_input(&mut self, input: R) {
-        self.input = Arc::new(Mutex::new(BufReader::new(input)));
+    pub fn set_input(self: &Arc<Self>, input: R) {
+        *self.input.lock() = BufReader::new(input);
     }
 
-    fn do_evaluate(&self, state: Option<LamState>) -> LamResult<Solution> {
+    fn do_evaluate(self: &Arc<Self>, state: Option<LamState>) -> LamResult<Solution<R>> {
         let vm = &self.vm;
         LuaLam::register(vm, self.input.clone(), self.store.clone(), state)?;
 
@@ -246,6 +253,7 @@ where
         debug!(?duration, name, ?max_memory, "evaluated");
         Ok(Solution {
             duration,
+            evaluation: self.clone(),
             max_memory,
             payload: result,
         })
@@ -360,7 +368,7 @@ mod tests {
     #[test]
     fn replace_input() {
         let script = "return require('@lam'):read('*a')";
-        let mut e = EvaluationBuilder::new(script, &b"0"[..]).build();
+        let e = EvaluationBuilder::new(script, &b"0"[..]).build();
 
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::from("0"), res.payload);
