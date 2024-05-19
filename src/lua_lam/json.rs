@@ -36,7 +36,7 @@ mod tests {
             "str" => "hello".into()
         }
         .into();
-        assert_eq!(expected, res.result);
+        assert_eq!(expected, res.payload);
     }
 
     #[test]
@@ -47,7 +47,7 @@ mod tests {
         "#;
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        let value: Value = serde_json::from_str(&res.result.to_string()).unwrap();
+        let value: Value = serde_json::from_str(&res.payload.to_string()).unwrap();
         assert_eq!(json!({"bool":true,"num":2,"str":"hello"}), value);
     }
 
@@ -60,7 +60,7 @@ mod tests {
         "#;
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        let value: Value = serde_json::from_str(&res.result.to_string()).unwrap();
+        let value: Value = serde_json::from_str(&res.payload.to_string()).unwrap();
         assert_eq!(json!({"a":[{}]}), value);
     }
 }

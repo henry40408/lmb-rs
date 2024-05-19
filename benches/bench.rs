@@ -63,7 +63,7 @@ fn lam_update(bencher: &mut Bencher) {
 fn lam_read_all(bencher: &mut Bencher) {
     let input = "1";
     let script = "return require('@lam'):read('*a')";
-    let mut e = EvaluationBuilder::new(script, input.as_bytes()).build();
+    let e = EvaluationBuilder::new(script, input.as_bytes()).build();
     bencher.iter(|| {
         e.set_input(&b"0"[..]);
         e.evaluate().unwrap()
@@ -73,7 +73,7 @@ fn lam_read_all(bencher: &mut Bencher) {
 fn lam_read_line(bencher: &mut Bencher) {
     let input = "1";
     let script = "return require('@lam'):read('*l')";
-    let mut e = EvaluationBuilder::new(script, input.as_bytes()).build();
+    let e = EvaluationBuilder::new(script, input.as_bytes()).build();
     bencher.iter(|| {
         e.set_input(&b"0"[..]);
         e.evaluate().unwrap()
@@ -83,7 +83,7 @@ fn lam_read_line(bencher: &mut Bencher) {
 fn lam_read_number(bencher: &mut Bencher) {
     let input = "1";
     let script = "return require('@lam'):read('*n')";
-    let mut e = EvaluationBuilder::new(script, input.as_bytes()).build();
+    let e = EvaluationBuilder::new(script, input.as_bytes()).build();
     bencher.iter(|| {
         e.set_input(&b"0"[..]);
         e.evaluate().unwrap()
@@ -93,7 +93,7 @@ fn lam_read_number(bencher: &mut Bencher) {
 fn lam_read_unicode(bencher: &mut Bencher) {
     let input = "1";
     let script = "return require('@lam'):read_unicode(1)";
-    let mut e = EvaluationBuilder::new(script, input.as_bytes()).build();
+    let e = EvaluationBuilder::new(script, input.as_bytes()).build();
     bencher.iter(|| {
         e.set_input(&b"0"[..]);
         e.evaluate().unwrap()

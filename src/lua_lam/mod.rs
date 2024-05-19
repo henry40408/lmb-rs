@@ -182,7 +182,7 @@ mod tests {
         );
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from(body), res.result);
+        assert_eq!(LamValue::from(body), res.payload);
 
         get_mock.assert();
     }
@@ -210,7 +210,7 @@ mod tests {
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
 
-        let actual: Value = serde_json::from_str(&res.result.to_string()).unwrap();
+        let actual: Value = serde_json::from_str(&res.payload.to_string()).unwrap();
         let expected = json!({ "a": 1 });
         assert_eq!(expected, actual);
 
@@ -241,7 +241,7 @@ mod tests {
         );
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from("2"), res.result);
+        assert_eq!(LamValue::from("2"), res.payload);
 
         post_mock.assert();
     }
@@ -261,7 +261,7 @@ mod tests {
         let res = e.evaluate().unwrap();
         assert_eq!(
             LamValue::from(vec![1.into(), 2.into(), 3.into()]),
-            res.result
+            res.payload
         );
     }
 
@@ -284,7 +284,7 @@ mod tests {
         let script = "return require('@lam'):read('*n')";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().expect(input);
-        assert_eq!(expected, res.result);
+        assert_eq!(expected, res.payload);
     }
 
     #[test_case("return require('@lam'):read('*a')", "foo\nbar".into())]
@@ -295,7 +295,7 @@ mod tests {
         let input = "foo\nbar";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().expect(script);
-        assert_eq!(expected, res.result);
+        assert_eq!(expected, res.payload);
     }
 
     #[test_case(1, "你")]
@@ -306,7 +306,7 @@ mod tests {
         let input = "你好";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from(expected), res.result);
+        assert_eq!(LamValue::from(expected), res.payload);
     }
 
     #[test]
@@ -317,13 +317,13 @@ mod tests {
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from("你"), res.result);
+        assert_eq!(LamValue::from("你"), res.payload);
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from("好"), res.result);
+        assert_eq!(LamValue::from("好"), res.payload);
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::None, res.result);
+        assert_eq!(LamValue::None, res.payload);
     }
 
     #[test]
@@ -333,7 +333,7 @@ mod tests {
         let script = "return require('@lam'):read_unicode(1)";
         let e = EvaluationBuilder::new(script, input).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::None, res.result);
+        assert_eq!(LamValue::None, res.payload);
     }
 
     #[test]
@@ -343,7 +343,7 @@ mod tests {
         let script = "return require('@lam'):read_unicode(12)";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from(input), res.result);
+        assert_eq!(LamValue::from(input), res.payload);
     }
 
     #[test_case(1, "a")]
@@ -354,7 +354,7 @@ mod tests {
         let script = format!("return require('@lam'):read_unicode({n})");
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from(expected), res.result);
+        assert_eq!(LamValue::from(expected), res.payload);
     }
 
     #[test]
@@ -367,7 +367,7 @@ mod tests {
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
         let expected = "7f1b55b860590406f84f9394f4e73356902dad022a8cd6f43221086d3c70699e";
-        assert_eq!(LamValue::from(expected), res.result);
+        assert_eq!(LamValue::from(expected), res.payload);
     }
 
     #[test]
@@ -380,6 +380,6 @@ mod tests {
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
         let expected = "8ef120dc5b07ab464dae787f89077001dbf720132277132e7db9af154f2221a4";
-        assert_eq!(LamValue::from(expected), res.result);
+        assert_eq!(LamValue::from(expected), res.payload);
     }
 }

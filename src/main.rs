@@ -2,10 +2,8 @@ use anyhow::bail;
 use clap::{Parser, Subcommand};
 use clap_stdin::{FileOrStdin, Source};
 use comfy_table::{presets, Table};
-use fancy_regex::Regex;
 use lam::*;
 use mlua::prelude::*;
-use once_cell::sync::Lazy;
 use serve::ServeOptions;
 use std::{io, path::PathBuf, process::ExitCode, time::Duration};
 use tracing::Level;
@@ -13,10 +11,6 @@ use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
 
 mod serve;
 
-static LUA_ERROR_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\[[^\]]+\]:(\d+):.+")
-        .expect("failed to compile regular expression for Lua error message")
-});
 static VERSION: &str = env!("APP_VERSION");
 
 #[derive(Parser)]
@@ -38,6 +32,10 @@ struct Cli {
     /// No color <https://no-color.org/>
     #[arg(long, env = "NO_COLOR")]
     no_color: bool,
+
+    /// Theme. Checkout `list-themes` for available themes.
+    #[arg(long, env = "THEME")]
+    theme: Option<String>,
 
     #[command(subcommand)]
     command: Commands,
@@ -77,6 +75,8 @@ enum Commands {
     /// Interact with examples
     #[command(subcommand)]
     Example(ExampleCommands),
+    /// List available themes
+    ListThemes,
     /// Run a HTTP server from a Lua script
     Serve {
         #[command(flatten)]
@@ -151,47 +151,6 @@ fn do_check_syntax<S: AsRef<str>>(no_color: bool, name: S, script: S) -> anyhow:
     Ok(())
 }
 
-fn print_result<S>(
-    json: bool,
-    no_color: bool,
-    result: LamResult<EvaluationResult>,
-    script: S,
-) -> anyhow::Result<()>
-where
-    S: AsRef<str>,
-{
-    match result {
-        Ok(eval_result) => {
-            let output = if json {
-                serde_json::to_string(&eval_result.result)?
-            } else {
-                eval_result.result.to_string()
-            };
-            print!("{output}");
-            Ok(())
-        }
-        Err(e) => match &e {
-            LamError::Lua(LuaError::RuntimeError(message)) => {
-                let first_line = message.lines().next().unwrap_or_default();
-                eprintln!("{first_line}");
-                if let Ok(Some(c)) = LUA_ERROR_REGEX.captures(first_line) {
-                    if let Some(n) = c.get(1).and_then(|n| n.as_str().parse::<usize>().ok()) {
-                        print_script(
-                            script,
-                            &PrintOptions {
-                                highlighted: Some(n),
-                                no_color: Some(no_color),
-                            },
-                        )?;
-                    }
-                }
-                Err(e.into())
-            }
-            _ => Err(e.into()),
-        },
-    }
-}
-
 #[cfg(not(tarpaulin_include))]
 async fn try_main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -218,6 +177,12 @@ async fn try_main() -> anyhow::Result<()> {
         .compact()
         .init();
 
+    let print_options = PrintOptions {
+        json: cli.json,
+        no_color: cli.no_color,
+        theme: cli.theme,
+        ..Default::default()
+    };
     match cli.command {
         Commands::Check { file } => {
             let name = if let Source::Arg(path) = &file.source {
@@ -240,24 +205,31 @@ async fn try_main() -> anyhow::Result<()> {
             }
             let timeout = timeout.map(Duration::from_secs);
             let e = EvaluationBuilder::new(&script, io::stdin())
-                .with_name(name)
+                .with_name(&name)
                 .with_timeout(timeout)
                 .build();
             let res = e.evaluate();
-            print_result(cli.json, cli.no_color, res, &script)
+            let mut buf = String::new();
+            match render_evaluation_result(&mut buf, script, res, &print_options) {
+                Ok(_) => {
+                    print!("{buf}");
+                    Ok(())
+                }
+                Err(e) => {
+                    eprint!("{buf}");
+                    Err(e)
+                }
+            }
         }
         Commands::Example(ExampleCommands::Cat { name }) => {
             let Some(found) = EXAMPLES.iter().find(|e| e.name == name) else {
                 bail!("example with {name} not found");
             };
             let script = &found.script.trim();
-            print_script(
-                script,
-                &PrintOptions {
-                    highlighted: None,
-                    no_color: Some(cli.no_color),
-                },
-            )
+            let mut buf = String::new();
+            render_script(&mut buf, script, &print_options)?;
+            print!("{buf}");
+            Ok(())
         }
         Commands::Example(ExampleCommands::Evaluate { name }) => {
             let Some(found) = EXAMPLES.iter().find(|e| e.name == name) else {
@@ -265,10 +237,13 @@ async fn try_main() -> anyhow::Result<()> {
             };
             let script = found.script.trim();
             let e = EvaluationBuilder::new(script, io::stdin())
-                .with_name(name)
+                .with_name(name.as_str())
                 .build();
             let res = e.evaluate();
-            print_result(cli.json, cli.no_color, res, script)
+            let mut buf = String::new();
+            render_evaluation_result(&mut buf, script, res, &print_options)?;
+            print!("{buf}");
+            Ok(())
         }
         Commands::Example(ExampleCommands::List) => {
             let mut table = Table::new();
@@ -279,7 +254,7 @@ async fn try_main() -> anyhow::Result<()> {
                 let description = &e.description;
                 table.add_row(vec![name, description]);
             }
-            println!("{table}");
+            print!("{table}");
             Ok(())
         }
         Commands::Example(ExampleCommands::Serve {
@@ -307,6 +282,14 @@ async fn try_main() -> anyhow::Result<()> {
             .await?;
             Ok(())
         }
+        Commands::ListThemes => {
+            let p = bat::PrettyPrinter::new();
+            for t in p.themes() {
+                println!("{t}");
+            }
+            Ok(())
+        }
+
         Commands::Serve {
             bind,
             file,
@@ -344,12 +327,13 @@ async fn try_main() -> anyhow::Result<()> {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 #[tokio::main]
 async fn main() -> ExitCode {
     if let Err(e) = try_main().await {
         match e.downcast_ref::<LamError>() {
-            // handled, do nothing
-            Some(&LamError::Lua(LuaError::RuntimeError(_))) => {}
+            // the following errors are handled, do nothing
+            Some(&LamError::Lua(LuaError::RuntimeError(_) | LuaError::SyntaxError { .. })) => {}
             _ => eprint!("{e:?}"),
         }
         return ExitCode::FAILURE;
@@ -359,24 +343,7 @@ async fn main() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use std::io::empty;
-
-    use lam::EvaluationBuilder;
-
-    use crate::{do_check_syntax, print_result};
-
-    #[test]
-    fn print_evaluation_result() {
-        let script = "return true";
-        let e = EvaluationBuilder::new(script, empty()).build();
-
-        let res = e.evaluate();
-        let no_color = true;
-        print_result(false, no_color, res, script).unwrap();
-
-        let res = e.evaluate();
-        print_result(true, no_color, res, script).unwrap();
-    }
+    use crate::do_check_syntax;
 
     #[test]
     fn syntax_check() {

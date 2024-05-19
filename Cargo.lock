@@ -1208,6 +1208,7 @@ dependencies = [
  "clap",
  "clap-stdin",
  "comfy-table",
+ "console",
  "crypto-common",
  "dashmap",
  "fancy-regex",

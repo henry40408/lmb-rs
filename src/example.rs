@@ -1,4 +1,3 @@
-use bat::PrettyPrinter;
 use full_moon::{tokenizer::TokenType, visitors::Visitor};
 use include_dir::{include_dir, Dir};
 use once_cell::sync::Lazy;
@@ -70,33 +69,9 @@ pub static EXAMPLES: Lazy<Vec<Example>> = Lazy::new(|| {
     examples
 });
 
-/// Options to print script
-#[derive(Default)]
-pub struct PrintOptions {
-    /// No colors
-    pub no_color: Option<bool>,
-    /// Line number to be highlighted.
-    pub highlighted: Option<usize>,
-}
-
-/// Print script with syntax highlighting
-pub fn print_script<S: AsRef<str>>(script: S, options: &PrintOptions) -> anyhow::Result<()> {
-    let mut printer = PrettyPrinter::new();
-    printer.colored_output(!options.no_color.unwrap_or_default());
-    if let Some(h) = options.highlighted {
-        printer.highlight(h);
-    }
-    printer
-        .line_numbers(true)
-        .input_from_bytes(script.as_ref().as_bytes())
-        .language("lua")
-        .print()?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::{print_script, PrintOptions, EXAMPLES};
+    use crate::EXAMPLES;
 
     #[test]
     fn description_of_examples() {
@@ -104,11 +79,5 @@ mod tests {
             let name = &e.name;
             assert!(!e.description.is_empty(), "{name} has no description");
         }
-    }
-
-    #[test]
-    fn print_lua_code() {
-        let options = PrintOptions::default();
-        print_script("return true", &options).unwrap();
     }
 }
