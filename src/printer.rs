@@ -21,7 +21,7 @@ static LUA_ERROR_REGEX: Lazy<Regex> = Lazy::new(|| {
 });
 
 /// Options to print script
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 pub struct PrintOptions {
     /// Line number to be highlighted.
     pub highlighted: Option<usize>,
@@ -29,6 +29,8 @@ pub struct PrintOptions {
     pub json: bool,
     /// No colors
     pub no_color: bool,
+    /// Theme
+    pub theme: Option<String>,
 }
 
 impl PrintOptions {
@@ -47,8 +49,7 @@ where
     S: AsRef<str>,
     W: Write,
 {
-    let style_components =
-        StyleComponents::new(&[StyleComponent::Grid, StyleComponent::LineNumbers]);
+    let style_components = StyleComponents::new(&[StyleComponent::LineNumbers]);
     let mut config = Config {
         colored_output: !options.no_color,
         language: Some("lua"),
@@ -58,6 +59,9 @@ where
         term_width: Term::stdout().size().1 as usize,
         ..Default::default()
     };
+    if let Some(theme) = &options.theme {
+        config.theme.clone_from(theme);
+    }
     if let Some(line) = options.highlighted {
         let ranges = vec![LineRange::new(line, line)];
         config.highlighted_lines = HighlightedLineRanges(LineRanges::from(ranges));
@@ -84,7 +88,7 @@ where
     if let Ok(Some(c)) = LUA_ERROR_REGEX.captures(first_line) {
         let try_line_number = c.get(1).and_then(|n| n.as_str().parse::<usize>().ok());
         if let Some(line_number) = try_line_number {
-            let mut new_options = *options;
+            let mut new_options = options.clone();
             new_options.highlighted = Some(line_number);
             render_script(f, script, &new_options)?;
         }

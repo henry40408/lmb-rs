@@ -33,6 +33,10 @@ struct Cli {
     #[arg(long, env = "NO_COLOR")]
     no_color: bool,
 
+    /// Theme. Checkout `list-themes` for available themes.
+    #[arg(long, env = "THEME")]
+    theme: Option<String>,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -71,6 +75,8 @@ enum Commands {
     /// Interact with examples
     #[command(subcommand)]
     Example(ExampleCommands),
+    /// List available themes
+    ListThemes,
     /// Run a HTTP server from a Lua script
     Serve {
         #[command(flatten)]
@@ -174,6 +180,7 @@ async fn try_main() -> anyhow::Result<()> {
     let print_options = PrintOptions {
         json: cli.json,
         no_color: cli.no_color,
+        theme: cli.theme,
         ..Default::default()
     };
     match cli.command {
@@ -275,6 +282,14 @@ async fn try_main() -> anyhow::Result<()> {
             .await?;
             Ok(())
         }
+        Commands::ListThemes => {
+            let p = bat::PrettyPrinter::new();
+            for t in p.themes() {
+                println!("{t}");
+            }
+            Ok(())
+        }
+
         Commands::Serve {
             bind,
             file,
@@ -318,8 +333,7 @@ async fn main() -> ExitCode {
     if let Err(e) = try_main().await {
         match e.downcast_ref::<LamError>() {
             // the following errors are handled, do nothing
-            Some(&LamError::Lua(LuaError::RuntimeError(_))) => {}
-            Some(&LamError::Lua(LuaError::SyntaxError { .. })) => {}
+            Some(&LamError::Lua(LuaError::RuntimeError(_) | LuaError::SyntaxError { .. })) => {}
             _ => eprint!("{e:?}"),
         }
         return ExitCode::FAILURE;
