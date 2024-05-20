@@ -241,9 +241,16 @@ async fn try_main() -> anyhow::Result<()> {
                 .build();
             let res = e.evaluate();
             let mut buf = String::new();
-            render_evaluation_result(&mut buf, script, res, &print_options)?;
-            print!("{buf}");
-            Ok(())
+            match render_evaluation_result(&mut buf, script, res, &print_options) {
+                Ok(_) => {
+                    print!("{buf}");
+                    Ok(())
+                }
+                Err(e) => {
+                    eprint!("{buf}");
+                    Err(e)
+                }
+            }
         }
         Commands::Example(ExampleCommands::List) => {
             let mut table = Table::new();
