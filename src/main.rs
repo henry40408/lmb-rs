@@ -18,7 +18,7 @@ static VERSION: &str = env!("APP_VERSION");
 /// lam is a Lua function runner.
 struct Cli {
     /// Checks the syntax of the function, disabled by default for performance reasons
-    #[arg(long, env = "CHECK_SYNTAX")]
+    #[arg(long, env = "LAM_CHECK_SYNTAX")]
     check_syntax: bool,
 
     /// Debug mode
@@ -34,7 +34,7 @@ struct Cli {
     no_color: bool,
 
     /// Theme. Checkout `list-themes` for available themes.
-    #[arg(long, env = "THEME")]
+    #[arg(long, env = "LAM_THEME")]
     theme: Option<String>,
 
     #[command(subcommand)]
@@ -44,11 +44,11 @@ struct Cli {
 #[derive(Default, Parser)]
 struct StoreOptions {
     /// Run migrations
-    #[arg(long, env = "RUN_MIGRATIONS")]
+    #[arg(long, env = "LMA_RUN_MIGRATIONS")]
     run_migrations: bool,
 
     /// Store path
-    #[arg(long, env = "STORE_PATH")]
+    #[arg(long, env = "LAM_STORE_PATH")]
     store_path: Option<PathBuf>,
 }
 
