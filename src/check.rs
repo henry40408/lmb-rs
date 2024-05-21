@@ -46,7 +46,9 @@ where
 
         let mut buf = Vec::new();
         let name = name.as_ref();
-        let message = additional.as_ref().map_or(String::new(), |s| s.to_string());
+        let message = additional
+            .as_ref()
+            .map_or_else(String::new, |s| s.to_string());
         let start = token.start_position().bytes();
         let end = token.end_position().bytes();
         let span = start..end;

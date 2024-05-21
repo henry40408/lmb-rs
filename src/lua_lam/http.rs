@@ -46,8 +46,8 @@ impl LuaUserData for LuaLamHTTPResponse {
         methods.add_method_mut("read", |vm, this, f: LuaValue<'lua>| {
             lua_lam_read(vm, &mut this.reader, f)
         });
-        methods.add_method_mut("read_unicode", |vm, this, i: Option<usize>| {
-            lua_lam_read_unicode(vm, &mut this.reader, i)
+        methods.add_method_mut("read_unicode", |vm, this, f: LuaValue<'lua>| {
+            lua_lam_read_unicode(vm, &mut this.reader, f)
         });
     }
 }
@@ -117,5 +117,126 @@ fn lua_lam_fetch(
 impl LuaUserData for LuaLamHTTP {
     fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method("fetch", lua_lam_fetch);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::empty;
+
+    use mockito::Server;
+    use serde_json::{json, Value};
+
+    use crate::{EvaluationBuilder, LamValue};
+
+    #[test]
+    fn http_get() {
+        let mut server = Server::new();
+
+        let body = "<html>content</html>";
+        let get_mock = server
+            .mock("GET", "/html")
+            .with_header("content-type", "text/html")
+            .with_body(body)
+            .create();
+
+        let url = server.url();
+        let script = format!(
+            r#"
+            local m = require('@lam/http')
+            local res = m:fetch('{url}/html')
+            return res:read('*a')
+            "#
+        );
+        let e = EvaluationBuilder::new(script, empty()).build();
+        let res = e.evaluate().unwrap();
+        assert_eq!(LamValue::from(body), res.payload);
+
+        get_mock.assert();
+    }
+
+    #[test]
+    fn http_get_unicode() {
+        let mut server = Server::new();
+
+        let body = "<html>中文</html>";
+        let get_mock = server
+            .mock("GET", "/html")
+            .with_header("content-type", "text/html")
+            .with_body(body)
+            .create();
+
+        let url = server.url();
+        let script = format!(
+            r#"
+            local m = require('@lam/http')
+            local res = m:fetch('{url}/html')
+            return res:read_unicode('*a')
+            "#
+        );
+        let e = EvaluationBuilder::new(script, empty()).build();
+        let res = e.evaluate().unwrap();
+        assert_eq!(LamValue::from(body), res.payload);
+
+        get_mock.assert();
+    }
+
+    #[test]
+    fn http_get_json() {
+        let mut server = Server::new();
+
+        let body = r#"{"a":1}"#;
+        let get_mock = server
+            .mock("GET", "/json")
+            .with_header("content-type", "application/json")
+            .with_body(body)
+            .create();
+
+        let url = server.url();
+        let script = format!(
+            r#"
+            local m = require('@lam/http')
+            local j = require('@lam/json')
+            local res = m:fetch('{url}/json')
+            return j:encode(res:json())
+            "#
+        );
+        let e = EvaluationBuilder::new(script, empty()).build();
+        let res = e.evaluate().unwrap();
+
+        let actual: Value = serde_json::from_str(&res.payload.to_string()).unwrap();
+        let expected = json!({ "a": 1 });
+        assert_eq!(expected, actual);
+
+        get_mock.assert();
+    }
+
+    #[test]
+    fn http_post() {
+        let mut server = Server::new();
+
+        let post_mock = server
+            .mock("POST", "/add")
+            .match_body("1+1")
+            .with_header("content-type", "text/plain")
+            .with_body("2")
+            .create();
+
+        let url = server.url();
+        let script = format!(
+            r#"
+            local m = require('@lam/http')
+            local res = m:fetch('{url}/add', {{
+              method = 'POST',
+              body = '1+1',
+            }})
+            return res:read('*a')
+            "#
+        );
+        let e = EvaluationBuilder::new(script, empty()).build();
+        let res = e.evaluate().unwrap();
+        assert_eq!(LamValue::from("2"), res.payload);
+
+        post_mock.assert();
     }
 }
