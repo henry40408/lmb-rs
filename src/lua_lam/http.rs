@@ -8,6 +8,7 @@ use http::Method;
 use mlua::prelude::*;
 use parking_lot::Mutex;
 use tracing::warn;
+use ureq::Request;
 use url::Url;
 
 use super::{lua_lam_read, lua_lam_read_unicode};
@@ -51,29 +52,42 @@ impl LuaUserData for LuaLamHTTPResponse {
     }
 }
 
+fn set_headers(req: Request, headers: &LamValue) -> Request {
+    let LamValue::Table(h) = headers else {
+        return req;
+    };
+    let mut new_req = req;
+    for (k, v) in h.iter() {
+        new_req = new_req.set(k.as_str(), &v.to_string());
+    }
+    new_req
+}
+
 fn lua_lam_fetch(
     _: &Lua,
     _: &LuaLamHTTP,
     (uri, options): (String, Option<LuaTable<'_>>),
 ) -> LuaResult<LuaLamHTTPResponse> {
+    let options = options.as_ref();
     let url: Url = uri.parse().into_lua_err()?;
     let method: String = options
-        .as_ref()
         .and_then(|t| t.get("method").ok().map(|s: String| s))
         .unwrap_or_else(|| "GET".to_string());
     let method: Method = method.parse().unwrap_or(Method::GET);
+    let headers: LamValue = options
+        .and_then(|t| t.get("headers").ok())
+        .unwrap_or(LamValue::None);
     let res = if method.is_idempotent() {
-        ureq::request(method.as_str(), url.as_str())
-            .call()
-            .into_lua_err()?
+        let req = ureq::request(method.as_str(), url.as_str());
+        let req = set_headers(req, &headers);
+        req.call().into_lua_err()?
     } else {
         let body: String = options
-            .as_ref()
             .map(|t| t.get("body").unwrap_or_default())
             .unwrap_or_default();
-        ureq::request(method.as_str(), url.as_str())
-            .send(Cursor::new(body))
-            .into_lua_err()?
+        let req = ureq::request(method.as_str(), url.as_str());
+        let req = set_headers(req, &headers);
+        req.send(Cursor::new(body)).into_lua_err()?
     };
     let charset = res.charset().to_string();
     let content_type = res.content_type().to_string();
