@@ -156,6 +156,33 @@ mod tests {
     }
 
     #[test]
+    fn http_get_headers() {
+        let mut server = Server::new();
+
+        let body = "a";
+        let get_mock = server
+            .mock("GET", "/headers")
+            .match_header("a", "b")
+            .with_header("content-type", "text/plain")
+            .with_body(body)
+            .create();
+
+        let url = server.url();
+        let script = format!(
+            r#"
+            local m = require('@lam/http')
+            local res = m:fetch('{url}/headers', {{ headers = {{ a = 'b' }} }})
+            return res:read('*a')
+            "#
+        );
+        let e = EvaluationBuilder::new(script, empty()).build();
+        let res = e.evaluate().unwrap();
+        assert_eq!(LamValue::from(body), res.payload);
+
+        get_mock.assert();
+    }
+
+    #[test]
     fn http_get_unicode() {
         let mut server = Server::new();
 
