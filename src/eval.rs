@@ -124,7 +124,7 @@ where
 
         let compiled = {
             let compiler = Compiler::new();
-            let _ = trace_span!("compile script").entered();
+            let _s = trace_span!("compile script").entered();
             compiler.compile(&self.script)
         };
         Arc::new(Evaluation {
@@ -243,7 +243,7 @@ where
         let name = &self.name;
         let chunk = vm.load(&self.compiled).set_name(name);
 
-        let _ = trace_span!("evaluate", name).entered();
+        let _s = trace_span!("evaluate", name).entered();
         let result = chunk.eval()?;
 
         let duration = start.elapsed();

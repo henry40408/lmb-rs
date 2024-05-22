@@ -7,7 +7,7 @@ use std::{
 use http::Method;
 use mlua::prelude::*;
 use parking_lot::Mutex;
-use tracing::warn;
+use tracing::{trace_span, warn};
 use ureq::Request;
 use url::Url;
 
@@ -77,6 +77,7 @@ fn lua_lam_fetch(
     let headers: LamValue = options
         .and_then(|t| t.get("headers").ok())
         .unwrap_or(LamValue::None);
+    let _s = trace_span!("send HTTP request", ?method, ?url, ?headers).entered();
     let res = if method.is_idempotent() {
         let req = ureq::request(method.as_str(), url.as_str());
         let req = set_headers(req, &headers);

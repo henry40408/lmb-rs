@@ -1,7 +1,10 @@
 use include_dir::{include_dir, Dir};
 use parking_lot::Mutex;
 use rusqlite::Connection;
-use std::{path::Path, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use stmt::*;
 use tracing::{debug, trace_span};
 
@@ -10,6 +13,15 @@ use crate::{LamResult, LamValue};
 mod stmt;
 
 static MIGRATIONS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/migrations");
+
+/// Store options for command line
+#[derive(Default)]
+pub struct StoreOptions {
+    /// Store path
+    pub store_path: Option<PathBuf>,
+    /// Run migrations
+    pub run_migrations: bool,
+}
 
 /// Store that persists data across executions.
 #[derive(Clone)]
@@ -49,7 +61,7 @@ impl LamStore {
     /// store.migrate().unwrap();
     /// ```
     pub fn migrate(&self) -> LamResult<()> {
-        let _ = trace_span!("run migrations").entered();
+        let _s = trace_span!("run migrations").entered();
         let conn = self.conn.lock();
         for e in MIGRATIONS_DIR.entries() {
             let path = e.path();
@@ -59,7 +71,7 @@ impl LamStore {
                 .expect("invalid file")
                 .contents_utf8()
                 .expect("invalid contents");
-            let _ = trace_span!("run migration SQL", ?sql).entered();
+            let _s = trace_span!("run migration SQL", ?sql).entered();
             debug!(?sql, "run migration SQL");
             conn.execute(sql, ())?;
         }
