@@ -154,97 +154,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use mockito::Server;
-    use serde_json::{json, Value};
     use std::io::empty;
     use test_case::test_case;
 
     use crate::{EvaluationBuilder, LamValue};
-
-    #[test]
-    fn http_get() {
-        let mut server = Server::new();
-
-        let body = "<html>content</html>";
-        let get_mock = server
-            .mock("GET", "/html")
-            .with_header("content-type", "text/html")
-            .with_body(body)
-            .create();
-
-        let url = server.url();
-        let script = format!(
-            r#"
-            local m = require('@lam/http')
-            local res = m:fetch('{url}/html')
-            return res:read('*a')
-            "#
-        );
-        let e = EvaluationBuilder::new(script, empty()).build();
-        let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from(body), res.payload);
-
-        get_mock.assert();
-    }
-
-    #[test]
-    fn http_get_json() {
-        let mut server = Server::new();
-
-        let body = r#"{"a":1}"#;
-        let get_mock = server
-            .mock("GET", "/json")
-            .with_header("content-type", "application/json")
-            .with_body(body)
-            .create();
-
-        let url = server.url();
-        let script = format!(
-            r#"
-            local m = require('@lam/http')
-            local j = require('@lam/json')
-            local res = m:fetch('{url}/json')
-            return j:encode(res:json())
-            "#
-        );
-        let e = EvaluationBuilder::new(script, empty()).build();
-        let res = e.evaluate().unwrap();
-
-        let actual: Value = serde_json::from_str(&res.payload.to_string()).unwrap();
-        let expected = json!({ "a": 1 });
-        assert_eq!(expected, actual);
-
-        get_mock.assert();
-    }
-
-    #[test]
-    fn http_post() {
-        let mut server = Server::new();
-
-        let post_mock = server
-            .mock("POST", "/add")
-            .match_body("1+1")
-            .with_header("content-type", "text/plain")
-            .with_body("2")
-            .create();
-
-        let url = server.url();
-        let script = format!(
-            r#"
-            local m = require('@lam/http')
-            local res = m:fetch('{url}/add', {{
-              method = 'POST',
-              body = '1+1',
-            }})
-            return res:read('*a')
-            "#
-        );
-        let e = EvaluationBuilder::new(script, empty()).build();
-        let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from("2"), res.payload);
-
-        post_mock.assert();
-    }
 
     #[test]
     fn read_binary() {
@@ -324,6 +237,16 @@ mod tests {
 
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::None, res.payload);
+    }
+
+    #[test_case("你好\n世界", "*a", "你好\n世界")]
+    #[test_case("你好\n世界", "*l", "你好")]
+    #[test_case("你好", "*a", "你好")]
+    fn read_unicode_format(input: &'static str, f: &str, expected: &str) {
+        let script = format!(r#"return require('@lam'):read_unicode('{f}')"#);
+        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
+        let res = e.evaluate().unwrap();
+        assert_eq!(LamValue::String(expected.to_string()), res.payload);
     }
 
     #[test]

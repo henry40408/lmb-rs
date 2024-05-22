@@ -3,7 +3,7 @@ use std::io::BufRead;
 use mlua::prelude::*;
 use tracing::{field, trace_span};
 
-use crate::{LamInput, LamValue};
+use crate::LamInput;
 
 // This function intentionally uses Lua values instead of Lam values to pass bytes as partial,
 // invalid strings, allowing Lua to handle the bytes.
@@ -72,31 +72,56 @@ where
     Err(LuaError::runtime(format!("unexpected format {f}")))
 }
 
-pub(crate) fn lua_lam_read_unicode<R>(
-    _: &Lua,
+pub(crate) fn lua_lam_read_unicode<'lua, R>(
+    vm: &'lua Lua,
     input: &mut LamInput<R>,
-    n: Option<usize>,
-) -> LuaResult<LamValue>
+    f: LuaValue<'lua>,
+) -> LuaResult<LuaValue<'lua>>
 where
     R: BufRead,
 {
-    let mut remaining = n.unwrap_or(0);
-    let mut buf = vec![];
-    let mut single = 0;
-    while remaining > 0 {
-        let count = input.lock().read(std::slice::from_mut(&mut single))?;
-        if count == 0 {
-            break;
-        }
-        buf.extend_from_slice(std::slice::from_ref(&single));
-        if std::str::from_utf8(&buf).is_ok() {
-            remaining -= 1;
+    if let Some(f) = f.as_str() {
+        match f {
+            "*a" | "*all" => {
+                let mut s = vec![];
+                input.lock().read_to_end(&mut s).into_lua_err()?;
+                return Ok(LuaValue::String(vm.create_string(s)?));
+            }
+            "*l" | "*line" => {
+                let mut s = String::new();
+                input.lock().read_line(&mut s).into_lua_err()?;
+                return Ok(LuaValue::String(vm.create_string(s.trim())?));
+            }
+            _ => {}
         }
     }
-    if buf.is_empty() {
-        return Ok(LamValue::None);
+
+    if let Some(n) = f.as_usize() {
+        let mut remaining = n;
+        let mut buf = vec![];
+        let mut single = 0;
+        while remaining > 0 {
+            let count = input.lock().read(std::slice::from_mut(&mut single))?;
+            if count == 0 {
+                break;
+            }
+            buf.extend_from_slice(std::slice::from_ref(&single));
+            if std::str::from_utf8(&buf).is_ok() {
+                remaining -= 1;
+            }
+        }
+        if buf.is_empty() {
+            return Ok(LuaNil);
+        }
+        return Ok(std::str::from_utf8(&buf).ok().map_or_else(
+            || LuaNil,
+            |s| {
+                vm.create_string(s)
+                    .map_or_else(|_| LuaNil, LuaValue::String)
+            },
+        ));
     }
-    Ok(std::str::from_utf8(&buf)
-        .ok()
-        .map_or(LamValue::None, LamValue::from))
+
+    let f = f.to_string()?;
+    Err(mlua::Error::runtime(format!("unexpected format {f}")))
 }
