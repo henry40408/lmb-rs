@@ -197,9 +197,14 @@ async fn try_main() -> anyhow::Result<()> {
             if cli.check_syntax {
                 do_check_syntax(cli.no_color, &name, &script)?;
             }
+            let store = match &store_options.store_path {
+                Some(store_path) => LamStore::new(store_path)?,
+                None => LamStore::default(),
+            };
             let timeout = timeout.map(Duration::from_secs);
             let e = EvaluationBuilder::new(&script, io::stdin())
                 .with_name(&name)
+                .with_store(store)
                 .with_timeout(timeout)
                 .build();
             let res = e.evaluate();
@@ -230,8 +235,13 @@ async fn try_main() -> anyhow::Result<()> {
                 bail!("example with {name} not found");
             };
             let script = found.script.trim();
+            let store = match &store_options.store_path {
+                Some(store_path) => LamStore::new(store_path)?,
+                None => LamStore::default(),
+            };
             let e = EvaluationBuilder::new(script, io::stdin())
                 .with_name(name.as_str())
+                .with_store(store)
                 .build();
             let res = e.evaluate();
             let mut buf = String::new();

@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 use stmt::*;
-use tracing::{debug, trace_span};
+use tracing::{debug, field, trace_span};
 
 use crate::{LamResult, LamValue};
 
@@ -40,6 +40,7 @@ impl LamStore {
     /// let _ = LamStore::new(&path);
     /// ```
     pub fn new(path: &Path) -> LamResult<Self> {
+        let _s = trace_span!("open store", ?path).entered();
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "busy_timeout", 5000)?;
         conn.pragma_update(None, "foreign_keys", "OFF")?;
@@ -120,13 +121,16 @@ impl LamStore {
 
         let name = name.as_ref();
 
+        let s = trace_span!("store get", name, value = field::Empty).entered();
         let mut cached_stmt = conn.prepare_cached(SQL_GET_VALUE_BY_NAME)?;
         let v: Vec<u8> = match cached_stmt.query_row((name,), |row| row.get(0)) {
             Err(_) => return Ok(LamValue::None),
             Ok(v) => v,
         };
 
-        Ok(rmp_serde::from_slice::<LamValue>(&v)?)
+        let deserialized = rmp_serde::from_slice::<LamValue>(&v)?;
+        s.record("value", format!("{:?}", deserialized));
+        Ok(deserialized)
     }
 
     /// Insert or update the value into the store.
@@ -184,17 +188,20 @@ impl LamStore {
         let v: Vec<u8> = {
             let mut cached_stmt = tx.prepare_cached(SQL_GET_VALUE_BY_NAME)?;
             match cached_stmt.query_row((name,), |row| row.get(0)) {
-                Err(_) => rmp_serde::to_vec(&default_v.unwrap_or(LamValue::None))?,
+                Err(_) => rmp_serde::to_vec(default_v.as_ref().unwrap_or(&LamValue::None))?,
                 Ok(v) => v,
             }
         };
 
+        let s = trace_span!("store update", name, old = field::Empty, new = field::Empty, default = ?default_v).entered();
         let mut deserialized = rmp_serde::from_slice(&v)?;
+        s.record("old", format!("{:?}", deserialized));
         let Ok(_) = f(&mut deserialized) else {
             // the function throws an error instead of returing a new value,
             // return the old value instead.
             return Ok(deserialized);
         };
+        s.record("new", format!("{:?}", deserialized));
         let serialized = rmp_serde::to_vec(&deserialized)?;
 
         {

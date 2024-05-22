@@ -240,15 +240,15 @@ where
             }
         });
 
-        let name = &self.name;
-        let chunk = vm.load(&self.compiled).set_name(name);
+        let script_name = &self.name;
+        let chunk = vm.load(&self.compiled).set_name(script_name);
 
-        let _s = trace_span!("evaluate", name).entered();
+        let _s = trace_span!("evaluate", script_name).entered();
         let result = chunk.eval()?;
 
         let duration = start.elapsed();
         let max_memory = max_memory.load(Ordering::SeqCst);
-        debug!(?duration, name, ?max_memory, "evaluated");
+        debug!(?duration, script_name, ?max_memory, "evaluated");
         Ok(Solution {
             duration,
             evaluation: self.clone(),
