@@ -231,6 +231,7 @@ impl Default for LamStore {
 mod tests {
     use maplit::hashmap;
     use std::{io::empty, thread};
+    use tempfile::NamedTempFile;
     use test_case::test_case;
 
     use crate::{EvaluationBuilder, LamStore, LamValue};
@@ -295,6 +296,13 @@ mod tests {
     fn migrate() {
         let store = LamStore::default();
         store.migrate().unwrap(); // duplicated
+    }
+
+    #[test]
+    fn new_store() {
+        let store_path = NamedTempFile::new().unwrap();
+        let store = LamStore::new(store_path.path()).unwrap();
+        store.migrate().unwrap();
     }
 
     #[test_case("nil", LamValue::None)]
