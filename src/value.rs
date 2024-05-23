@@ -75,7 +75,7 @@ where
     fn from(value: HashMap<S, LamValue>) -> Self {
         let mut h = HashMap::new();
         for (k, v) in value {
-            h.insert(k.as_ref().to_string(), v.clone());
+            h.insert(k.as_ref().to_string(), v);
         }
         Self::Table(h)
     }

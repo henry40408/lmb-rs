@@ -86,7 +86,7 @@ where
         return Ok(LamValue::None);
     };
     if let Ok(v) = store.get(key.as_str()) {
-        return Ok(v.clone());
+        return Ok(v);
     }
     Ok(LamValue::None)
 }
