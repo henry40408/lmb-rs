@@ -124,7 +124,7 @@ where
 
         let compiled = {
             let compiler = Compiler::new();
-            let _s = trace_span!("compile script").entered();
+            let _s = trace_span!("compile_script").entered();
             compiler.compile(&self.script)
         };
         Arc::new(Evaluation {
