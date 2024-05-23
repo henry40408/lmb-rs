@@ -40,7 +40,7 @@ impl LamStore {
     /// let _ = LamStore::new(&path);
     /// ```
     pub fn new(path: &Path) -> LamResult<Self> {
-        debug!(?path, "store_open");
+        debug!(?path, "open store");
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "busy_timeout", 5000)?;
         conn.pragma_update(None, "foreign_keys", "OFF")?;
@@ -219,6 +219,7 @@ impl LamStore {
 
 impl Default for LamStore {
     fn default() -> Self {
+        debug!("open store in memory");
         let conn = Connection::open_in_memory().expect("failed to open sqlite in memory");
         let store = Self {
             conn: Arc::new(Mutex::new(conn)),

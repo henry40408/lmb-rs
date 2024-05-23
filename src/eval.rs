@@ -248,7 +248,7 @@ where
 
         let duration = start.elapsed();
         let max_memory = max_memory.load(Ordering::SeqCst);
-        debug!(?duration, script_name, ?max_memory, "evaluated");
+        debug!(?duration, script_name, ?max_memory, "script evaluated");
         Ok(Solution {
             duration,
             evaluation: self.clone(),

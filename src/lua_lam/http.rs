@@ -79,14 +79,14 @@ fn lua_lam_fetch(
         .unwrap_or(LamValue::None);
     let _s = trace_span!("send_http_request", ?method, ?url, ?headers).entered();
     let res = if method.is_idempotent() {
-        let req = ureq::request(method.as_str(), url.as_str());
+        let req = ureq::request_url(method.as_str(), &url);
         let req = set_headers(req, &headers);
         req.call().into_lua_err()?
     } else {
         let body: String = options
             .map(|t| t.get("body").unwrap_or_default())
             .unwrap_or_default();
-        let req = ureq::request(method.as_str(), url.as_str());
+        let req = ureq::request_url(method.as_str(), &url);
         let req = set_headers(req, &headers);
         req.send(Cursor::new(body)).into_lua_err()?
     };
