@@ -1,15 +1,27 @@
 use include_dir::{include_dir, Dir};
 use parking_lot::Mutex;
 use rusqlite::Connection;
-use std::{path::Path, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use stmt::*;
-use tracing::{debug, trace_span};
+use tracing::{debug, trace, trace_span};
 
 use crate::{LamResult, LamValue};
 
 mod stmt;
 
 static MIGRATIONS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/migrations");
+
+/// Store options for command line
+#[derive(Default)]
+pub struct StoreOptions {
+    /// Store path
+    pub store_path: Option<PathBuf>,
+    /// Run migrations
+    pub run_migrations: bool,
+}
 
 /// Store that persists data across executions.
 #[derive(Clone)]
@@ -28,6 +40,7 @@ impl LamStore {
     /// let _ = LamStore::new(&path);
     /// ```
     pub fn new(path: &Path) -> LamResult<Self> {
+        debug!(?path, "open store");
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "busy_timeout", 5000)?;
         conn.pragma_update(None, "foreign_keys", "OFF")?;
@@ -49,7 +62,7 @@ impl LamStore {
     /// store.migrate().unwrap();
     /// ```
     pub fn migrate(&self) -> LamResult<()> {
-        let _ = trace_span!("run migrations").entered();
+        let _s = trace_span!("migrations_run").entered();
         let conn = self.conn.lock();
         for e in MIGRATIONS_DIR.entries() {
             let path = e.path();
@@ -59,7 +72,7 @@ impl LamStore {
                 .expect("invalid file")
                 .contents_utf8()
                 .expect("invalid contents");
-            let _ = trace_span!("run migration SQL", ?sql).entered();
+            let _s = trace_span!("migration_sql_runs", ?sql).entered();
             debug!(?sql, "run migration SQL");
             conn.execute(sql, ())?;
         }
@@ -88,6 +101,8 @@ impl LamStore {
         let value = rmp_serde::to_vec(&value)?;
 
         let mut cached_stmt = conn.prepare_cached(SQL_UPSERT_STORE)?;
+        let _s = trace_span!("store_insert", name).entered();
+        trace!(?name, ?value, "value");
         cached_stmt.execute((name, value))?;
 
         Ok(())
@@ -109,12 +124,15 @@ impl LamStore {
         let name = name.as_ref();
 
         let mut cached_stmt = conn.prepare_cached(SQL_GET_VALUE_BY_NAME)?;
+        let _s = trace_span!("store_get", name).entered();
         let v: Vec<u8> = match cached_stmt.query_row((name,), |row| row.get(0)) {
             Err(_) => return Ok(LamValue::None),
             Ok(v) => v,
         };
 
-        Ok(rmp_serde::from_slice::<LamValue>(&v)?)
+        let value = rmp_serde::from_slice::<LamValue>(&v)?;
+        trace!(?name, ?value, "value");
+        Ok(value)
     }
 
     /// Insert or update the value into the store.
@@ -172,31 +190,36 @@ impl LamStore {
         let v: Vec<u8> = {
             let mut cached_stmt = tx.prepare_cached(SQL_GET_VALUE_BY_NAME)?;
             match cached_stmt.query_row((name,), |row| row.get(0)) {
-                Err(_) => rmp_serde::to_vec(&default_v.unwrap_or(LamValue::None))?,
+                Err(_) => rmp_serde::to_vec(default_v.as_ref().unwrap_or(&LamValue::None))?,
                 Ok(v) => v,
             }
         };
 
-        let mut deserialized = rmp_serde::from_slice(&v)?;
-        let Ok(_) = f(&mut deserialized) else {
+        let _s = trace_span!("store_update", name).entered();
+        let mut value = rmp_serde::from_slice(&v)?;
+        trace!(name, ?value, "old");
+        let Ok(_) = f(&mut value) else {
             // the function throws an error instead of returing a new value,
             // return the old value instead.
-            return Ok(deserialized);
+            trace!(name, ?value, "failed");
+            return Ok(value);
         };
-        let serialized = rmp_serde::to_vec(&deserialized)?;
+        let serialized = rmp_serde::to_vec(&value)?;
 
         {
             let mut cached_stmt = tx.prepare_cached(SQL_UPSERT_STORE)?;
+            trace!(name, ?value, "new");
             cached_stmt.execute((name, serialized))?;
         }
         tx.commit()?;
 
-        Ok(deserialized)
+        Ok(value)
     }
 }
 
 impl Default for LamStore {
     fn default() -> Self {
+        debug!("open store in memory");
         let conn = Connection::open_in_memory().expect("failed to open sqlite in memory");
         let store = Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -212,6 +235,7 @@ impl Default for LamStore {
 mod tests {
     use maplit::hashmap;
     use std::{io::empty, thread};
+    use tempfile::NamedTempFile;
     use test_case::test_case;
 
     use crate::{EvaluationBuilder, LamStore, LamValue};
@@ -276,6 +300,13 @@ mod tests {
     fn migrate() {
         let store = LamStore::default();
         store.migrate().unwrap(); // duplicated
+    }
+
+    #[test]
+    fn new_store() {
+        let store_path = NamedTempFile::new().unwrap();
+        let store = LamStore::new(store_path.path()).unwrap();
+        store.migrate().unwrap();
     }
 
     #[test_case("nil", LamValue::None)]

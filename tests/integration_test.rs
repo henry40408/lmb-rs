@@ -63,12 +63,12 @@ fn eval_store_migrate() {
     let mut cmd = Command::cargo_bin("lam").unwrap();
     cmd.write_stdin("return true");
     cmd.args([
-        "eval",
-        "--file",
-        "-",
         "--store-path",
         &store_path,
         "--run-migrations",
+        "eval",
+        "--file",
+        "-",
     ]);
     cmd.assert().success();
 }
@@ -78,6 +78,6 @@ fn store_migrate() {
     let store = NamedTempFile::new().unwrap();
     let store_path = store.path().to_string_lossy().to_string();
     let mut cmd = Command::cargo_bin("lam").unwrap();
-    cmd.args(["store", "migrate", "--store-path", &store_path]);
+    cmd.args(["--store-path", &store_path, "store", "migrate"]);
     cmd.assert().success();
 }

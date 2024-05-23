@@ -33,23 +33,20 @@ struct Cli {
     #[arg(long, env = "NO_COLOR")]
     no_color: bool,
 
+    /// Store path
+    #[arg(long, env = "LAM_STORE_PATH")]
+    store_path: Option<PathBuf>,
+
+    /// Run migrations
+    #[arg(long, env = "LAM_RUN_MIGRATIONS")]
+    run_migrations: bool,
+
     /// Theme. Checkout `list-themes` for available themes.
     #[arg(long, env = "LAM_THEME")]
     theme: Option<String>,
 
     #[command(subcommand)]
     command: Commands,
-}
-
-#[derive(Default, Parser)]
-struct StoreOptions {
-    /// Run migrations
-    #[arg(long, env = "LMA_RUN_MIGRATIONS")]
-    run_migrations: bool,
-
-    /// Store path
-    #[arg(long, env = "LAM_STORE_PATH")]
-    store_path: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -63,8 +60,6 @@ enum Commands {
     /// Evaluate a script file
     #[command(alias = "eval")]
     Evaluate {
-        #[command(flatten)]
-        store_options: StoreOptions,
         /// Script path
         #[arg(long)]
         file: FileOrStdin,
@@ -79,8 +74,6 @@ enum Commands {
     ListThemes,
     /// Run a HTTP server from a Lua script
     Serve {
-        #[command(flatten)]
-        store_options: StoreOptions,
         /// Bind
         #[arg(long, default_value = "127.0.0.1:3000")]
         bind: String,
@@ -113,8 +106,6 @@ enum ExampleCommands {
     },
     /// Handle HTTP requests with the example
     Serve {
-        #[command(flatten)]
-        store_options: StoreOptions,
         /// Bind
         #[arg(long, default_value = "127.0.0.1:3000")]
         bind: String,
@@ -133,11 +124,7 @@ enum ExampleCommands {
 #[derive(Parser)]
 enum StoreCommands {
     /// Run migrations on the store
-    Migrate {
-        /// Store path
-        #[arg(long)]
-        store_path: PathBuf,
-    },
+    Migrate,
 }
 
 fn do_check_syntax<S: AsRef<str>>(no_color: bool, name: S, script: S) -> anyhow::Result<()> {
@@ -186,6 +173,10 @@ async fn try_main() -> anyhow::Result<()> {
         theme: cli.theme,
         ..Default::default()
     };
+    let store_options = StoreOptions {
+        store_path: cli.store_path,
+        run_migrations: cli.run_migrations,
+    };
     match cli.command {
         Commands::Check { file } => {
             let name = if let Source::Arg(path) = &file.source {
@@ -206,9 +197,14 @@ async fn try_main() -> anyhow::Result<()> {
             if cli.check_syntax {
                 do_check_syntax(cli.no_color, &name, &script)?;
             }
+            let store = match &store_options.store_path {
+                Some(store_path) => LamStore::new(store_path)?,
+                None => LamStore::default(),
+            };
             let timeout = timeout.map(Duration::from_secs);
             let e = EvaluationBuilder::new(&script, io::stdin())
                 .with_name(&name)
+                .with_store(store)
                 .with_timeout(timeout)
                 .build();
             let res = e.evaluate();
@@ -239,8 +235,13 @@ async fn try_main() -> anyhow::Result<()> {
                 bail!("example with {name} not found");
             };
             let script = found.script.trim();
+            let store = match &store_options.store_path {
+                Some(store_path) => LamStore::new(store_path)?,
+                None => LamStore::default(),
+            };
             let e = EvaluationBuilder::new(script, io::stdin())
                 .with_name(name.as_str())
+                .with_store(store)
                 .build();
             let res = e.evaluate();
             let mut buf = String::new();
@@ -268,7 +269,6 @@ async fn try_main() -> anyhow::Result<()> {
             Ok(())
         }
         Commands::Example(ExampleCommands::Serve {
-            store_options,
             bind,
             name,
             timeout,
@@ -303,7 +303,6 @@ async fn try_main() -> anyhow::Result<()> {
         Commands::Serve {
             bind,
             file,
-            store_options,
             timeout,
         } => {
             let name = if let Source::Arg(path) = &file.source {
@@ -328,8 +327,11 @@ async fn try_main() -> anyhow::Result<()> {
             Ok(())
         }
         Commands::Store(c) => match c {
-            StoreCommands::Migrate { store_path } => {
-                let store = LamStore::new(&store_path)?;
+            StoreCommands::Migrate => {
+                let Some(store_path) = &store_options.store_path else {
+                    bail!("store_path is mandatory to migrate");
+                };
+                let store = LamStore::new(store_path)?;
                 store.migrate()?;
                 Ok(())
             }

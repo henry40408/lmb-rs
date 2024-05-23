@@ -1,7 +1,6 @@
 use std::io::BufRead;
 
 use mlua::prelude::*;
-use tracing::{field, trace_span};
 
 use crate::LamInput;
 
@@ -55,10 +54,8 @@ where
     }
 
     if let Some(i) = f.as_usize() {
-        let s = trace_span!("read bytes from input", count = field::Empty).entered();
         let mut buf = vec![0; i];
         let count = input.lock().read(&mut buf)?;
-        s.record("count", count);
         if count == 0 {
             return Ok(LuaNil);
         }
