@@ -16,19 +16,19 @@ where
     R: BufRead,
 {
     if let Some(f) = f.as_str() {
+        // Assume that the input is a valid UTF-8 string,
+        // so we can easily convert it to a string in Lua.
+        // Otherwise, it will be a list of bytes.
+        let mut buf = String::new();
         match f {
             "*a" | "*all" => {
-                // accepts *a or *all
-                let mut buf = Vec::new();
-                let count = input.lock().read_to_end(&mut buf)?;
+                let count = input.lock().read_to_string(&mut buf)?;
                 if count == 0 {
                     return Ok(LuaNil);
                 }
-                return String::from_utf8(buf).into_lua_err()?.into_lua(vm);
+                return buf.into_lua(vm);
             }
             "*l" | "*line" => {
-                // accepts *l or *line
-                let mut buf = String::new();
                 let count = input.lock().read_line(&mut buf)?;
                 if count == 0 {
                     return Ok(LuaNil);
@@ -37,17 +37,13 @@ where
                 return buf.trim().into_lua(vm);
             }
             "*n" | "*number" => {
-                // accepts *n or *number
-                let mut buf = String::new();
                 let count = input.lock().read_to_string(&mut buf)?;
                 if count == 0 {
                     return Ok(LuaNil);
                 }
-                return Ok(buf
-                    .trim()
-                    .parse::<f64>()
-                    .map(LuaValue::Number)
-                    .unwrap_or(LuaNil));
+                // in Lua *n returns nil when number is invalid
+                let num = buf.trim().parse::<f64>().ok();
+                return num.into_lua(vm);
             }
             _ => {}
         }
