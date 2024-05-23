@@ -1,6 +1,6 @@
-use include_dir::{include_dir, Dir};
 use parking_lot::Mutex;
 use rusqlite::Connection;
+use rusqlite_migration::SchemaVersion;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -8,11 +8,9 @@ use std::{
 use stmt::*;
 use tracing::{debug, trace, trace_span};
 
-use crate::{LamResult, LamValue};
+use crate::{LamResult, LamValue, MIGRATIONS};
 
 mod stmt;
-
-static MIGRATIONS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/migrations");
 
 /// Store options for command line
 #[derive(Default)]
@@ -59,24 +57,25 @@ impl LamStore {
     /// let dir = TempDir::new("temp").unwrap();
     /// let path = dir.path().join("db.sqlite3");
     /// let store = LamStore::new(&path).unwrap();
-    /// store.migrate().unwrap();
+    /// store.migrate(None).unwrap();
     /// ```
-    pub fn migrate(&self) -> LamResult<()> {
-        let _s = trace_span!("migrations_run").entered();
-        let conn = self.conn.lock();
-        for e in MIGRATIONS_DIR.entries() {
-            let path = e.path();
-            debug!(?path, "open migration");
-            let sql = e
-                .as_file()
-                .expect("invalid file")
-                .contents_utf8()
-                .expect("invalid contents");
-            let _s = trace_span!("migration_sql_runs", ?sql).entered();
-            debug!(?sql, "run migration SQL");
-            conn.execute(sql, ())?;
+    pub fn migrate(&self, version: Option<usize>) -> LamResult<()> {
+        let mut conn = self.conn.lock();
+        if let Some(version) = version {
+            let _s = trace_span!("migrate_to_version").entered();
+            MIGRATIONS.to_version(&mut conn, version)?;
+        } else {
+            let _s = trace_span!("migrate_to_latest").entered();
+            MIGRATIONS.to_latest(&mut conn)?;
         }
         Ok(())
+    }
+
+    /// Return current version of migrations
+    pub fn current_version(&self) -> LamResult<SchemaVersion> {
+        let conn = self.conn.lock();
+        let version = MIGRATIONS.current_version(&conn)?;
+        Ok(version)
     }
 
     /// Insert or update the value into the store.
@@ -225,7 +224,7 @@ impl Default for LamStore {
             conn: Arc::new(Mutex::new(conn)),
         };
         store
-            .migrate()
+            .migrate(None)
             .expect("failed to migrate database in memory");
         store
     }
@@ -299,14 +298,16 @@ mod tests {
     #[test]
     fn migrate() {
         let store = LamStore::default();
-        store.migrate().unwrap(); // duplicated
+        store.migrate(None).unwrap(); // duplicated
+        store.current_version().unwrap();
+        store.migrate(Some(0)).unwrap();
     }
 
     #[test]
     fn new_store() {
         let store_path = NamedTempFile::new().unwrap();
         let store = LamStore::new(store_path.path()).unwrap();
-        store.migrate().unwrap();
+        store.migrate(None).unwrap();
     }
 
     #[test_case("nil", LamValue::None)]

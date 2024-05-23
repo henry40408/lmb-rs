@@ -124,7 +124,13 @@ enum ExampleCommands {
 #[derive(Parser)]
 enum StoreCommands {
     /// Run migrations on the store
-    Migrate,
+    Migrate {
+        /// Target version, 0 to revert ALL migrations
+        #[arg(long)]
+        version: Option<usize>,
+    },
+    /// Show current version
+    Version,
 }
 
 fn do_check_syntax<S: AsRef<str>>(no_color: bool, name: S, script: S) -> anyhow::Result<()> {
@@ -326,16 +332,23 @@ async fn try_main() -> anyhow::Result<()> {
             .await?;
             Ok(())
         }
-        Commands::Store(c) => match c {
-            StoreCommands::Migrate => {
-                let Some(store_path) = &store_options.store_path else {
-                    bail!("store_path is mandatory to migrate");
-                };
-                let store = LamStore::new(store_path)?;
-                store.migrate()?;
-                Ok(())
+        Commands::Store(c) => {
+            let Some(store_path) = &store_options.store_path else {
+                bail!("store_path is required");
+            };
+            let store = LamStore::new(store_path)?;
+            match c {
+                StoreCommands::Migrate { version } => {
+                    store.migrate(version)?;
+                    Ok(())
+                }
+                StoreCommands::Version => {
+                    let version = store.current_version()?;
+                    println!("{version}");
+                    Ok(())
+                }
             }
-        },
+        }
     }
 }
 
