@@ -133,12 +133,12 @@ impl LamStore {
         });
         let value: Vec<u8> = match res {
             Err(rusqlite::Error::QueryReturnedNoRows) => {
-                trace!(name, "no_value");
+                trace!("no_value");
                 return Ok(LamValue::None);
             }
             Err(e) => return Err(e.into()),
             Ok((v, type_)) => {
-                trace!(name, type_, "value");
+                trace!(type_, "value");
                 v
             }
         };
@@ -203,12 +203,12 @@ impl LamStore {
             let mut cached_stmt = tx.prepare_cached(SQL_GET_VALUE_BY_NAME)?;
             match cached_stmt.query_row((name,), |row| row.get(0)) {
                 Err(rusqlite::Error::QueryReturnedNoRows) => {
-                    trace!(name, "default_value");
+                    trace!("default_value");
                     rmp_serde::to_vec(default_v.as_ref().unwrap_or(&LamValue::None))?
                 }
                 Err(e) => return Err(e.into()),
                 Ok(v) => {
-                    trace!(name, "value");
+                    trace!("value");
                     v
                 }
             }
@@ -216,11 +216,11 @@ impl LamStore {
 
         let mut value = rmp_serde::from_slice(&value)?;
         {
-            let _s = trace_span!("call_function", name).entered();
+            let _s = trace_span!("call_function").entered();
             let Ok(_) = f(&mut value) else {
                 // the function throws an error instead of returing a new value,
                 // return the old value instead.
-                trace!(name, "failed");
+                trace!("failed");
                 return Ok(value);
             };
         }
@@ -232,7 +232,7 @@ impl LamStore {
             cached_stmt.execute((name, value, size, type_))?;
         }
         tx.commit()?;
-        trace!(name, type_, "updated");
+        trace!(type_, "updated");
 
         Ok(value)
     }
