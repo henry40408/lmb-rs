@@ -7,7 +7,7 @@ use std::{
 use http::Method;
 use mlua::prelude::*;
 use parking_lot::Mutex;
-use tracing::{trace_span, warn};
+use tracing::{trace, trace_span, warn};
 use ureq::Request;
 use url::Url;
 
@@ -105,6 +105,7 @@ fn lua_lam_fetch(
         headers
     };
     let status_code = res.status();
+    trace!(status_code, charset, content_type, "response");
     let reader = Arc::new(Mutex::new(BufReader::new(res.into_reader())));
     Ok(LuaLamHTTPResponse {
         charset,
