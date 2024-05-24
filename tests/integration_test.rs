@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use assert_cmd::Command;
 use serde_json::{json, Value};
 use tempfile::NamedTempFile;
@@ -17,24 +19,6 @@ fn check_stdin() {
 }
 
 #[test]
-fn eval_stdin() {
-    let mut cmd = Command::cargo_bin("lam").unwrap();
-    cmd.env("RUST_LOG", "error");
-    cmd.write_stdin("return 1+1");
-    cmd.args(["eval", "--file", "-"]);
-    cmd.assert().success().stdout("2");
-}
-
-#[test]
-fn eval_example() {
-    let mut cmd = Command::cargo_bin("lam").unwrap();
-    cmd.env("RUST_LOG", "error");
-    cmd.write_stdin("1949\n");
-    cmd.args(["eval", "--file", "lua-examples/algebra.lua"]);
-    cmd.assert().success().stdout("3798601");
-}
-
-#[test]
 fn eval_file() {
     let mut cmd = Command::cargo_bin("lam").unwrap();
     cmd.args(["eval", "--file", "lua-examples/hello.lua"]);
@@ -47,7 +31,7 @@ fn eval_file() {
 fn eval_json_output() {
     let mut cmd = Command::cargo_bin("lam").unwrap();
     cmd.env("RUST_LOG", "error");
-    cmd.args(["--json", "eval", "--file", "lua-examples/return-table.lua"]);
+    cmd.args(["--json", "example", "eval", "--name", "return-table"]);
     cmd.assert().success();
     let s = String::from_utf8(cmd.output().unwrap().stdout).unwrap();
     let value: Value = serde_json::from_str(&s).unwrap();
@@ -60,9 +44,18 @@ fn eval_json_output() {
 }
 
 #[test]
+fn eval_stdin() {
+    let mut cmd = Command::cargo_bin("lam").unwrap();
+    cmd.env("RUST_LOG", "error");
+    cmd.write_stdin("return 1+1");
+    cmd.args(["eval", "--file", "-"]);
+    cmd.assert().success().stdout("2");
+}
+
+#[test]
 fn eval_store_migrate() {
     let store = NamedTempFile::new().unwrap();
-    let store_path = store.path().to_string_lossy().to_string();
+    let store_path = store.path().to_string_lossy();
     let mut cmd = Command::cargo_bin("lam").unwrap();
     cmd.write_stdin("return true");
     cmd.args([
@@ -77,10 +70,80 @@ fn eval_store_migrate() {
 }
 
 #[test]
+fn example_cat() {
+    let mut cmd = Command::cargo_bin("lam").unwrap();
+    cmd.args(["example", "cat", "--name", "hello"]);
+    cmd.assert()
+        .success()
+        .stdout(predicates::str::contains("hello"));
+}
+
+#[test]
+fn example_eval() {
+    let mut cmd = Command::cargo_bin("lam").unwrap();
+    cmd.env("RUST_LOG", "error");
+    cmd.write_stdin("1949\n");
+    cmd.args(["example", "eval", "--name", "algebra"]);
+    cmd.assert().success().stdout("3798601");
+}
+
+#[test]
+fn example_list() {
+    let mut cmd = Command::cargo_bin("lam").unwrap();
+    cmd.args(["example", "list"]);
+    cmd.assert().success();
+}
+
+#[test]
+fn example_serve() {
+    let mut cmd = Command::cargo_bin("lam").unwrap();
+    cmd.args([
+        "example",
+        "serve",
+        "--bind",
+        "127.0.0.1:3000",
+        "--name",
+        "hello",
+    ]);
+    cmd.timeout(Duration::from_secs(1));
+    cmd.assert().stdout(predicates::str::contains("serving"));
+}
+
+#[test]
+fn list_themes() {
+    let mut cmd = Command::cargo_bin("lam").unwrap();
+    cmd.args(["list-themes"]);
+    cmd.assert().success();
+}
+
+#[test]
+fn serve() {
+    let mut cmd = Command::cargo_bin("lam").unwrap();
+    cmd.args([
+        "serve",
+        "--bind",
+        "127.0.0.1:3001",
+        "--file",
+        "lua-examples/hello.lua",
+    ]);
+    cmd.timeout(Duration::from_secs(1));
+    cmd.assert().stdout(predicates::str::contains("serving"));
+}
+
+#[test]
 fn store_migrate() {
     let store = NamedTempFile::new().unwrap();
     let store_path = store.path().to_string_lossy().to_string();
     let mut cmd = Command::cargo_bin("lam").unwrap();
     cmd.args(["--store-path", &store_path, "store", "migrate"]);
+    cmd.assert().success();
+}
+
+#[test]
+fn store_version() {
+    let store = NamedTempFile::new().unwrap();
+    let store_path = store.path().to_string_lossy().to_string();
+    let mut cmd = Command::cargo_bin("lam").unwrap();
+    cmd.args(["--store-path", &store_path, "store", "version"]);
     cmd.assert().success();
 }

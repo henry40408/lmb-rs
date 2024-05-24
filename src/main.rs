@@ -157,7 +157,6 @@ fn prepare_store(options: &StoreOptions) -> LamResult<LamStore> {
     Ok(store)
 }
 
-#[cfg(not(tarpaulin_include))]
 async fn try_main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
@@ -359,7 +358,6 @@ async fn try_main() -> anyhow::Result<()> {
     }
 }
 
-#[cfg(not(tarpaulin_include))]
 #[tokio::main]
 async fn main() -> ExitCode {
     if let Err(e) = try_main().await {

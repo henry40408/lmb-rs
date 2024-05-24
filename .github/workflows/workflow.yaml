@@ -76,7 +76,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - uses: cargo-bins/cargo-binstall@v1.6.4
       - run: cargo binstall --no-confirm cargo-tarpaulin@0.28.0
-      - run: cargo tarpaulin --out xml
+      - run: cargo tarpaulin --follow-exec --out xml
       - uses: codecov/codecov-action@v4.4.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
