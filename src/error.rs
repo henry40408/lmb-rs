@@ -4,6 +4,12 @@ use thiserror::Error;
 /// Lam error.
 #[derive(Debug, Error)]
 pub enum LamError {
+    /// Error from database.
+    #[error("sqlite error: {0}")]
+    Database(#[from] rusqlite::Error),
+    /// Error from database migration.
+    #[error("migration error: {0}")]
+    DatabaseMigration(#[from] rusqlite_migration::Error),
     /// Error from Lua engine.
     #[error("lua error: {0}")]
     Lua(#[from] LuaError),
@@ -13,9 +19,6 @@ pub enum LamError {
     /// Error when encoding store value to message pack.
     #[error("RMP encode error: {0}")]
     RMPEncode(#[from] rmp_serde::encode::Error),
-    /// Error from `SQLite`.
-    #[error("sqlite error: {0}")]
-    SQLite(#[from] rusqlite::Error),
     /// Invalid key length for HMAC
     #[error("invalid length: {0}")]
     InvalidLength(#[from] crypto_common::InvalidLength),

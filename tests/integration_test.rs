@@ -19,6 +19,7 @@ fn check_stdin() {
 #[test]
 fn eval_stdin() {
     let mut cmd = Command::cargo_bin("lam").unwrap();
+    cmd.env("RUST_LOG", "error");
     cmd.write_stdin("return 1+1");
     cmd.args(["eval", "--file", "-"]);
     cmd.assert().success().stdout("2");
@@ -27,6 +28,7 @@ fn eval_stdin() {
 #[test]
 fn eval_example() {
     let mut cmd = Command::cargo_bin("lam").unwrap();
+    cmd.env("RUST_LOG", "error");
     cmd.write_stdin("1949\n");
     cmd.args(["eval", "--file", "lua-examples/algebra.lua"]);
     cmd.assert().success().stdout("3798601");
@@ -44,6 +46,7 @@ fn eval_file() {
 #[test]
 fn eval_json_output() {
     let mut cmd = Command::cargo_bin("lam").unwrap();
+    cmd.env("RUST_LOG", "error");
     cmd.args(["--json", "eval", "--file", "lua-examples/return-table.lua"]);
     cmd.assert().success();
     let s = String::from_utf8(cmd.output().unwrap().stdout).unwrap();

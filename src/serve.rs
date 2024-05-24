@@ -115,7 +115,7 @@ where
     let store = if let Some(path) = &opts.store_options.store_path {
         let store = LamStore::new(path.as_path())?;
         if opts.store_options.run_migrations {
-            store.migrate()?;
+            store.migrate(None)?;
         }
         info!(?path, "open store");
         store
