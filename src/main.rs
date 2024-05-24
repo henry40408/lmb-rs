@@ -144,6 +144,19 @@ fn do_check_syntax<S: AsRef<str>>(no_color: bool, name: S, script: S) -> anyhow:
     Ok(())
 }
 
+fn prepare_store(options: &StoreOptions) -> LamResult<LamStore> {
+    let store = if let Some(store_path) = &options.store_path {
+        let store = LamStore::new(store_path)?;
+        if options.run_migrations {
+            store.migrate(None)?;
+        }
+        store
+    } else {
+        LamStore::default()
+    };
+    Ok(store)
+}
+
 #[cfg(not(tarpaulin_include))]
 async fn try_main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -203,10 +216,7 @@ async fn try_main() -> anyhow::Result<()> {
             if cli.check_syntax {
                 do_check_syntax(cli.no_color, &name, &script)?;
             }
-            let store = match &store_options.store_path {
-                Some(store_path) => LamStore::new(store_path)?,
-                None => LamStore::default(),
-            };
+            let store = prepare_store(&store_options)?;
             let timeout = timeout.map(Duration::from_secs);
             let e = EvaluationBuilder::new(&script, io::stdin())
                 .with_name(&name)
@@ -241,10 +251,7 @@ async fn try_main() -> anyhow::Result<()> {
                 bail!("example with {name} not found");
             };
             let script = found.script.trim();
-            let store = match &store_options.store_path {
-                Some(store_path) => LamStore::new(store_path)?,
-                None => LamStore::default(),
-            };
+            let store = prepare_store(&store_options)?;
             let e = EvaluationBuilder::new(script, io::stdin())
                 .with_name(name.as_str())
                 .with_store(store)
