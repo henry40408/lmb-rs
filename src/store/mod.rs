@@ -1,3 +1,4 @@
+use get_size::GetSize;
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use rusqlite_migration::SchemaVersion;
@@ -62,7 +63,7 @@ impl LamStore {
     pub fn migrate(&self, version: Option<usize>) -> LamResult<()> {
         let mut conn = self.conn.lock();
         if let Some(version) = version {
-            let _s = trace_span!("migrate_to_version").entered();
+            let _s = trace_span!("migrate_to_version", version).entered();
             MIGRATIONS.to_version(&mut conn, version)?;
         } else {
             let _s = trace_span!("migrate_to_latest").entered();
@@ -97,12 +98,13 @@ impl LamStore {
         let conn = self.conn.lock();
 
         let name = name.as_ref();
+        let size = value.get_size();
+        let type_ = value.type_hint();
         let value = rmp_serde::to_vec(&value)?;
 
         let mut cached_stmt = conn.prepare_cached(SQL_UPSERT_STORE)?;
-        let _s = trace_span!("store_insert", name).entered();
-        trace!(?name, ?value, "value");
-        cached_stmt.execute((name, value))?;
+        let _s = trace_span!("store_insert", name, type_).entered();
+        cached_stmt.execute((name, value, size, type_))?;
 
         Ok(())
     }
@@ -124,14 +126,24 @@ impl LamStore {
 
         let mut cached_stmt = conn.prepare_cached(SQL_GET_VALUE_BY_NAME)?;
         let _s = trace_span!("store_get", name).entered();
-        let v: Vec<u8> = match cached_stmt.query_row((name,), |row| row.get(0)) {
-            Err(_) => return Ok(LamValue::None),
-            Ok(v) => v,
+        let res = cached_stmt.query_row((name,), |row| {
+            let value: Vec<u8> = row.get("value")?;
+            let type_: String = row.get("type")?;
+            Ok((value, type_))
+        });
+        let value: Vec<u8> = match res {
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                trace!(name, "no_value");
+                return Ok(LamValue::None);
+            }
+            Err(e) => return Err(e.into()),
+            Ok((v, type_)) => {
+                trace!(name, type_, "value");
+                v
+            }
         };
 
-        let value = rmp_serde::from_slice::<LamValue>(&v)?;
-        trace!(?name, ?value, "value");
-        Ok(value)
+        Ok(rmp_serde::from_slice::<LamValue>(&value)?)
     }
 
     /// Insert or update the value into the store.
@@ -186,31 +198,41 @@ impl LamStore {
 
         let name = name.as_ref();
 
-        let v: Vec<u8> = {
+        let _s = trace_span!("store_update", name).entered();
+        let value: Vec<u8> = {
             let mut cached_stmt = tx.prepare_cached(SQL_GET_VALUE_BY_NAME)?;
             match cached_stmt.query_row((name,), |row| row.get(0)) {
-                Err(_) => rmp_serde::to_vec(default_v.as_ref().unwrap_or(&LamValue::None))?,
-                Ok(v) => v,
+                Err(rusqlite::Error::QueryReturnedNoRows) => {
+                    trace!(name, "default_value");
+                    rmp_serde::to_vec(default_v.as_ref().unwrap_or(&LamValue::None))?
+                }
+                Err(e) => return Err(e.into()),
+                Ok(v) => {
+                    trace!(name, "value");
+                    v
+                }
             }
         };
 
-        let _s = trace_span!("store_update", name).entered();
-        let mut value = rmp_serde::from_slice(&v)?;
-        trace!(name, ?value, "old");
-        let Ok(_) = f(&mut value) else {
-            // the function throws an error instead of returing a new value,
-            // return the old value instead.
-            trace!(name, ?value, "failed");
-            return Ok(value);
-        };
-        let serialized = rmp_serde::to_vec(&value)?;
-
+        let mut value = rmp_serde::from_slice(&value)?;
         {
+            let _s = trace_span!("call_function", name).entered();
+            let Ok(_) = f(&mut value) else {
+                // the function throws an error instead of returing a new value,
+                // return the old value instead.
+                trace!(name, "failed");
+                return Ok(value);
+            };
+        }
+        let size = value.get_size();
+        let type_ = value.type_hint();
+        {
+            let value = rmp_serde::to_vec(&value)?;
             let mut cached_stmt = tx.prepare_cached(SQL_UPSERT_STORE)?;
-            trace!(name, ?value, "new");
-            cached_stmt.execute((name, serialized))?;
+            cached_stmt.execute((name, value, size, type_))?;
         }
         tx.commit()?;
+        trace!(name, type_, "updated");
 
         Ok(value)
     }
@@ -293,6 +315,7 @@ mod tests {
         let res = e.evaluate().unwrap();
         assert_eq!(LamValue::from(1.23), res.payload);
         assert_eq!(LamValue::from(4.56), store.get("a").unwrap());
+        assert_eq!(LamValue::None, store.get("b").unwrap());
     }
 
     #[test]

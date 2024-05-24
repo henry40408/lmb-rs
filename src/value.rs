@@ -1,9 +1,10 @@
+use get_size::GetSize;
 use mlua::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Value mapping between Rust and Lua.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Deserialize, GetSize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum LamValue {
     /// nil in Lua, None in Rust.
@@ -20,6 +21,21 @@ pub enum LamValue {
     List(Vec<LamValue>),
     /// Table with explicit key in Lua, `HashMap` in Rust.
     Table(HashMap<String, LamValue>),
+}
+
+impl LamValue {
+    /// Type hint for user in the database.
+    pub fn type_hint(&self) -> &'static str {
+        match self {
+            LamValue::None => "none",
+            LamValue::Boolean(_) => "boolean",
+            LamValue::Integer(_) => "integer",
+            LamValue::Number(_) => "number",
+            LamValue::String(_) => "string",
+            LamValue::List(_) => "list",
+            LamValue::Table(_) => "table",
+        }
+    }
 }
 
 impl<'lua> IntoLua<'lua> for LamValue {
@@ -98,5 +114,24 @@ impl std::fmt::Display for LamValue {
             LamValue::List(l) => write!(f, "table: {l:p}"),
             LamValue::Table(t) => write!(f, "table: {t:p}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use maplit::hashmap;
+    use test_case::test_case;
+
+    use crate::LamValue;
+
+    #[test_case("none", LamValue::None)]
+    #[test_case("boolean", true.into())]
+    #[test_case("integer", 1.into())]
+    #[test_case("number", (1.23).into())]
+    #[test_case("string", "a".into())]
+    #[test_case("list", vec![1.into()].into())]
+    #[test_case("table", LamValue::Table(hashmap!{ "a".into() => 1.into() }))]
+    fn type_hint(expected: &str, value: LamValue) {
+        assert_eq!(expected, value.type_hint());
     }
 }
