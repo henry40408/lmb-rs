@@ -1,6 +1,5 @@
 --[[
 --description = "Return the square of number."
 --]]
-local m = require("@lam")
-local n = tonumber(m:read("*n"))
+local n = tonumber(io.read("*n"))
 return n * n

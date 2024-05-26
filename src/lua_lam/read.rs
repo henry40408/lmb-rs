@@ -10,11 +10,23 @@ use crate::LamInput;
 pub(crate) fn lua_lam_read<'lua, R>(
     vm: &'lua Lua,
     input: &LamInput<R>,
-    f: LuaValue<'lua>,
+    f: Option<LuaValue<'lua>>,
 ) -> LuaResult<LuaValue<'lua>>
 where
     R: BufRead,
 {
+    let Some(f) = f else {
+        // This pattern is the default for read, so io.read() has the same effect as io.read("*line").
+        // https://www.lua.org/pil/21.1.html
+        let mut buf = String::new();
+        let count = input.lock().read_line(&mut buf)?;
+        if count == 0 {
+            return Ok(LuaNil);
+        }
+        // in Lua, *l doesn't include newline character
+        return buf.trim().into_lua(vm);
+    };
+
     if let Some(f) = f.as_str() {
         // Assume that the input is a valid UTF-8 string,
         // so we can easily convert it to a string in Lua.

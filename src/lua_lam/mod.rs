@@ -1,5 +1,6 @@
 use mlua::prelude::*;
-use std::io::BufRead;
+use std::io::{stderr, Write as _};
+use std::io::{stdout, BufRead};
 
 use crate::{LamInput, LamResult, LamState, LamStateKey, LamStore, LamValue};
 
@@ -68,6 +69,40 @@ where
         store: Option<LamStore>,
         state: Option<LamState>,
     ) -> LamResult<()> {
+        let io_table = vm.create_table()?;
+
+        let read_fn = vm.create_function({
+            let input = input.clone();
+            move |vm, f: Option<LuaValue<'_>>| lua_lam_read(vm, &input, f)
+        })?;
+        io_table.set("read", read_fn)?;
+
+        struct Stderr {}
+        impl LuaUserData for Stderr {
+            fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
+                methods.add_method("write", |_, _, vs: LuaMultiValue<'_>| {
+                    let mut locked = stderr().lock();
+                    for v in vs.into_vec() {
+                        write!(locked, "{}", v.to_string()?)?;
+                    }
+                    Ok(())
+                });
+            }
+        }
+        io_table.set("stderr", Stderr {})?;
+
+        let write_fn = vm.create_function(|_, vs: LuaMultiValue<'_>| {
+            let mut locked = stdout().lock();
+            for v in vs.into_vec() {
+                write!(locked, "{}", v.to_string()?)?;
+            }
+            Ok(())
+        })?;
+        io_table.set("write", write_fn)?;
+
+        let globals = vm.globals();
+        globals.set("io", io_table)?;
+
         let loaded = vm.named_registry_value::<LuaTable<'_>>(K_LOADED)?;
         loaded.set("@lam", Self::new(input, store, state))?;
         loaded.set("@lam/crypto", LuaLamCrypto {})?;
@@ -143,7 +178,6 @@ where
 
     fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method("get", lua_lam_get);
-        methods.add_method("read", |vm, this, f| lua_lam_read(vm, &this.input, f));
         methods.add_method("read_unicode", |vm, this, f| {
             lua_lam_read_unicode(vm, &this.input, f)
         });
@@ -160,10 +194,20 @@ mod tests {
     use crate::{EvaluationBuilder, LamValue};
 
     #[test]
+    fn hmac_sha256() {
+        let input = "lam";
+        let script = "return require('@lam/crypto'):hmac('sha256', io.read('*a'), 'secret')";
+        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
+        let res = e.evaluate().unwrap();
+        let expected = "8ef120dc5b07ab464dae787f89077001dbf720132277132e7db9af154f2221a4";
+        assert_eq!(LamValue::from(expected), res.payload);
+    }
+
+    #[test]
     fn read_binary() {
         let input: &[u8] = &[1, 2, 3];
         let script = r#"
-        local s = require('@lam'):read('*a')
+        local s = io.read('*a')
         local t = {}
         for b in (s or ""):gmatch('.') do
           table.insert(t, string.byte(b))
@@ -178,10 +222,11 @@ mod tests {
         );
     }
 
-    #[test_case("assert(not require('@lam'):read('*a'))")]
-    #[test_case("assert(not require('@lam'):read('*l'))")]
-    #[test_case("assert(not require('@lam'):read('*n'))")]
-    #[test_case("assert(not require('@lam'):read(1))")]
+    #[test_case("assert(not io.read())")]
+    #[test_case("assert(not io.read('*a'))")]
+    #[test_case("assert(not io.read('*l'))")]
+    #[test_case("assert(not io.read('*n'))")]
+    #[test_case("assert(not io.read(1))")]
     fn read_empty(script: &'static str) {
         let e = EvaluationBuilder::new(script, empty()).build();
         let _ = e.evaluate().expect(script);
@@ -194,16 +239,17 @@ mod tests {
     #[test_case("x", LamValue::None)]
     #[test_case("1\n", 1.into())]
     fn read_number(input: &'static str, expected: LamValue) {
-        let script = "return require('@lam'):read('*n')";
+        let script = "return io.read('*n')";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().expect(input);
         assert_eq!(expected, res.payload);
     }
 
-    #[test_case("return require('@lam'):read('*a')", "foo\nbar".into())]
-    #[test_case("return require('@lam'):read('*l')", "foo".into())]
-    #[test_case("return require('@lam'):read(1)", "f".into())]
-    #[test_case("return require('@lam'):read(4)", "foo\n".into())]
+    #[test_case("return io.read()", "foo".into())]
+    #[test_case("return io.read('*a')", "foo\nbar".into())]
+    #[test_case("return io.read('*l')", "foo".into())]
+    #[test_case("return io.read(1)", "f".into())]
+    #[test_case("return io.read(4)", "foo\n".into())]
     fn read_string(script: &str, expected: LamValue) {
         let input = "foo\nbar";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
@@ -283,10 +329,7 @@ mod tests {
     #[test]
     fn sha256() {
         let input = "lam";
-        let script = r#"
-        local m = require('@lam');
-        return require('@lam/crypto'):sha256(m:read('*a'))
-        "#;
+        let script = "return require('@lam/crypto'):sha256(io.read('*a'))";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
         let expected = "7f1b55b860590406f84f9394f4e73356902dad022a8cd6f43221086d3c70699e";
@@ -294,15 +337,15 @@ mod tests {
     }
 
     #[test]
-    fn hmac_sha256() {
-        let input = "lam";
-        let script = r#"
-        local m = require('@lam');
-        return require('@lam/crypto'):hmac("sha256",m:read('*a'),"secret")
-        "#;
-        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
+    fn write() {
+        let script = "io.write('l', 'a', 'm'); return nil";
+        let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        let expected = "8ef120dc5b07ab464dae787f89077001dbf720132277132e7db9af154f2221a4";
-        assert_eq!(LamValue::from(expected), res.payload);
+        assert_eq!(LamValue::None, res.payload);
+
+        let script = "io.stderr:write('err', 'or'); return nil";
+        let e = EvaluationBuilder::new(script, empty()).build();
+        let res = e.evaluate().unwrap();
+        assert_eq!(LamValue::None, res.payload);
     }
 }

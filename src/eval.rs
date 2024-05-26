@@ -204,7 +204,7 @@ where
     /// # use std::io::{BufReader, Cursor, empty};
     /// use lam::*;
     ///
-    /// let script = "return require('@lam'):read('*a')";
+    /// let script = "return io.read('*a')";
     /// let mut e = EvaluationBuilder::new(script, Cursor::new("1")).build();
     ///
     /// let r = e.evaluate().unwrap();
@@ -277,17 +277,17 @@ mod tests {
         assert!(e.evaluate().is_err());
     }
 
+    #[test_case("algebra.lua", "2", 4.into())]
+    #[test_case("count-bytes.lua", "A", hashmap!{ "65" => 1.into() }.into())]
     #[test_case("hello.lua", "", LamValue::None)]
     #[test_case("input.lua", "lua", LamValue::None)]
-    #[test_case("algebra.lua", "2", 4.into())]
-    #[test_case("store.lua", "", 1.into())]
-    #[test_case("count-bytes.lua", "A", hashmap!{ "65" => 1.into() }.into())]
+    #[test_case("read-unicode.lua", "你好，世界", "你好".into())]
     #[test_case("return-table.lua", "123", hashmap!{
         "bool" => true.into(),
         "num" => 1.23.into(),
         "str" => "hello".into()
     }.into())]
-    #[test_case("read-unicode.lua", "你好，世界", "你好".into())]
+    #[test_case("store.lua", "", 1.into())]
     fn evaluate_examples(filename: &str, input: &'static str, expected: LamValue) {
         let script = fs::read_to_string(format!("./lua-examples/{filename}")).unwrap();
         let e = EvaluationBuilder::new(&script, input.as_bytes())
@@ -333,7 +333,7 @@ mod tests {
     #[test]
     fn reevaluate() {
         let input = "foo\nbar";
-        let script = "return require('@lam'):read('*l')";
+        let script = "return io.read('*l')";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
 
         let res = e.evaluate().unwrap();
@@ -365,7 +365,7 @@ mod tests {
 
     #[test]
     fn replace_input() {
-        let script = "return require('@lam'):read('*a')";
+        let script = "return io.read('*a')";
         let e = EvaluationBuilder::new(script, &b"0"[..]).build();
 
         let res = e.evaluate().unwrap();

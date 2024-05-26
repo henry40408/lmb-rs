@@ -5,5 +5,5 @@ local m = require("@lam")
 
 local t = {}
 t.request = m.request
-t.request.body = m:read("*a")
+t.request.body = io.read("*a")
 return t

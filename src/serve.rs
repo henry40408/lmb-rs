@@ -191,8 +191,8 @@ mod tests {
     async fn echo_request() {
         let cli = Cli::parse_from(["lam", "--json", "serve", "--file", "a.lua"]);
         let script = r#"
-        local m = require('@lam');
-        return { request = m.request, body = m:read('*a') }
+        local m = require('@lam')
+        return { request = m.request, body = io.read('*a') }
         "#;
         let store_options = StoreOptions {
             store_path: None,
