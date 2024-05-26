@@ -35,7 +35,7 @@ impl LuaUserData for LuaLamHTTPResponse {
     }
 
     fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_method_mut("json", |_, this, ()| {
+        methods.add_method("json", |_, this, ()| {
             if "application/json" != this.content_type {
                 warn!("content type is not application/json, convert with caution");
             }
@@ -43,11 +43,11 @@ impl LuaUserData for LuaLamHTTPResponse {
             let value: LamValue = serde_json::from_reader(&mut *reader).into_lua_err()?;
             Ok(value)
         });
-        methods.add_method_mut("read", |vm, this, f: LuaValue<'lua>| {
-            lua_lam_read(vm, &mut this.reader, f)
+        methods.add_method("read", |vm, this, f: Option<LuaValue<'lua>>| {
+            lua_lam_read(vm, &this.reader, f)
         });
-        methods.add_method_mut("read_unicode", |vm, this, f: LuaValue<'lua>| {
-            lua_lam_read_unicode(vm, &mut this.reader, f)
+        methods.add_method("read_unicode", |vm, this, f: LuaValue<'lua>| {
+            lua_lam_read_unicode(vm, &this.reader, f)
         });
     }
 }

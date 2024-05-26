@@ -2,12 +2,10 @@
 --description = "Count bytes from standard input."
 --]]
 
-local m = require("@lam")
-
 local t = {}
 local total = 0
 while true do
-	local str = m:read(1024)
+	local str = io.read(1024)
 	if not str then
 		print("read " .. total .. " byte(s)")
 		break
