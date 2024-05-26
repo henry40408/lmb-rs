@@ -143,9 +143,9 @@ where
 
     fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method("get", lua_lam_get);
-        methods.add_method_mut("read", |vm, this, f| lua_lam_read(vm, &mut this.input, f));
-        methods.add_method_mut("read_unicode", |vm, this, f| {
-            lua_lam_read_unicode(vm, &mut this.input, f)
+        methods.add_method("read", |vm, this, f| lua_lam_read(vm, &this.input, f));
+        methods.add_method("read_unicode", |vm, this, f| {
+            lua_lam_read_unicode(vm, &this.input, f)
         });
         methods.add_method("set", lua_lam_set);
         methods.add_method("update", lua_lam_update);

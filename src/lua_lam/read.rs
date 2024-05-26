@@ -9,7 +9,7 @@ use crate::LamInput;
 // For a demonstration, see "count-bytes.lua".
 pub(crate) fn lua_lam_read<'lua, R>(
     vm: &'lua Lua,
-    input: &mut LamInput<R>,
+    input: &LamInput<R>,
     f: LuaValue<'lua>,
 ) -> LuaResult<LuaValue<'lua>>
 where
@@ -67,7 +67,7 @@ where
 
 pub(crate) fn lua_lam_read_unicode<'lua, R>(
     vm: &'lua Lua,
-    input: &mut LamInput<R>,
+    input: &LamInput<R>,
     f: LuaValue<'lua>,
 ) -> LuaResult<LuaValue<'lua>>
 where
