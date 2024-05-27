@@ -4,3 +4,5 @@ pub(crate) const SQL_UPSERT_STORE: &str = r#"
     INSERT INTO store (name, value, size, type) VALUES (?1, ?2, ?3, ?4)
     ON CONFLICT(name) DO UPDATE SET value = ?2, size = ?3, type = ?4, updated_at = CURRENT_TIMESTAMP
 "#;
+
+pub(crate) const SQL_GET_ALL_VALUES: &str = "SELECT name, type, created_at, updated_at FROM store;";

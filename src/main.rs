@@ -123,6 +123,8 @@ enum ExampleCommands {
 
 #[derive(Parser)]
 enum StoreCommands {
+    /// List values
+    List,
     /// Run migrations on the store
     Migrate {
         /// Target version, 0 to revert ALL migrations
@@ -273,9 +275,7 @@ async fn try_main() -> anyhow::Result<()> {
             table.load_preset(presets::NOTHING);
             table.set_header(vec!["name", "description"]);
             for e in EXAMPLES.iter() {
-                let name = &e.name;
-                let description = &e.description;
-                table.add_row(vec![name, description]);
+                table.add_row(vec![&e.name, &e.description]);
             }
             print!("{table}");
             Ok(())
@@ -343,7 +343,26 @@ async fn try_main() -> anyhow::Result<()> {
                 bail!("store_path is required");
             };
             let store = LamStore::new(store_path)?;
+            if store_options.run_migrations {
+                store.migrate(None)?;
+            }
             match c {
+                StoreCommands::List => {
+                    let metadata_rows = store.list()?;
+                    let mut table = Table::new();
+                    table.load_preset(presets::NOTHING);
+                    table.set_header(vec!["name", "type", "created at", "updated at"]);
+                    for m in metadata_rows.iter() {
+                        table.add_row(vec![
+                            &m.name,
+                            &m.type_hint,
+                            &m.created_at.to_rfc3339(),
+                            &m.updated_at.to_rfc3339(),
+                        ]);
+                    }
+                    print!("{table}");
+                    Ok(())
+                }
                 StoreCommands::Migrate { version } => {
                     store.migrate(version)?;
                     Ok(())

@@ -131,6 +131,21 @@ fn serve() {
 }
 
 #[test]
+fn store_list() {
+    let store = NamedTempFile::new().unwrap();
+    let store_path = store.path().to_string_lossy().to_string();
+    let mut cmd = Command::cargo_bin("lam").unwrap();
+    cmd.args([
+        "--store-path",
+        &store_path,
+        "--run-migrations",
+        "store",
+        "list",
+    ]);
+    cmd.assert().success();
+}
+
+#[test]
 fn store_migrate() {
     let store = NamedTempFile::new().unwrap();
     let store_path = store.path().to_string_lossy().to_string();

@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use get_size::GetSize;
 use parking_lot::Mutex;
 use rusqlite::Connection;
@@ -99,12 +100,12 @@ impl LamStore {
 
         let name = name.as_ref();
         let size = value.get_size();
-        let type_ = value.type_hint();
+        let type_hint = value.type_hint();
         let value = rmp_serde::to_vec(&value)?;
 
         let mut cached_stmt = conn.prepare_cached(SQL_UPSERT_STORE)?;
-        let _s = trace_span!("store_insert", name, type_).entered();
-        cached_stmt.execute((name, value, size, type_))?;
+        let _s = trace_span!("store_insert", name, type_hint).entered();
+        cached_stmt.execute((name, value, size, type_hint))?;
 
         Ok(())
     }
@@ -128,8 +129,8 @@ impl LamStore {
         let _s = trace_span!("store_get", name).entered();
         let res = cached_stmt.query_row((name,), |row| {
             let value: Vec<u8> = row.get("value")?;
-            let type_: String = row.get("type")?;
-            Ok((value, type_))
+            let type_hint: String = row.get("type")?;
+            Ok((value, type_hint))
         });
         let value: Vec<u8> = match res {
             Err(rusqlite::Error::QueryReturnedNoRows) => {
@@ -137,8 +138,8 @@ impl LamStore {
                 return Ok(LamValue::None);
             }
             Err(e) => return Err(e.into()),
-            Ok((v, type_)) => {
-                trace!(type_, "value");
+            Ok((v, type_hint)) => {
+                trace!(type_hint, "value");
                 v
             }
         };
@@ -225,17 +226,50 @@ impl LamStore {
             };
         }
         let size = value.get_size();
-        let type_ = value.type_hint();
+        let type_hint = value.type_hint();
         {
             let value = rmp_serde::to_vec(&value)?;
             let mut cached_stmt = tx.prepare_cached(SQL_UPSERT_STORE)?;
-            cached_stmt.execute((name, value, size, type_))?;
+            cached_stmt.execute((name, value, size, type_hint))?;
         }
         tx.commit()?;
-        trace!(type_, "updated");
+        trace!(type_hint, "updated");
 
         Ok(value)
     }
+
+    /// List values
+    pub fn list(&self) -> LamResult<Vec<LamValueMetadata>> {
+        let conn = self.conn.lock();
+        let mut cached_stmt = conn.prepare_cached(SQL_GET_ALL_VALUES)?;
+        let mut rows = cached_stmt.query([])?;
+        let mut res = vec![];
+        while let Some(row) = rows.next()? {
+            let name: String = row.get("name")?;
+            let type_hint: String = row.get("type")?;
+            let created_at: DateTime<Utc> = row.get("created_at")?;
+            let updated_at: DateTime<Utc> = row.get("updated_at")?;
+            res.push(LamValueMetadata {
+                name,
+                type_hint,
+                created_at,
+                updated_at,
+            });
+        }
+        Ok(res)
+    }
+}
+
+/// Value meatadata
+pub struct LamValueMetadata {
+    /// Name
+    pub name: String,
+    /// Type
+    pub type_hint: String,
+    /// Created at
+    pub created_at: DateTime<Utc>,
+    /// Updated at
+    pub updated_at: DateTime<Utc>,
 }
 
 impl Default for LamStore {
