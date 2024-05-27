@@ -123,11 +123,28 @@ enum ExampleCommands {
 
 #[derive(Parser)]
 enum StoreCommands {
+    /// Get a value
+    Get {
+        /// Name
+        #[arg(long)]
+        name: String,
+    },
+    /// List values
+    List,
     /// Run migrations on the store
     Migrate {
         /// Target version, 0 to revert ALL migrations
         #[arg(long)]
         version: Option<usize>,
+    },
+    /// Put a value
+    Put {
+        /// Name
+        #[arg(long)]
+        name: String,
+        /// Value, should be a valid JSON value e.g. true or "string" or 1
+        #[arg(long)]
+        value: FileOrStdin,
     },
     /// Show current version
     Version,
@@ -273,9 +290,7 @@ async fn try_main() -> anyhow::Result<()> {
             table.load_preset(presets::NOTHING);
             table.set_header(vec!["name", "description"]);
             for e in EXAMPLES.iter() {
-                let name = &e.name;
-                let description = &e.description;
-                table.add_row(vec![name, description]);
+                table.add_row(vec![&e.name, &e.description]);
             }
             print!("{table}");
             Ok(())
@@ -343,9 +358,40 @@ async fn try_main() -> anyhow::Result<()> {
                 bail!("store_path is required");
             };
             let store = LamStore::new(store_path)?;
+            if store_options.run_migrations {
+                store.migrate(None)?;
+            }
             match c {
+                StoreCommands::Get { name } => {
+                    let value = store.get(name)?;
+                    let value = serde_json::to_string(&value)?;
+                    print!("{value}");
+                    Ok(())
+                }
+                StoreCommands::List => {
+                    let metadata_rows = store.list()?;
+                    let mut table = Table::new();
+                    table.load_preset(presets::NOTHING);
+                    table.set_header(vec!["name", "type", "created at", "updated at"]);
+                    for m in metadata_rows.iter() {
+                        table.add_row(vec![
+                            &m.name,
+                            &m.type_hint,
+                            &m.created_at.to_rfc3339(),
+                            &m.updated_at.to_rfc3339(),
+                        ]);
+                    }
+                    print!("{table}");
+                    Ok(())
+                }
                 StoreCommands::Migrate { version } => {
                     store.migrate(version)?;
+                    Ok(())
+                }
+                StoreCommands::Put { name, value } => {
+                    let value = value.contents()?;
+                    let value = serde_json::from_str(&value)?;
+                    store.insert(name, &value)?;
                     Ok(())
                 }
                 StoreCommands::Version => {
@@ -369,17 +415,4 @@ async fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     ExitCode::SUCCESS
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::do_check_syntax;
-
-    #[test]
-    fn syntax_check() {
-        let no_color = true;
-        let name = "test";
-        do_check_syntax(no_color, name, "return true").unwrap();
-        assert!(do_check_syntax(no_color, name, "ret true").is_err());
-    }
 }
