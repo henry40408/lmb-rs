@@ -4,6 +4,6 @@ CREATE TABLE store (
   value BLOB NOT NULL,
   size INTEGER NOT NULL,
   type TEXT NOT NULL,
-  created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-  updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) STRICT;
