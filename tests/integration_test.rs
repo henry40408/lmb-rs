@@ -131,6 +131,69 @@ fn serve() {
 }
 
 #[test]
+fn store_get() {
+    let store = NamedTempFile::new().unwrap();
+    let store_path = store.path().to_string_lossy().to_string();
+    let mut cmd = Command::cargo_bin("lam").unwrap();
+    cmd.env("RUST_LOG", "error");
+    cmd.args([
+        "--store-path",
+        &store_path,
+        "--run-migrations",
+        "store",
+        "get",
+        "--name",
+        "a",
+    ]);
+    cmd.assert().success().stdout("null");
+}
+
+#[test]
+fn store_get_list_put() {
+    let store = NamedTempFile::new().unwrap();
+    let store_path = store.path().to_string_lossy().to_string();
+
+    let mut cmd = Command::cargo_bin("lam").unwrap();
+    cmd.env("RUST_LOG", "error");
+    cmd.write_stdin("1");
+    cmd.args([
+        "--store-path",
+        &store_path,
+        "--run-migrations",
+        "store",
+        "put",
+        "--name",
+        "a",
+        "--value",
+        "-",
+    ]);
+    cmd.assert().success();
+
+    let mut cmd = Command::cargo_bin("lam").unwrap();
+    cmd.args([
+        "--store-path",
+        &store_path,
+        "--run-migrations",
+        "store",
+        "list",
+    ]);
+    cmd.assert().success();
+
+    let mut cmd = Command::cargo_bin("lam").unwrap();
+    cmd.env("RUST_LOG", "error");
+    cmd.args([
+        "--store-path",
+        &store_path,
+        "--run-migrations",
+        "store",
+        "get",
+        "--name",
+        "a",
+    ]);
+    cmd.assert().success().stdout("1");
+}
+
+#[test]
 fn store_list() {
     let store = NamedTempFile::new().unwrap();
     let store_path = store.path().to_string_lossy().to_string();

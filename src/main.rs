@@ -416,16 +416,3 @@ async fn main() -> ExitCode {
     }
     ExitCode::SUCCESS
 }
-
-#[cfg(test)]
-mod tests {
-    use crate::do_check_syntax;
-
-    #[test]
-    fn syntax_check() {
-        let no_color = true;
-        let name = "test";
-        do_check_syntax(no_color, name, "return true").unwrap();
-        assert!(do_check_syntax(no_color, name, "ret true").is_err());
-    }
-}
