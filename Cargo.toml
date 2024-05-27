@@ -28,7 +28,7 @@ http = "1.1.0"
 include_dir = { version = "0.7.3", features = ["glob"] }
 mlua = { version = "0.9.1", features = ["luau", "send", "serialize"] }
 once_cell = "1.19.0"
-parking_lot = "0.12.1"
+parking_lot = "0.12.3"
 rmp-serde = "1.1.2"
 rusqlite = { version = "0.31.0", features = ["bundled", "chrono"] }
 rusqlite_migration = { version = "1.2.0", features = ["from-directory"] }
