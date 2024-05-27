@@ -123,6 +123,12 @@ enum ExampleCommands {
 
 #[derive(Parser)]
 enum StoreCommands {
+    /// Get a value
+    Get {
+        /// Name
+        #[arg(long)]
+        name: String,
+    },
     /// List values
     List,
     /// Run migrations on the store
@@ -130,6 +136,15 @@ enum StoreCommands {
         /// Target version, 0 to revert ALL migrations
         #[arg(long)]
         version: Option<usize>,
+    },
+    /// Put a value
+    Put {
+        /// Name
+        #[arg(long)]
+        name: String,
+        /// Value, should be a valid JSON value e.g. true or "string" or 1
+        #[arg(long)]
+        value: FileOrStdin,
     },
     /// Show current version
     Version,
@@ -347,6 +362,12 @@ async fn try_main() -> anyhow::Result<()> {
                 store.migrate(None)?;
             }
             match c {
+                StoreCommands::Get { name } => {
+                    let value = store.get(name)?;
+                    let value = serde_json::to_string(&value)?;
+                    print!("{value}");
+                    Ok(())
+                }
                 StoreCommands::List => {
                     let metadata_rows = store.list()?;
                     let mut table = Table::new();
@@ -365,6 +386,12 @@ async fn try_main() -> anyhow::Result<()> {
                 }
                 StoreCommands::Migrate { version } => {
                     store.migrate(version)?;
+                    Ok(())
+                }
+                StoreCommands::Put { name, value } => {
+                    let value = value.contents()?;
+                    let value = serde_json::from_str(&value)?;
+                    store.insert(name, &value)?;
                     Ok(())
                 }
                 StoreCommands::Version => {
