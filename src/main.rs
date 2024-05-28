@@ -1,10 +1,11 @@
 use anyhow::bail;
 use clap::{Parser, Subcommand};
-use clap_stdin::{FileOrStdin, Source};
+use clio::*;
 use comfy_table::{presets, Table};
 use lam::*;
 use mlua::prelude::*;
 use serve::ServeOptions;
+use std::io::Read;
 use std::{io, path::PathBuf, process::ExitCode, time::Duration};
 use tracing::Level;
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
@@ -13,9 +14,9 @@ mod serve;
 
 static VERSION: &str = env!("APP_VERSION");
 
+/// lam is a Lua function runner.
 #[derive(Parser)]
 #[command(about, author, version=VERSION)]
-/// lam is a Lua function runner.
 struct Cli {
     /// Checks the syntax of the function, disabled by default for performance reasons
     #[arg(long, env = "LAM_CHECK_SYNTAX")]
@@ -54,17 +55,17 @@ enum Commands {
     /// Check syntax of script
     Check {
         /// Script path
-        #[arg(long)]
-        file: FileOrStdin,
+        #[arg(long, value_parser, default_value = "-")]
+        file: Input,
     },
     /// Evaluate a script file
     #[command(alias = "eval")]
     Evaluate {
         /// Script path
-        #[arg(long)]
-        file: FileOrStdin,
+        #[arg(long, value_parser, default_value = "-")]
+        file: Input,
         /// Timeout in seconds
-        #[arg(long, default_value_t=DEFAULT_TIMEOUT.as_secs())]
+        #[arg(long, default_value_t = DEFAULT_TIMEOUT.as_secs())]
         timeout: u64,
     },
     /// Interact with examples
@@ -78,8 +79,8 @@ enum Commands {
         #[arg(long, default_value = "127.0.0.1:3000")]
         bind: String,
         /// Script path
-        #[arg(long)]
-        file: FileOrStdin,
+        #[arg(long, value_parser, default_value = "-")]
+        file: Input,
         /// Timeout in seconds
         #[arg(long)]
         timeout: Option<u64>,
@@ -149,8 +150,8 @@ enum StoreCommands {
         #[arg(long)]
         name: String,
         /// Value, the content should be a valid JSON value e.g. true or "string" or 1
-        #[arg(long)]
-        value: FileOrStdin,
+        #[arg(long, value_parser, default_value = "-")]
+        value: Input,
     },
     /// Show current version
     Version,
@@ -165,6 +166,13 @@ fn do_check_syntax<S: AsRef<str>>(no_color: bool, name: S, script: S) -> anyhow:
         bail!(e);
     }
     Ok(())
+}
+
+fn read_script(input: &mut Input) -> anyhow::Result<(String, String)> {
+    let name = input.path().to_string();
+    let mut script = String::new();
+    input.read_to_string(&mut script)?;
+    Ok((name, script))
 }
 
 fn prepare_store(options: &StoreOptions) -> LamResult<LamStore> {
@@ -219,22 +227,12 @@ async fn try_main() -> anyhow::Result<()> {
         run_migrations: cli.run_migrations,
     };
     match cli.command {
-        Commands::Check { file } => {
-            let name = if let Source::Arg(path) = &file.source {
-                path.to_string()
-            } else {
-                "(stdin)".to_string()
-            };
-            let script = file.contents()?;
-            do_check_syntax(cli.no_color, name, script)
+        Commands::Check { mut file } => {
+            let (name, script) = read_script(&mut file)?;
+            do_check_syntax(cli.no_color, &name, &script)
         }
-        Commands::Evaluate { file, timeout, .. } => {
-            let name = if let Source::Arg(path) = &file.source {
-                path.to_string()
-            } else {
-                "(stdin)".to_string()
-            };
-            let script = file.contents()?;
+        Commands::Evaluate { mut file, timeout } => {
+            let (name, script) = read_script(&mut file)?;
             if cli.check_syntax {
                 do_check_syntax(cli.no_color, &name, &script)?;
             }
@@ -331,18 +329,12 @@ async fn try_main() -> anyhow::Result<()> {
             }
             Ok(())
         }
-
         Commands::Serve {
             bind,
-            file,
+            mut file,
             timeout,
         } => {
-            let name = if let Source::Arg(path) = &file.source {
-                path.to_string()
-            } else {
-                "(stdin)".to_string()
-            };
-            let script = file.contents()?;
+            let (name, script) = read_script(&mut file)?;
             if cli.check_syntax {
                 do_check_syntax(cli.no_color, &name, &script)?;
             }
@@ -399,9 +391,10 @@ async fn try_main() -> anyhow::Result<()> {
                     store.migrate(version)?;
                     Ok(())
                 }
-                StoreCommands::Put { name, value } => {
-                    let value = value.contents()?;
-                    let value = serde_json::from_str(&value)?;
+                StoreCommands::Put { name, mut value } => {
+                    let mut buf = String::new();
+                    value.read_to_string(&mut buf)?;
+                    let value = serde_json::from_str(&buf)?;
                     let affected = store.insert(name, &value)?;
                     print!("{affected}");
                     Ok(())
