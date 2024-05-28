@@ -38,11 +38,9 @@ static MIGRATIONS: Lazy<Migrations<'static>> = Lazy::new(|| {
 });
 
 /// Function input.
-#[cfg(not(tarpaulin_include))]
 pub type LamInput<R> = Arc<Mutex<R>>;
 
 /// Generic result type of Lam.
-#[cfg(not(tarpaulin_include))]
 pub type LamResult<T> = Result<T, LamError>;
 
 /// State key
@@ -64,7 +62,6 @@ where
 }
 
 /// State of each evaluation.
-#[cfg(not(tarpaulin_include))]
 pub type LamState = DashMap<LamStateKey, LamValue>;
 
 #[cfg(test)]
