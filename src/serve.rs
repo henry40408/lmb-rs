@@ -143,7 +143,6 @@ where
     Ok(app)
 }
 
-#[cfg(not(tarpaulin_include))]
 pub async fn serve_file<'a, S, T>(opts: &ServeOptions<S, T>) -> anyhow::Result<()>
 where
     S: AsRef<str>,
