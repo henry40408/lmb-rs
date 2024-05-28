@@ -77,7 +77,7 @@ fn lua_lam_fetch(
     let headers: LamValue = options
         .and_then(|t| t.get("headers").ok())
         .unwrap_or(LamValue::None);
-    let _s = trace_span!("send_http_request", ?method, ?url, ?headers).entered();
+    let _s = trace_span!("send_http_request", %method, %url, ?headers).entered();
     let res = if method.is_idempotent() {
         let req = ureq::request_url(method.as_str(), &url);
         let req = set_headers(req, &headers);

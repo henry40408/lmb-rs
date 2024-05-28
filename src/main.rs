@@ -2,10 +2,12 @@ use anyhow::bail;
 use clap::{Parser, Subcommand};
 use clio::*;
 use comfy_table::{presets, Table};
+use cron::Schedule;
 use lam::*;
 use mlua::prelude::*;
 use serve::ServeOptions;
 use std::io::Read;
+use std::str::FromStr;
 use std::{io, path::PathBuf, process::ExitCode, time::Duration};
 use tracing::Level;
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
@@ -73,6 +75,15 @@ enum Commands {
     Example(ExampleCommands),
     /// List available themes
     ListThemes,
+    /// Schedule the script as a cron job
+    Schedule {
+        /// Cron
+        #[arg(long)]
+        cron: String,
+        /// Script path
+        #[arg(long, value_parser, default_value = "-")]
+        file: Input,
+    },
     /// Run a HTTP server from a Lua script
     Serve {
         /// Bind
@@ -327,6 +338,12 @@ async fn try_main() -> anyhow::Result<()> {
             for t in p.themes() {
                 println!("{t}");
             }
+            Ok(())
+        }
+        Commands::Schedule { mut file, cron } => {
+            let (name, script) = read_script(&mut file)?;
+            let schedule = Schedule::from_str(&cron)?;
+            schedule_script(name, script, schedule);
             Ok(())
         }
         Commands::Serve {
