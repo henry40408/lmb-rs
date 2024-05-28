@@ -117,6 +117,39 @@ fn list_themes() {
 }
 
 #[test]
+fn schedule() {
+    let store = NamedTempFile::new("db.sqlite3").unwrap();
+    let store_path = store.path().to_string_lossy();
+
+    let mut cmd = Command::cargo_bin("lam").unwrap();
+    cmd.write_stdin("require('@lam'):set('a', 1); return true");
+    cmd.args([
+        "--store-path",
+        &store_path,
+        "--run-migrations",
+        "schedule",
+        "--cron",
+        "* * * * * *",
+        "--file",
+        "-",
+    ]);
+    cmd.timeout(Duration::from_millis(1_100));
+    cmd.assert().stderr("");
+
+    let mut cmd = Command::cargo_bin("lam").unwrap();
+    cmd.args([
+        "--store-path",
+        &store_path,
+        "--run-migrations",
+        "store",
+        "get",
+        "--name",
+        "a",
+    ]);
+    cmd.assert().stdout("1");
+}
+
+#[test]
 fn serve() {
     let mut cmd = Command::cargo_bin("lam").unwrap();
     cmd.args([
