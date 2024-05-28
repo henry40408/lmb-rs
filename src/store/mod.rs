@@ -139,7 +139,7 @@ impl LamStore {
         let _s = trace_span!("store_get", name).entered();
         let res = cached_stmt.query_row((name,), |row| {
             let value: Vec<u8> = row.get("value")?;
-            let type_hint: String = row.get("type")?;
+            let type_hint: String = row.get("type_hint")?;
             Ok((value, type_hint))
         });
         let value: Vec<u8> = match res {
@@ -165,11 +165,13 @@ impl LamStore {
         let mut res = vec![];
         while let Some(row) = rows.next()? {
             let name: String = row.get("name")?;
-            let type_hint: String = row.get("type")?;
+            let type_hint: String = row.get("type_hint")?;
+            let size: usize = row.get("size")?;
             let created_at: DateTime<Utc> = row.get("created_at")?;
             let updated_at: DateTime<Utc> = row.get("updated_at")?;
             res.push(LamValueMetadata {
                 name,
+                size,
                 type_hint,
                 created_at,
                 updated_at,
@@ -274,6 +276,8 @@ impl LamStore {
 pub struct LamValueMetadata {
     /// Name
     pub name: String,
+    /// Size
+    pub size: usize,
     /// Type
     pub type_hint: String,
     /// Created at

@@ -64,8 +64,8 @@ enum Commands {
         #[arg(long)]
         file: FileOrStdin,
         /// Timeout in seconds
-        #[arg(long)]
-        timeout: Option<u64>,
+        #[arg(long, default_value_t=DEFAULT_TIMEOUT.as_secs())]
+        timeout: u64,
     },
     /// Interact with examples
     #[command(subcommand)]
@@ -148,7 +148,7 @@ enum StoreCommands {
         /// Name
         #[arg(long)]
         name: String,
-        /// Value, should be a valid JSON value e.g. true or "string" or 1
+        /// Value, the content should be a valid JSON value e.g. true or "string" or 1
         #[arg(long)]
         value: FileOrStdin,
     },
@@ -239,11 +239,10 @@ async fn try_main() -> anyhow::Result<()> {
                 do_check_syntax(cli.no_color, &name, &script)?;
             }
             let store = prepare_store(&store_options)?;
-            let timeout = timeout.map(Duration::from_secs);
             let e = EvaluationBuilder::new(&script, io::stdin())
                 .with_name(&name)
                 .with_store(store)
-                .with_timeout(timeout)
+                .with_timeout(Some(Duration::from_secs(timeout)))
                 .build();
             let res = e.evaluate();
             let mut buf = String::new();
@@ -383,11 +382,12 @@ async fn try_main() -> anyhow::Result<()> {
                     let metadata_rows = store.list()?;
                     let mut table = Table::new();
                     table.load_preset(presets::NOTHING);
-                    table.set_header(vec!["name", "type", "created at", "updated at"]);
+                    table.set_header(vec!["name", "type", "size", "created at", "updated at"]);
                     for m in metadata_rows.iter() {
                         table.add_row(vec![
                             &m.name,
                             &m.type_hint,
+                            &m.size.to_string(),
                             &m.created_at.to_rfc3339(),
                             &m.updated_at.to_rfc3339(),
                         ]);

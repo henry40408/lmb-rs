@@ -10,9 +10,7 @@ use std::{
 };
 use tracing::{debug, trace_span};
 
-use crate::{LamInput, LamResult, LamState, LamStore, LamValue, LuaLam};
-
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+use crate::{LamInput, LamResult, LamState, LamStore, LamValue, LuaLam, DEFAULT_TIMEOUT};
 
 /// Evaluation builder.
 #[derive(Default)]

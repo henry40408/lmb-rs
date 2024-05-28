@@ -7,7 +7,7 @@ use include_dir::{include_dir, Dir};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use rusqlite_migration::Migrations;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 pub use check::*;
 pub use error::*;
@@ -26,6 +26,9 @@ mod lua_lam;
 mod printer;
 mod store;
 mod value;
+
+/// Default timeout for evaluation in seconds
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
 static MIGRATIONS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/migrations");
 
