@@ -11,7 +11,7 @@ fn check_stdin() {
     cmd.args(["--no-color", "check", "--file", "-"]);
     cmd.assert().failure().stderr(
         r#"Error: leftover token
-   ,-[(stdin):1:1]
+   ,-["-":1:1]
  1 |ret true
    | `-- leftover token
 "#,

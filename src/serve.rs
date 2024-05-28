@@ -167,7 +167,7 @@ mod tests {
 
     #[tokio::test]
     async fn serve() {
-        let cli = Cli::parse_from(["lam", "--json", "serve", "--file", "a.lua"]);
+        let cli = Cli::parse_from(["lam", "--json", "serve", "--file", "-"]);
         let script = "return 1";
         let store_options = StoreOptions {
             store_path: None,
@@ -189,7 +189,7 @@ mod tests {
 
     #[tokio::test]
     async fn echo_request() {
-        let cli = Cli::parse_from(["lam", "--json", "serve", "--file", "a.lua"]);
+        let cli = Cli::parse_from(["lam", "--json", "serve", "--file", "-"]);
         let script = r#"
         local m = require('@lam')
         return { request = m.request, body = io.read('*a') }
