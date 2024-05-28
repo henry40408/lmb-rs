@@ -33,11 +33,10 @@ impl LamStore {
     /// Create a new store with path on the filesystem.
     ///
     /// ```rust
-    /// # use tempdir::TempDir;
+    /// # use assert_fs::NamedTempFile;
     /// use lam::*;
-    /// let dir = TempDir::new("temp").unwrap();
-    /// let path = dir.path().join("db.sqlite3");
-    /// let _ = LamStore::new(&path);
+    /// let store_file = NamedTempFile::new("db.sqlite3").unwrap();
+    /// let _ = LamStore::new(store_file.path());
     /// ```
     pub fn new(path: &Path) -> LamResult<Self> {
         debug!(?path, "open store");
@@ -54,11 +53,10 @@ impl LamStore {
     /// Perform migration on the database. Migrations should be idempotent.
     ///
     /// ```rust
-    /// # use tempdir::TempDir;
+    /// # use assert_fs::NamedTempFile;
     /// use lam::*;
-    /// let dir = TempDir::new("temp").unwrap();
-    /// let path = dir.path().join("db.sqlite3");
-    /// let store = LamStore::new(&path).unwrap();
+    /// let store_file = NamedTempFile::new("db.sqlite3").unwrap();
+    /// let store = LamStore::new(store_file.path()).unwrap();
     /// store.migrate(None).unwrap();
     /// ```
     pub fn migrate(&self, version: Option<usize>) -> LamResult<()> {
@@ -302,9 +300,9 @@ impl Default for LamStore {
 
 #[cfg(test)]
 mod tests {
+    use assert_fs::NamedTempFile;
     use maplit::hashmap;
     use std::{io::empty, thread};
-    use tempfile::NamedTempFile;
     use test_case::test_case;
 
     use crate::{EvaluationBuilder, LamStore, LamValue};
@@ -376,8 +374,8 @@ mod tests {
 
     #[test]
     fn new_store() {
-        let store_path = NamedTempFile::new().unwrap();
-        let store = LamStore::new(store_path.path()).unwrap();
+        let store_file = NamedTempFile::new("db.sqlite3").unwrap();
+        let store = LamStore::new(store_file.path()).unwrap();
         store.migrate(None).unwrap();
     }
 

@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use assert_cmd::Command;
+use assert_fs::NamedTempFile;
 use serde_json::{json, Value};
-use tempfile::NamedTempFile;
 
 #[test]
 fn check_stdin() {
@@ -54,7 +54,7 @@ fn eval_stdin() {
 
 #[test]
 fn eval_store_migrate() {
-    let store = NamedTempFile::new().unwrap();
+    let store = NamedTempFile::new("db.sqlite3").unwrap();
     let store_path = store.path().to_string_lossy();
     let mut cmd = Command::cargo_bin("lam").unwrap();
     cmd.write_stdin("return true");
@@ -132,8 +132,8 @@ fn serve() {
 
 #[test]
 fn store_delete() {
-    let store = NamedTempFile::new().unwrap();
-    let store_path = store.path().to_string_lossy().to_string();
+    let store = NamedTempFile::new("db.sqlite3").unwrap();
+    let store_path = store.path().to_string_lossy();
 
     let mut cmd = Command::cargo_bin("lam").unwrap();
     cmd.write_stdin("1");
@@ -167,8 +167,8 @@ fn store_delete() {
 
 #[test]
 fn store_get() {
-    let store = NamedTempFile::new().unwrap();
-    let store_path = store.path().to_string_lossy().to_string();
+    let store = NamedTempFile::new("db.sqlite3").unwrap();
+    let store_path = store.path().to_string_lossy();
     let mut cmd = Command::cargo_bin("lam").unwrap();
     cmd.env("RUST_LOG", "error");
     cmd.args([
@@ -185,8 +185,8 @@ fn store_get() {
 
 #[test]
 fn store_get_list_put() {
-    let store = NamedTempFile::new().unwrap();
-    let store_path = store.path().to_string_lossy().to_string();
+    let store = NamedTempFile::new("db.sqlite3").unwrap();
+    let store_path = store.path().to_string_lossy();
 
     let mut cmd = Command::cargo_bin("lam").unwrap();
     cmd.env("RUST_LOG", "error");
@@ -230,8 +230,8 @@ fn store_get_list_put() {
 
 #[test]
 fn store_list() {
-    let store = NamedTempFile::new().unwrap();
-    let store_path = store.path().to_string_lossy().to_string();
+    let store = NamedTempFile::new("db.sqlite3").unwrap();
+    let store_path = store.path().to_string_lossy();
     let mut cmd = Command::cargo_bin("lam").unwrap();
     cmd.args([
         "--store-path",
@@ -245,8 +245,8 @@ fn store_list() {
 
 #[test]
 fn store_migrate() {
-    let store = NamedTempFile::new().unwrap();
-    let store_path = store.path().to_string_lossy().to_string();
+    let store = NamedTempFile::new("db.sqlite3").unwrap();
+    let store_path = store.path().to_string_lossy();
     let mut cmd = Command::cargo_bin("lam").unwrap();
     cmd.args(["--store-path", &store_path, "store", "migrate"]);
     cmd.assert().success();
@@ -254,8 +254,8 @@ fn store_migrate() {
 
 #[test]
 fn store_version() {
-    let store = NamedTempFile::new().unwrap();
-    let store_path = store.path().to_string_lossy().to_string();
+    let store = NamedTempFile::new("db.sqlite3").unwrap();
+    let store_path = store.path().to_string_lossy();
     let mut cmd = Command::cargo_bin("lam").unwrap();
     cmd.args(["--store-path", &store_path, "store", "version"]);
     cmd.assert().success();
