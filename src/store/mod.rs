@@ -80,6 +80,16 @@ impl LamStore {
         Ok(version)
     }
 
+    /// Delete value by name.
+    pub fn delete<S>(&self, name: S) -> LamResult<usize>
+    where
+        S: AsRef<str>,
+    {
+        let conn = self.conn.lock();
+        let affected = conn.execute(SQL_DELETE_VALUE_BY_NAME, (name.as_ref(),))?;
+        Ok(affected)
+    }
+
     /// Insert or update the value into the store.
     ///
     /// The key distinction between this function and [`LamStore::update`] is
@@ -95,7 +105,7 @@ impl LamStore {
     /// store.insert("c", &"hello".into());
     /// assert_eq!(LamValue::from("hello"), store.get("c").unwrap());
     /// ```
-    pub fn insert<S: AsRef<str>>(&self, name: S, value: &LamValue) -> LamResult<()> {
+    pub fn insert<S: AsRef<str>>(&self, name: S, value: &LamValue) -> LamResult<usize> {
         let conn = self.conn.lock();
 
         let name = name.as_ref();
@@ -105,9 +115,9 @@ impl LamStore {
 
         let mut cached_stmt = conn.prepare_cached(SQL_UPSERT_STORE)?;
         let _s = trace_span!("store_insert", name, type_hint).entered();
-        cached_stmt.execute((name, value, size, type_hint))?;
+        let affected = cached_stmt.execute((name, value, size, type_hint))?;
 
-        Ok(())
+        Ok(affected)
     }
 
     /// Get value from the store. A `nil` will be returned to Lua virtual machine
@@ -129,7 +139,7 @@ impl LamStore {
         let _s = trace_span!("store_get", name).entered();
         let res = cached_stmt.query_row((name,), |row| {
             let value: Vec<u8> = row.get("value")?;
-            let type_hint: String = row.get("type")?;
+            let type_hint: String = row.get("type_hint")?;
             Ok((value, type_hint))
         });
         let value: Vec<u8> = match res {
@@ -145,6 +155,29 @@ impl LamStore {
         };
 
         Ok(rmp_serde::from_slice::<LamValue>(&value)?)
+    }
+
+    /// List values
+    pub fn list(&self) -> LamResult<Vec<LamValueMetadata>> {
+        let conn = self.conn.lock();
+        let mut cached_stmt = conn.prepare_cached(SQL_GET_ALL_VALUES)?;
+        let mut rows = cached_stmt.query([])?;
+        let mut res = vec![];
+        while let Some(row) = rows.next()? {
+            let name: String = row.get("name")?;
+            let type_hint: String = row.get("type_hint")?;
+            let size: usize = row.get("size")?;
+            let created_at: DateTime<Utc> = row.get("created_at")?;
+            let updated_at: DateTime<Utc> = row.get("updated_at")?;
+            res.push(LamValueMetadata {
+                name,
+                size,
+                type_hint,
+                created_at,
+                updated_at,
+            });
+        }
+        Ok(res)
     }
 
     /// Insert or update the value into the store.
@@ -237,33 +270,14 @@ impl LamStore {
 
         Ok(value)
     }
-
-    /// List values
-    pub fn list(&self) -> LamResult<Vec<LamValueMetadata>> {
-        let conn = self.conn.lock();
-        let mut cached_stmt = conn.prepare_cached(SQL_GET_ALL_VALUES)?;
-        let mut rows = cached_stmt.query([])?;
-        let mut res = vec![];
-        while let Some(row) = rows.next()? {
-            let name: String = row.get("name")?;
-            let type_hint: String = row.get("type")?;
-            let created_at: DateTime<Utc> = row.get("created_at")?;
-            let updated_at: DateTime<Utc> = row.get("updated_at")?;
-            res.push(LamValueMetadata {
-                name,
-                type_hint,
-                created_at,
-                updated_at,
-            });
-        }
-        Ok(res)
-    }
 }
 
 /// Value meatadata
 pub struct LamValueMetadata {
     /// Name
     pub name: String,
+    /// Size
+    pub size: usize,
     /// Type
     pub type_hint: String,
     /// Created at

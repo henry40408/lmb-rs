@@ -64,8 +64,8 @@ enum Commands {
         #[arg(long)]
         file: FileOrStdin,
         /// Timeout in seconds
-        #[arg(long)]
-        timeout: Option<u64>,
+        #[arg(long, default_value_t=DEFAULT_TIMEOUT.as_secs())]
+        timeout: u64,
     },
     /// Interact with examples
     #[command(subcommand)]
@@ -123,6 +123,12 @@ enum ExampleCommands {
 
 #[derive(Parser)]
 enum StoreCommands {
+    /// Delete a value
+    Delete {
+        /// Name
+        #[arg(long)]
+        name: String,
+    },
     /// Get a value
     Get {
         /// Name
@@ -142,7 +148,7 @@ enum StoreCommands {
         /// Name
         #[arg(long)]
         name: String,
-        /// Value, should be a valid JSON value e.g. true or "string" or 1
+        /// Value, the content should be a valid JSON value e.g. true or "string" or 1
         #[arg(long)]
         value: FileOrStdin,
     },
@@ -233,11 +239,10 @@ async fn try_main() -> anyhow::Result<()> {
                 do_check_syntax(cli.no_color, &name, &script)?;
             }
             let store = prepare_store(&store_options)?;
-            let timeout = timeout.map(Duration::from_secs);
             let e = EvaluationBuilder::new(&script, io::stdin())
                 .with_name(&name)
                 .with_store(store)
-                .with_timeout(timeout)
+                .with_timeout(Some(Duration::from_secs(timeout)))
                 .build();
             let res = e.evaluate();
             let mut buf = String::new();
@@ -259,7 +264,7 @@ async fn try_main() -> anyhow::Result<()> {
             let script = &found.script.trim();
             let mut buf = String::new();
             render_script(&mut buf, script, &print_options)?;
-            print!("{buf}");
+            println!("{buf}");
             Ok(())
         }
         Commands::Example(ExampleCommands::Evaluate { name }) => {
@@ -292,7 +297,7 @@ async fn try_main() -> anyhow::Result<()> {
             for e in EXAMPLES.iter() {
                 table.add_row(vec![&e.name, &e.description]);
             }
-            print!("{table}");
+            println!("{table}");
             Ok(())
         }
         Commands::Example(ExampleCommands::Serve {
@@ -362,6 +367,11 @@ async fn try_main() -> anyhow::Result<()> {
                 store.migrate(None)?;
             }
             match c {
+                StoreCommands::Delete { name } => {
+                    let affected = store.delete(name)?;
+                    print!("{affected}");
+                    Ok(())
+                }
                 StoreCommands::Get { name } => {
                     let value = store.get(name)?;
                     let value = serde_json::to_string(&value)?;
@@ -372,16 +382,17 @@ async fn try_main() -> anyhow::Result<()> {
                     let metadata_rows = store.list()?;
                     let mut table = Table::new();
                     table.load_preset(presets::NOTHING);
-                    table.set_header(vec!["name", "type", "created at", "updated at"]);
+                    table.set_header(vec!["name", "type", "size", "created at", "updated at"]);
                     for m in metadata_rows.iter() {
                         table.add_row(vec![
                             &m.name,
                             &m.type_hint,
+                            &m.size.to_string(),
                             &m.created_at.to_rfc3339(),
                             &m.updated_at.to_rfc3339(),
                         ]);
                     }
-                    print!("{table}");
+                    println!("{table}");
                     Ok(())
                 }
                 StoreCommands::Migrate { version } => {
@@ -391,7 +402,8 @@ async fn try_main() -> anyhow::Result<()> {
                 StoreCommands::Put { name, value } => {
                     let value = value.contents()?;
                     let value = serde_json::from_str(&value)?;
-                    store.insert(name, &value)?;
+                    let affected = store.insert(name, &value)?;
+                    print!("{affected}");
                     Ok(())
                 }
                 StoreCommands::Version => {
@@ -410,7 +422,7 @@ async fn main() -> ExitCode {
         match e.downcast_ref::<LamError>() {
             // the following errors are handled, do nothing
             Some(&LamError::Lua(LuaError::RuntimeError(_) | LuaError::SyntaxError { .. })) => {}
-            _ => eprint!("{e:?}"),
+            _ => eprintln!("{e:?}"),
         }
         return ExitCode::FAILURE;
     }

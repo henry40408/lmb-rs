@@ -67,7 +67,7 @@ where
             .with_message(&message)
             .finish()
             .write((name, Source::from(script)), &mut buf);
-        return Some(String::from_utf8_lossy(&buf).to_string());
+        return Some(String::from_utf8_lossy(&buf).trim().to_string());
     }
     None
 }
