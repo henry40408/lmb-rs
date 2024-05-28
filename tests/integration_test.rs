@@ -131,6 +131,41 @@ fn serve() {
 }
 
 #[test]
+fn store_delete() {
+    let store = NamedTempFile::new().unwrap();
+    let store_path = store.path().to_string_lossy().to_string();
+
+    let mut cmd = Command::cargo_bin("lam").unwrap();
+    cmd.write_stdin("1");
+    cmd.env("RUST_LOG", "error");
+    cmd.args([
+        "--store-path",
+        &store_path,
+        "--run-migrations",
+        "store",
+        "put",
+        "--name",
+        "a",
+        "--value",
+        "-",
+    ]);
+    cmd.assert().success().stdout("1");
+
+    let mut cmd = Command::cargo_bin("lam").unwrap();
+    cmd.env("RUST_LOG", "error");
+    cmd.args([
+        "--store-path",
+        &store_path,
+        "--run-migrations",
+        "store",
+        "delete",
+        "--name",
+        "a",
+    ]);
+    cmd.assert().success().stdout("1");
+}
+
+#[test]
 fn store_get() {
     let store = NamedTempFile::new().unwrap();
     let store_path = store.path().to_string_lossy().to_string();
@@ -167,7 +202,7 @@ fn store_get_list_put() {
         "--value",
         "-",
     ]);
-    cmd.assert().success();
+    cmd.assert().success().stdout("1");
 
     let mut cmd = Command::cargo_bin("lam").unwrap();
     cmd.args([
