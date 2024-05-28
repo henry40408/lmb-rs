@@ -4,10 +4,10 @@ use chrono::Utc;
 use cron::Schedule;
 use tracing::debug;
 
-use crate::EvaluationBuilder;
+use crate::{EvaluationBuilder, LamStore};
 
 /// Schedule a script as a cron job
-pub fn schedule_script<S>(name: S, script: S, schedule: Schedule)
+pub fn schedule_script<S>(name: S, script: S, store: LamStore, schedule: Schedule)
 where
     S: AsRef<str>,
 {
@@ -21,6 +21,7 @@ where
             // TODO: figure out how to pass standard input
             let e = EvaluationBuilder::new(script.as_ref(), empty())
                 .with_name(name)
+                .with_store(store.clone())
                 .build();
             e.evaluate().expect("failed to evaludate the function");
         }

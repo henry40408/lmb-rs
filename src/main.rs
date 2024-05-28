@@ -343,7 +343,8 @@ async fn try_main() -> anyhow::Result<()> {
         Commands::Schedule { mut file, cron } => {
             let (name, script) = read_script(&mut file)?;
             let schedule = Schedule::from_str(&cron)?;
-            schedule_script(name, script, schedule);
+            let store = prepare_store(&store_options)?;
+            schedule_script(name, script, store, schedule);
             Ok(())
         }
         Commands::Serve {
