@@ -13,13 +13,12 @@ use tracing::{debug, trace_span};
 use crate::{LamInput, LamResult, LamState, LamStore, LamValue, LuaLam, DEFAULT_TIMEOUT};
 
 /// Evaluation builder.
-#[derive(Default)]
 pub struct EvaluationBuilder<R>
 where
     R: Read,
 {
     /// Function input, such as anything that implements [`std::io::Read`].
-    pub input: R,
+    pub input: Arc<Mutex<BufReader<R>>>,
     /// Function name. Might be `(stdin)` or file name.
     pub name: Option<String>,
     /// Lua script in plain text.
@@ -42,6 +41,18 @@ where
     /// let _ = EvaluationBuilder::new("", empty());
     /// ```
     pub fn new<S: AsRef<str>>(script: S, input: R) -> Self {
+        let input = Arc::new(Mutex::new(BufReader::new(input)));
+        Self {
+            input,
+            name: None,
+            script: script.as_ref().to_string(),
+            store: None,
+            timeout: None,
+        }
+    }
+
+    /// Build the evaluation with a [`std::io::BufReader`].
+    pub fn new_with_reader<S: AsRef<str>>(script: S, input: Arc<Mutex<BufReader<R>>>) -> Self {
         Self {
             input,
             name: None,
@@ -127,7 +138,7 @@ where
         };
         Arc::new(Evaluation {
             compiled,
-            input: Arc::new(Mutex::new(BufReader::new(self.input))),
+            input: self.input,
             name: self.name.unwrap_or_default(),
             store: self.store,
             timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
@@ -259,9 +270,11 @@ where
 #[cfg(test)]
 mod tests {
     use maplit::hashmap;
+    use parking_lot::Mutex;
     use std::{
         fs,
-        io::empty,
+        io::{empty, BufReader},
+        sync::Arc,
         time::{Duration, Instant},
     };
     use test_case::test_case;
@@ -341,6 +354,20 @@ mod tests {
         assert_eq!(LamValue::from("bar"), res.payload);
     }
 
+    #[test]
+    fn replace_input() {
+        let script = "return io.read('*a')";
+        let e = EvaluationBuilder::new(script, &b"0"[..]).build();
+
+        let res = e.evaluate().unwrap();
+        assert_eq!(LamValue::from("0"), res.payload);
+
+        e.set_input(&b"1"[..]);
+
+        let res = e.evaluate().unwrap();
+        assert_eq!(LamValue::from("1"), res.payload);
+    }
+
     #[test_case(r#""#, "")]
     #[test_case(r#"return nil"#, "")]
     #[test_case(r#"return true"#, "true")]
@@ -362,16 +389,11 @@ mod tests {
     }
 
     #[test]
-    fn replace_input() {
-        let script = "return io.read('*a')";
-        let e = EvaluationBuilder::new(script, &b"0"[..]).build();
-
+    fn with_bufreader() {
+        let input = Arc::new(Mutex::new(BufReader::new(empty())));
+        let e = EvaluationBuilder::new_with_reader("return nil", input.clone()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from("0"), res.payload);
-
-        e.set_input(&b"1"[..]);
-
-        let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from("1"), res.payload);
+        assert_eq!(LamValue::None, res.payload);
+        let _input = input;
     }
 }
