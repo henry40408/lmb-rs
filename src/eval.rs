@@ -145,6 +145,7 @@ where
             compiler.compile(&self.script)
         };
         Arc::new(Evaluation {
+            changed: Mutex::new(true),
             compiled,
             input: self.input,
             name: self.name.unwrap_or_default(),
@@ -175,6 +176,7 @@ pub struct Evaluation<R>
 where
     for<'lua> R: 'lua + Read,
 {
+    changed: Mutex<bool>,
     compiled: Vec<u8>,
     input: LamInput<BufReader<R>>,
     name: String,
@@ -233,12 +235,21 @@ where
     /// assert_eq!(LamValue::from("2"), r.payload);
     /// ```
     pub fn set_input(self: &Arc<Self>, input: R) {
+        let mut changed = self.changed.lock();
         *self.input.lock() = BufReader::new(input);
+        *changed = true;
     }
 
     fn do_evaluate(self: &Arc<Self>, state: Option<LamState>) -> LamResult<Solution<R>> {
         let vm = &self.vm;
-        LuaLam::register(vm, self.input.clone(), self.store.clone(), state)?;
+
+        {
+            let mut changed = self.changed.lock();
+            if *changed {
+                LuaLam::register(vm, self.input.clone(), self.store.clone(), state)?;
+                *changed = false;
+            }
+        }
 
         let max_memory = Arc::new(AtomicUsize::new(0));
         let timeout = self.timeout;
@@ -248,7 +259,7 @@ where
             let max_memory = Arc::clone(&max_memory);
             move |vm| {
                 let used_memory = vm.used_memory();
-                max_memory.fetch_max(used_memory, Ordering::SeqCst);
+                max_memory.fetch_max(used_memory, Ordering::Relaxed);
                 if start.elapsed() > timeout {
                     vm.remove_interrupt();
                     return Err(mlua::Error::runtime("timeout"));
@@ -264,7 +275,7 @@ where
         let result = chunk.eval()?;
 
         let duration = start.elapsed();
-        let max_memory = max_memory.load(Ordering::SeqCst);
+        let max_memory = max_memory.load(Ordering::Acquire);
         debug!(?duration, %script_name, ?max_memory, "script evaluated");
         Ok(Solution {
             duration,
