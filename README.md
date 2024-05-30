@@ -1,6 +1,6 @@
 # lam
 
-> Lua function runner
+> lam is a Lua function runner
 
 [![Casual Maintenance Intended](https://casuallymaintained.tech/badge.svg)](https://casuallymaintained.tech/)
 ![GitHub Workflow Status (with event)](https://img.shields.io/github/actions/workflow/status/henry40408/lam/.github%2Fworkflows%2Fworkflow.yaml)
@@ -9,8 +9,9 @@
 
 ## Features
 
-- Evaluate Lua script.
-- Handle HTTP requests via Lua script.
+- Evaluate a Lua script.
+- Handle HTTP requests via a Lua script.
+- Schedule a Lua script with cron.
 
 ## Installation
 
@@ -21,7 +22,7 @@
 ```bash
 git clone https://github.com/henry40408/lam
 cd lam
-cargo build --release
+cargo install --path . --locked
 ```
 
 ## Usage
@@ -29,19 +30,19 @@ cargo build --release
 Find some examples:
 
 ```bash
-$ ./target/release/lam example ls
+lam example ls
 ```
 
 Evaluate an example:
 
 ```bash
-$ ./target/release/lam example eval --name hello
+lam example eval --name hello
 ```
 
 Evaluate Lua script:
 
 ```bash
-$ ./target/release/lam eval --file lua-examples/hello.lua
+$ lam eval --file lua-examples/hello.lua
 hello, world!
 ```
 
