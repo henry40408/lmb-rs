@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use http::Method;
+use http::{Method, StatusCode};
 use mlua::prelude::*;
 use parking_lot::Mutex;
 use tracing::{trace, trace_span, warn};
@@ -23,7 +23,7 @@ pub struct LuaLmbHTTPResponse {
     content_type: String,
     headers: HashMap<String, Vec<String>>,
     reader: LmbInput<BufReader<Box<dyn Read + Send + Sync + 'static>>>,
-    status_code: u16,
+    status_code: StatusCode,
 }
 
 impl LuaUserData for LuaLmbHTTPResponse {
@@ -31,7 +31,8 @@ impl LuaUserData for LuaLmbHTTPResponse {
         fields.add_field_method_get("charset", |_, this| Ok(this.charset.clone()));
         fields.add_field_method_get("content_type", |_, this| Ok(this.content_type.clone()));
         fields.add_field_method_get("headers", |_, this| Ok(this.headers.clone()));
-        fields.add_field_method_get("status_code", |_, this| Ok(this.status_code));
+        fields.add_field_method_get("ok", |_, this| Ok(this.status_code.is_success()));
+        fields.add_field_method_get("status_code", |_, this| Ok(this.status_code.as_u16()));
     }
 
     fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
@@ -78,17 +79,21 @@ fn lua_lmb_fetch(
         .and_then(|t| t.get("headers").ok())
         .unwrap_or(LmbValue::None);
     let _s = trace_span!("send_http_request", %method, %url, ?headers).entered();
-    let res = if method.is_idempotent() {
+    let res = if method.is_safe() {
         let req = ureq::request_url(method.as_str(), &url);
         let req = set_headers(req, &headers);
-        req.call().into_lua_err()?
+        req.call()
     } else {
         let body: String = options
             .map(|t| t.get("body").unwrap_or_default())
             .unwrap_or_default();
         let req = ureq::request_url(method.as_str(), &url);
         let req = set_headers(req, &headers);
-        req.send(Cursor::new(body)).into_lua_err()?
+        req.send(Cursor::new(body))
+    };
+    let res = match res {
+        Ok(res) | Err(ureq::Error::Status(_, res)) => res,
+        Err(e) => return Err(e.into_lua_err()),
     };
     let charset = res.charset().to_string();
     let content_type = res.content_type().to_string();
@@ -104,8 +109,8 @@ fn lua_lmb_fetch(
         }
         headers
     };
-    let status_code = res.status();
-    trace!(status_code, charset, content_type, "response");
+    let status_code = StatusCode::from_u16(res.status()).into_lua_err()?;
+    trace!(%status_code, charset, content_type, "response");
     let reader = Arc::new(Mutex::new(BufReader::new(res.into_reader())));
     Ok(LuaLmbHTTPResponse {
         charset,
