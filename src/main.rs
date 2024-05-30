@@ -3,7 +3,11 @@ use clap::{Parser, Subcommand};
 use clio::*;
 use comfy_table::{presets, Table};
 use cron::Schedule;
-use lam::*;
+use lmb::{
+    check_syntax, render_evaluation_result, render_fullmoon_result, render_script, schedule_script,
+    EvaluationBuilder, LmbError, LmbResult, LmbStore, PrintOptions, ScheduleOptions, StoreOptions,
+    DEFAULT_TIMEOUT, EXAMPLES,
+};
 use mlua::prelude::*;
 use serve::ServeOptions;
 use std::io::Read;
@@ -16,12 +20,12 @@ mod serve;
 
 static VERSION: &str = env!("APP_VERSION");
 
-/// lam is a Lua function runner.
+/// lmb is a Lua function runner.
 #[derive(Parser)]
 #[command(about, author, version=VERSION)]
 struct Cli {
     /// Checks the syntax of the function, disabled by default for performance reasons
-    #[arg(long, env = "LAM_CHECK_SYNTAX")]
+    #[arg(long, env = "LMB_CHECK_SYNTAX")]
     check_syntax: bool,
 
     /// Debug mode
@@ -37,15 +41,15 @@ struct Cli {
     no_color: bool,
 
     /// Store path
-    #[arg(long, env = "LAM_STORE_PATH")]
+    #[arg(long, env = "LMB_STORE_PATH")]
     store_path: Option<PathBuf>,
 
     /// Run migrations
-    #[arg(long, env = "LAM_RUN_MIGRATIONS")]
+    #[arg(long, env = "LMB_RUN_MIGRATIONS")]
     run_migrations: bool,
 
     /// Theme. Checkout `list-themes` for available themes.
-    #[arg(long, env = "LAM_THEME")]
+    #[arg(long, env = "LMB_THEME")]
     theme: Option<String>,
 
     #[command(subcommand)]
@@ -189,15 +193,15 @@ fn read_script(input: &mut Input) -> anyhow::Result<(String, String)> {
     Ok((name, script))
 }
 
-fn prepare_store(options: &StoreOptions) -> LamResult<LamStore> {
+fn prepare_store(options: &StoreOptions) -> LmbResult<LmbStore> {
     let store = if let Some(store_path) = &options.store_path {
-        let store = LamStore::new(store_path)?;
+        let store = LmbStore::new(store_path)?;
         if options.run_migrations {
             store.migrate(None)?;
         }
         store
     } else {
-        LamStore::default()
+        LmbStore::default()
     };
     Ok(store)
 }
@@ -386,7 +390,7 @@ async fn try_main() -> anyhow::Result<()> {
             let Some(store_path) = &store_options.store_path else {
                 bail!("store_path is required");
             };
-            let store = LamStore::new(store_path)?;
+            let store = LmbStore::new(store_path)?;
             if store_options.run_migrations {
                 store.migrate(None)?;
             }
@@ -444,9 +448,9 @@ async fn try_main() -> anyhow::Result<()> {
 #[tokio::main]
 async fn main() -> ExitCode {
     if let Err(e) = try_main().await {
-        match e.downcast_ref::<LamError>() {
+        match e.downcast_ref::<LmbError>() {
             // the following errors are handled, do nothing
-            Some(&LamError::Lua(LuaError::RuntimeError(_) | LuaError::SyntaxError { .. })) => {}
+            Some(&LmbError::Lua(LuaError::RuntimeError(_) | LuaError::SyntaxError { .. })) => {}
             _ => eprintln!("{e:?}"),
         }
         return ExitCode::FAILURE;

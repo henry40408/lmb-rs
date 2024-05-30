@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 
 #[test]
 fn check_stdin() {
-    let mut cmd = Command::cargo_bin("lam").unwrap();
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.write_stdin("ret true");
     cmd.args(["--no-color", "check", "--file", "-"]);
     cmd.assert().failure().stderr(
@@ -20,7 +20,7 @@ fn check_stdin() {
 
 #[test]
 fn eval_file() {
-    let mut cmd = Command::cargo_bin("lam").unwrap();
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.args(["eval", "--file", "lua-examples/hello.lua"]);
     cmd.assert()
         .success()
@@ -29,7 +29,7 @@ fn eval_file() {
 
 #[test]
 fn eval_json_output() {
-    let mut cmd = Command::cargo_bin("lam").unwrap();
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.env("RUST_LOG", "error");
     cmd.args(["--json", "example", "eval", "--name", "return-table"]);
     cmd.assert().success();
@@ -45,7 +45,7 @@ fn eval_json_output() {
 
 #[test]
 fn eval_stdin() {
-    let mut cmd = Command::cargo_bin("lam").unwrap();
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.env("RUST_LOG", "error");
     cmd.write_stdin("return 1+1");
     cmd.args(["eval", "--file", "-"]);
@@ -56,7 +56,7 @@ fn eval_stdin() {
 fn eval_store_migrate() {
     let store = NamedTempFile::new("db.sqlite3").unwrap();
     let store_path = store.path().to_string_lossy();
-    let mut cmd = Command::cargo_bin("lam").unwrap();
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.write_stdin("return true");
     cmd.args([
         "--store-path",
@@ -71,7 +71,7 @@ fn eval_store_migrate() {
 
 #[test]
 fn example_cat() {
-    let mut cmd = Command::cargo_bin("lam").unwrap();
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.args(["example", "cat", "--name", "hello"]);
     cmd.assert()
         .success()
@@ -80,7 +80,7 @@ fn example_cat() {
 
 #[test]
 fn example_eval() {
-    let mut cmd = Command::cargo_bin("lam").unwrap();
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.env("RUST_LOG", "error");
     cmd.write_stdin("1949\n");
     cmd.args(["example", "eval", "--name", "algebra"]);
@@ -89,14 +89,14 @@ fn example_eval() {
 
 #[test]
 fn example_list() {
-    let mut cmd = Command::cargo_bin("lam").unwrap();
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.args(["example", "list"]);
     cmd.assert().success();
 }
 
 #[test]
 fn example_serve() {
-    let mut cmd = Command::cargo_bin("lam").unwrap();
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.args([
         "example",
         "serve",
@@ -111,7 +111,7 @@ fn example_serve() {
 
 #[test]
 fn list_themes() {
-    let mut cmd = Command::cargo_bin("lam").unwrap();
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.args(["list-themes"]);
     cmd.assert().success();
 }
@@ -121,8 +121,8 @@ fn schedule() {
     let store = NamedTempFile::new("db.sqlite3").unwrap();
     let store_path = store.path().to_string_lossy();
 
-    let mut cmd = Command::cargo_bin("lam").unwrap();
-    cmd.write_stdin("require('@lam'):set('a', 1); return true");
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
+    cmd.write_stdin("require('@lmb'):set('a', 1); return true");
     cmd.args([
         "--store-path",
         &store_path,
@@ -137,7 +137,7 @@ fn schedule() {
     cmd.timeout(Duration::from_millis(1_100));
     cmd.assert().stderr("");
 
-    let mut cmd = Command::cargo_bin("lam").unwrap();
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.args([
         "--store-path",
         &store_path,
@@ -152,7 +152,7 @@ fn schedule() {
 
 #[test]
 fn serve() {
-    let mut cmd = Command::cargo_bin("lam").unwrap();
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.args([
         "serve",
         "--bind",
@@ -169,7 +169,7 @@ fn store_delete() {
     let store = NamedTempFile::new("db.sqlite3").unwrap();
     let store_path = store.path().to_string_lossy();
 
-    let mut cmd = Command::cargo_bin("lam").unwrap();
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.write_stdin("1");
     cmd.env("RUST_LOG", "error");
     cmd.args([
@@ -185,7 +185,7 @@ fn store_delete() {
     ]);
     cmd.assert().success().stdout("1");
 
-    let mut cmd = Command::cargo_bin("lam").unwrap();
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.env("RUST_LOG", "error");
     cmd.args([
         "--store-path",
@@ -203,7 +203,7 @@ fn store_delete() {
 fn store_get() {
     let store = NamedTempFile::new("db.sqlite3").unwrap();
     let store_path = store.path().to_string_lossy();
-    let mut cmd = Command::cargo_bin("lam").unwrap();
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.env("RUST_LOG", "error");
     cmd.args([
         "--store-path",
@@ -222,7 +222,7 @@ fn store_get_list_put() {
     let store = NamedTempFile::new("db.sqlite3").unwrap();
     let store_path = store.path().to_string_lossy();
 
-    let mut cmd = Command::cargo_bin("lam").unwrap();
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.env("RUST_LOG", "error");
     cmd.write_stdin("1");
     cmd.args([
@@ -238,7 +238,7 @@ fn store_get_list_put() {
     ]);
     cmd.assert().success().stdout("1");
 
-    let mut cmd = Command::cargo_bin("lam").unwrap();
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.args([
         "--store-path",
         &store_path,
@@ -248,7 +248,7 @@ fn store_get_list_put() {
     ]);
     cmd.assert().success();
 
-    let mut cmd = Command::cargo_bin("lam").unwrap();
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.env("RUST_LOG", "error");
     cmd.args([
         "--store-path",
@@ -266,7 +266,7 @@ fn store_get_list_put() {
 fn store_list() {
     let store = NamedTempFile::new("db.sqlite3").unwrap();
     let store_path = store.path().to_string_lossy();
-    let mut cmd = Command::cargo_bin("lam").unwrap();
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.args([
         "--store-path",
         &store_path,
@@ -281,7 +281,7 @@ fn store_list() {
 fn store_migrate() {
     let store = NamedTempFile::new("db.sqlite3").unwrap();
     let store_path = store.path().to_string_lossy();
-    let mut cmd = Command::cargo_bin("lam").unwrap();
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.args(["--store-path", &store_path, "store", "migrate"]);
     cmd.assert().success();
 }
@@ -290,7 +290,7 @@ fn store_migrate() {
 fn store_version() {
     let store = NamedTempFile::new("db.sqlite3").unwrap();
     let store_path = store.path().to_string_lossy();
-    let mut cmd = Command::cargo_bin("lam").unwrap();
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.args(["--store-path", &store_path, "store", "version"]);
     cmd.assert().success();
 }

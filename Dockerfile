@@ -8,6 +8,6 @@ RUN cargo build --release
 
 FROM bitnami/minideb:bookworm
 
-COPY --from=builder /usr/src/app/target/release/lam /bin/lam
+COPY --from=builder /usr/src/app/target/release/lmb /bin/lmb
 
-CMD ["/bin/lam"]
+CMD ["/bin/lmb"]

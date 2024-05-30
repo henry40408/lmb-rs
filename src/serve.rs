@@ -7,7 +7,7 @@ use axum::{
     routing::any,
     Router,
 };
-use lam::*;
+use lmb::{EvaluationBuilder, LmbState, LmbStateKey, LmbStore};
 use std::{collections::HashMap, fmt::Display, io::Cursor, time::Duration};
 use tokio::net::ToSocketAddrs;
 use tower_http::trace::{self, TraceLayer};
@@ -18,7 +18,7 @@ struct AppState {
     json: bool,
     name: String,
     script: String,
-    store: LamStore,
+    store: LmbStore,
     timeout: Option<Duration>,
 }
 
@@ -65,8 +65,8 @@ where
     request_map.insert("path", path.as_ref().into());
     request_map.insert("headers", headers_map.into());
 
-    let eval_state = LamState::new();
-    eval_state.insert(LamStateKey::Request, request_map.into());
+    let eval_state = LmbState::new();
+    eval_state.insert(LmbStateKey::Request, request_map.into());
 
     let res = e.evaluate_with_state(eval_state);
     match res {
@@ -113,14 +113,14 @@ where
     T: Display + ToSocketAddrs,
 {
     let store = if let Some(path) = &opts.store_options.store_path {
-        let store = LamStore::new(path.as_path())?;
+        let store = LmbStore::new(path.as_path())?;
         if opts.store_options.run_migrations {
             store.migrate(None)?;
         }
         info!(?path, "open store");
         store
     } else {
-        let store = LamStore::default();
+        let store = LmbStore::default();
         warn!("no store path is specified, an in-memory store will be used and values will be lost when process ends");
         store
     };
@@ -166,7 +166,7 @@ mod tests {
 
     #[tokio::test]
     async fn serve() {
-        let cli = Cli::parse_from(["lam", "--json", "serve", "--file", "-"]);
+        let cli = Cli::parse_from(["lmb", "--json", "serve", "--file", "-"]);
         let script = "return 1";
         let store_options = StoreOptions {
             store_path: None,
@@ -188,9 +188,9 @@ mod tests {
 
     #[tokio::test]
     async fn echo_request() {
-        let cli = Cli::parse_from(["lam", "--json", "serve", "--file", "-"]);
+        let cli = Cli::parse_from(["lmb", "--json", "serve", "--file", "-"]);
         let script = r#"
-        local m = require('@lam')
+        local m = require('@lmb')
         return { request = m.request, body = io.read('*a') }
         "#;
         let store_options = StoreOptions {

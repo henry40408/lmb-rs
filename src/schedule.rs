@@ -9,7 +9,7 @@ use cron::Schedule;
 use parking_lot::Mutex;
 use tracing::debug;
 
-use crate::{EvaluationBuilder, LamStore};
+use crate::{EvaluationBuilder, LmbStore};
 
 /// Schedule options.
 pub struct ScheduleOptions {
@@ -22,7 +22,7 @@ pub struct ScheduleOptions {
     /// Script
     pub script: String,
     /// Store
-    pub store: LamStore,
+    pub store: LmbStore,
 }
 
 /// Schedule a script as a cron job.

@@ -2,14 +2,14 @@ use std::io::BufRead;
 
 use mlua::prelude::*;
 
-use crate::LamInput;
+use crate::LmbInput;
 
-// This function intentionally uses Lua values instead of Lam values to pass bytes as partial,
+// This function intentionally uses Lua values instead of Lmb values to pass bytes as partial,
 // invalid strings, allowing Lua to handle the bytes.
 // For a demonstration, see "count-bytes.lua".
-pub(crate) fn lua_lam_read<'lua, R>(
+pub(crate) fn lua_lmb_read<'lua, R>(
     vm: &'lua Lua,
-    input: &LamInput<R>,
+    input: &LmbInput<R>,
     f: Option<LuaValue<'lua>>,
 ) -> LuaResult<LuaValue<'lua>>
 where
@@ -77,9 +77,9 @@ where
     Err(LuaError::runtime(format!("unexpected format {f}")))
 }
 
-pub(crate) fn lua_lam_read_unicode<'lua, R>(
+pub(crate) fn lua_lmb_read_unicode<'lua, R>(
     vm: &'lua Lua,
-    input: &LamInput<R>,
+    input: &LmbInput<R>,
     f: LuaValue<'lua>,
 ) -> LuaResult<LuaValue<'lua>>
 where

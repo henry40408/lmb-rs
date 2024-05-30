@@ -3,7 +3,7 @@ use ariadne::{CharSet, ColorGenerator, Config, Label, Report, ReportKind, Source
 /// Check syntax of Lua script.
 ///
 /// ```rust
-/// use lam::*;
+/// use lmb::*;
 ///
 /// let checked = check_syntax("ret true");
 /// assert!(checked.is_err());
@@ -19,7 +19,7 @@ pub fn check_syntax<S: AsRef<str>>(script: S) -> Result<(), full_moon::Error> {
 /// Return error message if syntax of Lua script has error.
 ///
 /// ```rust
-/// use lam::*;
+/// use lmb::*;
 ///
 /// let no_color = true;
 /// let name = "test";

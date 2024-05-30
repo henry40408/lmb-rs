@@ -13,7 +13,7 @@ use fancy_regex::Regex;
 use mlua::prelude::*;
 use once_cell::sync::Lazy;
 
-use crate::{LamError, LamResult, Solution};
+use crate::{LmbError, LmbResult, Solution};
 
 static LUA_ERROR_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"\[[^\]]+\]:(\d+):.+")
@@ -100,7 +100,7 @@ where
 pub fn render_evaluation_result<R, S, W>(
     mut f: W,
     script: S,
-    result: LamResult<Solution<R>>,
+    result: LmbResult<Solution<R>>,
     options: &PrintOptions,
 ) -> anyhow::Result<()>
 where
@@ -119,11 +119,11 @@ where
             Ok(())
         }
         Err(e) => match &e {
-            LamError::Lua(LuaError::RuntimeError(message)) => {
+            LmbError::Lua(LuaError::RuntimeError(message)) => {
                 render_lua_error(f, script.as_ref(), message, options)?;
                 Err(e.into())
             }
-            LamError::Lua(LuaError::SyntaxError { message, .. }) => {
+            LmbError::Lua(LuaError::SyntaxError { message, .. }) => {
                 render_lua_error(f, script.as_ref(), message, options)?;
                 Err(e.into())
             }
