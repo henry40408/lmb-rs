@@ -49,7 +49,7 @@ hello, world!
 Handle HTTP requests with single script:
 
 ```bash
-$ ./target/release/lam serve --file lua-examples/echo.lua
+$ lam serve --file lua-examples/echo.lua
 (another shell session) $ curl -X POST http://localhost:3000 -d $'hello'
 hello
 ```
