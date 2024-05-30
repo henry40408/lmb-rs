@@ -29,7 +29,7 @@ mod schedule;
 mod store;
 mod value;
 
-/// Default timeout for evaluation in seconds
+/// Default timeout for evaluation in seconds.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
 static MIGRATIONS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/migrations");
@@ -45,7 +45,7 @@ pub type LamInput<R> = Arc<Mutex<R>>;
 /// Generic result type of Lam.
 pub type LamResult<T> = Result<T, LamError>;
 
-/// State key
+/// State key.
 #[derive(Hash, PartialEq, Eq)]
 pub enum LamStateKey {
     /// Reserved key for HTTP request object

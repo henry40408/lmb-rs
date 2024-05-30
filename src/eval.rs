@@ -19,7 +19,7 @@ where
 {
     /// Function input, such as anything that implements [`std::io::Read`].
     pub input: Arc<Mutex<BufReader<R>>>,
-    /// Function name. Might be `(stdin)` or file name.
+    /// Function name. Might be `-` when script comes from standard input or file name.
     pub name: Option<String>,
     /// Lua script in plain text.
     pub script: String,
@@ -52,6 +52,14 @@ where
     }
 
     /// Build the evaluation with a [`std::io::BufReader`].
+    ///
+    /// ```rust
+    /// # use std::{io::{empty, BufReader}, sync::Arc};
+    /// # use parking_lot::Mutex;
+    /// use lam::*;
+    /// let input = Arc::new(Mutex::new(BufReader::new(empty())));
+    /// let _ = EvaluationBuilder::new_with_reader("", input);
+    /// ```
     pub fn new_with_reader<S: AsRef<str>>(script: S, input: Arc<Mutex<BufReader<R>>>) -> Self {
         Self {
             input,
@@ -118,7 +126,7 @@ where
     ///
     /// <div class="warning">However, this function won't check syntax of Lua script.</div>
     ///
-    /// The syntax of Lua script could be checked with [`check_syntax`].
+    /// The syntax of Lua script could be checked with [`crate::check_syntax`].
     ///
     /// ```rust
     /// # use std::io::empty;
@@ -179,7 +187,7 @@ impl<R> Evaluation<R>
 where
     for<'lua> R: 'lua + Read + Send,
 {
-    /// Evaluate the function and return a [`EvaluationResult`] as result.
+    /// Evaluate the function and return a [`crate::Solution`] as result.
     ///
     /// ```rust
     /// # use std::io::empty;

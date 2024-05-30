@@ -136,7 +136,7 @@ where
     let Some(store) = &lam.store else {
         return Ok(LamValue::None);
     };
-    store.insert(key, &value).into_lua_err()?;
+    store.put(key, &value).into_lua_err()?;
     Ok(value)
 }
 

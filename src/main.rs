@@ -427,7 +427,7 @@ async fn try_main() -> anyhow::Result<()> {
                     let mut buf = String::new();
                     value.read_to_string(&mut buf)?;
                     let value = serde_json::from_str(&buf)?;
-                    let affected = store.insert(name, &value)?;
+                    let affected = store.put(name, &value)?;
                     print!("{affected}");
                     Ok(())
                 }

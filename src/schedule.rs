@@ -11,7 +11,7 @@ use tracing::debug;
 
 use crate::{EvaluationBuilder, LamStore};
 
-/// Schedule options
+/// Schedule options.
 pub struct ScheduleOptions {
     /// Initial run
     pub initial_run: bool,
@@ -25,7 +25,7 @@ pub struct ScheduleOptions {
     pub store: LamStore,
 }
 
-/// Schedule a script as a cron job
+/// Schedule a script as a cron job.
 pub fn schedule_script(opts: ScheduleOptions) {
     let input = Arc::new(Mutex::new(BufReader::new(stdin())));
     let name = &opts.name;

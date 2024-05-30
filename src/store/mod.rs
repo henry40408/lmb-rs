@@ -14,7 +14,7 @@ use crate::{LamResult, LamValue, MIGRATIONS};
 
 mod stmt;
 
-/// Store options for command line
+/// Store options for command line.
 #[derive(Default)]
 pub struct StoreOptions {
     /// Store path
@@ -50,7 +50,8 @@ impl LamStore {
         })
     }
 
-    /// Perform migration on the database. Migrations should be idempotent.
+    /// Perform migration on the database. Migrations should be idempotent. If version is omitted,
+    /// database will be migrated to the latest. If version is 0, all migrations will be reverted.
     ///
     /// ```rust
     /// # use assert_fs::NamedTempFile;
@@ -71,7 +72,7 @@ impl LamStore {
         Ok(())
     }
 
-    /// Return current version of migrations
+    /// Return current version of migrations.
     pub fn current_version(&self) -> LamResult<SchemaVersion> {
         let conn = self.conn.lock();
         let version = MIGRATIONS.current_version(&conn)?;
@@ -88,36 +89,6 @@ impl LamStore {
         Ok(affected)
     }
 
-    /// Insert or update the value into the store.
-    ///
-    /// The key distinction between this function and [`LamStore::update`] is
-    /// that this function unconditionally inserts or updates with the provided value.
-    ///
-    /// ```rust
-    /// use lam::*;
-    /// let store = LamStore::default();
-    /// store.insert("a", &true.into());
-    /// assert_eq!(LamValue::from(true), store.get("a").unwrap());
-    /// store.insert("b", &1.into());
-    /// assert_eq!(LamValue::from(1), store.get("b").unwrap());
-    /// store.insert("c", &"hello".into());
-    /// assert_eq!(LamValue::from("hello"), store.get("c").unwrap());
-    /// ```
-    pub fn insert<S: AsRef<str>>(&self, name: S, value: &LamValue) -> LamResult<usize> {
-        let conn = self.conn.lock();
-
-        let name = name.as_ref();
-        let size = value.get_size();
-        let type_hint = value.type_hint();
-        let value = rmp_serde::to_vec(&value)?;
-
-        let mut cached_stmt = conn.prepare_cached(SQL_UPSERT_STORE)?;
-        let _s = trace_span!("store_insert", name, type_hint).entered();
-        let affected = cached_stmt.execute((name, value, size, type_hint))?;
-
-        Ok(affected)
-    }
-
     /// Get value from the store. A `nil` will be returned to Lua virtual machine
     /// when the value is absent.
     ///
@@ -125,7 +96,7 @@ impl LamStore {
     /// use lam::*;
     /// let store = LamStore::default();
     /// assert_eq!(LamValue::None, store.get("a").unwrap());
-    /// store.insert("a", &true.into());
+    /// store.put("a", &true.into());
     /// assert_eq!(LamValue::from(true), store.get("a").unwrap());
     /// ```
     pub fn get<S: AsRef<str>>(&self, name: S) -> LamResult<LamValue> {
@@ -155,7 +126,7 @@ impl LamStore {
         Ok(rmp_serde::from_slice::<LamValue>(&value)?)
     }
 
-    /// List values
+    /// List values.
     pub fn list(&self) -> LamResult<Vec<LamValueMetadata>> {
         let conn = self.conn.lock();
         let mut cached_stmt = conn.prepare_cached(SQL_GET_ALL_VALUES)?;
@@ -178,9 +149,39 @@ impl LamStore {
         Ok(res)
     }
 
+    /// Put (insert or update) the value into the store.
+    ///
+    /// The key distinction between this function and [`LamStore::update`] is
+    /// that this function unconditionally puts with the provided value.
+    ///
+    /// ```rust
+    /// use lam::*;
+    /// let store = LamStore::default();
+    /// store.put("a", &true.into());
+    /// assert_eq!(LamValue::from(true), store.get("a").unwrap());
+    /// store.put("b", &1.into());
+    /// assert_eq!(LamValue::from(1), store.get("b").unwrap());
+    /// store.put("c", &"hello".into());
+    /// assert_eq!(LamValue::from("hello"), store.get("c").unwrap());
+    /// ```
+    pub fn put<S: AsRef<str>>(&self, name: S, value: &LamValue) -> LamResult<usize> {
+        let conn = self.conn.lock();
+
+        let name = name.as_ref();
+        let size = value.get_size();
+        let type_hint = value.type_hint();
+        let value = rmp_serde::to_vec(&value)?;
+
+        let mut cached_stmt = conn.prepare_cached(SQL_UPSERT_STORE)?;
+        let _s = trace_span!("store_insert", name, type_hint).entered();
+        let affected = cached_stmt.execute((name, value, size, type_hint))?;
+
+        Ok(affected)
+    }
+
     /// Insert or update the value into the store.
     ///
-    /// Unlike [`LamStore::insert`], this function accepts a closure and only mutates the value in the store
+    /// Unlike [`LamStore::put`], this function accepts a closure and only mutates the value in the store
     /// when the closure returns a new value. If the closure results in an error,
     /// the value in the store remains unchanged.
     ///
@@ -206,7 +207,7 @@ impl LamStore {
     /// ```rust
     /// use lam::*;
     /// let store = LamStore::default();
-    /// store.insert("a", &1.into());
+    /// store.put("a", &1.into());
     /// let x = store.update("a", |old| {
     ///     if let LamValue::Integer(n) = old {
     ///        if *n == 1 {
@@ -270,7 +271,7 @@ impl LamStore {
     }
 }
 
-/// Value meatadata
+/// Value meatadata. Value itself is not included intentionally.
 pub struct LamValueMetadata {
     /// Name
     pub name: String,
@@ -311,7 +312,7 @@ mod tests {
     #[test_case(hashmap! { "b" => true.into() }.into())]
     fn complicated_types(value: LamValue) {
         let store = LamStore::default();
-        store.insert("value", &value).unwrap();
+        store.put("value", &value).unwrap();
         let actual = store.get("value").unwrap().to_string();
         assert!(actual.starts_with("table: 0x"));
     }
@@ -352,7 +353,7 @@ mod tests {
         "#;
 
         let store = LamStore::default();
-        store.insert("a", &1.23.into()).unwrap();
+        store.put("a", &1.23.into()).unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
             .with_store(store.clone())
@@ -387,7 +388,7 @@ mod tests {
     #[test_case("s", "hello".into())]
     fn primitive_types(key: &'static str, value: LamValue) {
         let store = LamStore::default();
-        store.insert(key, &value).unwrap();
+        store.put(key, &value).unwrap();
         assert_eq!(value, store.get(key).unwrap());
     }
 
@@ -401,7 +402,7 @@ mod tests {
         "#;
 
         let store = LamStore::default();
-        store.insert("a", &1.into()).unwrap();
+        store.put("a", &1.into()).unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
             .with_store(store.clone())
@@ -429,7 +430,7 @@ mod tests {
         "#;
 
         let store = LamStore::default();
-        store.insert("a", &1.into()).unwrap();
+        store.put("a", &1.into()).unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
             .with_store(store.clone())
@@ -453,7 +454,7 @@ mod tests {
         "#;
 
         let store = LamStore::default();
-        store.insert("a", &1.into()).unwrap();
+        store.put("a", &1.into()).unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
             .with_store(store.clone())
