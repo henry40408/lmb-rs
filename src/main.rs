@@ -80,6 +80,9 @@ enum Commands {
         /// Cron
         #[arg(long)]
         cron: String,
+        /// Run for the first time immediately
+        #[arg(long)]
+        initial_run: bool,
         /// Script path
         #[arg(long, value_parser, default_value = "-")]
         file: Input,
@@ -340,11 +343,22 @@ async fn try_main() -> anyhow::Result<()> {
             }
             Ok(())
         }
-        Commands::Schedule { mut file, cron } => {
+        Commands::Schedule {
+            cron,
+            mut file,
+            initial_run,
+        } => {
             let (name, script) = read_script(&mut file)?;
             let schedule = Schedule::from_str(&cron)?;
             let store = prepare_store(&store_options)?;
-            schedule_script(name, script, store, schedule);
+            let options = ScheduleOptions {
+                initial_run,
+                name,
+                schedule,
+                script,
+                store,
+            };
+            schedule_script(options);
             Ok(())
         }
         Commands::Serve {

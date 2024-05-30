@@ -130,6 +130,7 @@ fn schedule() {
         "schedule",
         "--cron",
         "* * * * * *",
+        "--initial-run",
         "--file",
         "-",
     ]);

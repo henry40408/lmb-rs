@@ -77,19 +77,7 @@ where
         })?;
         io_table.set("read", read_fn)?;
 
-        struct Stderr {}
-        impl LuaUserData for Stderr {
-            fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
-                methods.add_method("write", |_, _, vs: LuaMultiValue<'_>| {
-                    let mut locked = stderr().lock();
-                    for v in vs.into_vec() {
-                        write!(locked, "{}", v.to_string()?)?;
-                    }
-                    Ok(())
-                });
-            }
-        }
-        io_table.set("stderr", Stderr {})?;
+        io_table.set("stderr", LamStderr {})?;
 
         let write_fn = vm.create_function(|_, vs: LuaMultiValue<'_>| {
             let mut locked = stdout().lock();
@@ -109,7 +97,22 @@ where
         loaded.set("@lam/http", LuaLamHTTP {})?;
         loaded.set("@lam/json", LuaLamJSON {})?;
         vm.set_named_registry_value(K_LOADED, loaded)?;
+
         Ok(())
+    }
+}
+
+struct LamStderr {}
+
+impl LuaUserData for LamStderr {
+    fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
+        methods.add_method("write", |_, _, vs: LuaMultiValue<'_>| {
+            let mut locked = stderr().lock();
+            for v in vs.into_vec() {
+                write!(locked, "{}", v.to_string()?)?;
+            }
+            Ok(())
+        });
     }
 }
 
