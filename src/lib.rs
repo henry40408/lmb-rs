@@ -13,7 +13,7 @@ pub use check::*;
 pub use error::*;
 pub use eval::*;
 pub use example::*;
-pub use lua_lam::*;
+pub use lua_lmb::*;
 pub use printer::*;
 pub use schedule::*;
 pub use store::*;
@@ -23,7 +23,7 @@ mod check;
 mod error;
 mod eval;
 mod example;
-mod lua_lam;
+mod lua_lmb;
 mod printer;
 mod schedule;
 mod store;
@@ -40,21 +40,21 @@ static MIGRATIONS: Lazy<Migrations<'static>> = Lazy::new(|| {
 });
 
 /// Function input.
-pub type LamInput<R> = Arc<Mutex<R>>;
+pub type LmbInput<R> = Arc<Mutex<R>>;
 
-/// Generic result type of Lam.
-pub type LamResult<T> = Result<T, LamError>;
+/// Generic result type of Lmb.
+pub type LmbResult<T> = Result<T, LmbError>;
 
 /// State key.
 #[derive(Hash, PartialEq, Eq)]
-pub enum LamStateKey {
+pub enum LmbStateKey {
     /// Reserved key for HTTP request object
     Request,
     /// Plain string key
     String(String),
 }
 
-impl<S> From<S> for LamStateKey
+impl<S> From<S> for LmbStateKey
 where
     S: AsRef<str>,
 {
@@ -64,11 +64,11 @@ where
 }
 
 /// State of each evaluation.
-pub type LamState = DashMap<LamStateKey, LamValue>;
+pub type LmbState = DashMap<LmbStateKey, LmbValue>;
 
 #[cfg(test)]
 mod tests {
-    use crate::{LamStateKey, MIGRATIONS};
+    use crate::{LmbStateKey, MIGRATIONS};
 
     #[test]
     fn migrations() {
@@ -77,6 +77,6 @@ mod tests {
 
     #[test]
     fn state_key_from_str() {
-        let _ = LamStateKey::from("key");
+        let _ = LmbStateKey::from("key");
     }
 }

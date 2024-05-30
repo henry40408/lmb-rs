@@ -10,7 +10,7 @@ use std::{
 use stmt::*;
 use tracing::{debug, trace, trace_span};
 
-use crate::{LamResult, LamValue, MIGRATIONS};
+use crate::{LmbResult, LmbValue, MIGRATIONS};
 
 mod stmt;
 
@@ -25,20 +25,20 @@ pub struct StoreOptions {
 
 /// Store that persists data across executions.
 #[derive(Clone)]
-pub struct LamStore {
+pub struct LmbStore {
     conn: Arc<Mutex<Connection>>,
 }
 
-impl LamStore {
+impl LmbStore {
     /// Create a new store with path on the filesystem.
     ///
     /// ```rust
     /// # use assert_fs::NamedTempFile;
-    /// use lam::*;
+    /// use lmb::*;
     /// let store_file = NamedTempFile::new("db.sqlite3").unwrap();
-    /// let _ = LamStore::new(store_file.path());
+    /// let _ = LmbStore::new(store_file.path());
     /// ```
-    pub fn new(path: &Path) -> LamResult<Self> {
+    pub fn new(path: &Path) -> LmbResult<Self> {
         debug!(?path, "open store");
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "busy_timeout", 5000)?;
@@ -55,12 +55,12 @@ impl LamStore {
     ///
     /// ```rust
     /// # use assert_fs::NamedTempFile;
-    /// use lam::*;
+    /// use lmb::*;
     /// let store_file = NamedTempFile::new("db.sqlite3").unwrap();
-    /// let store = LamStore::new(store_file.path()).unwrap();
+    /// let store = LmbStore::new(store_file.path()).unwrap();
     /// store.migrate(None).unwrap();
     /// ```
-    pub fn migrate(&self, version: Option<usize>) -> LamResult<()> {
+    pub fn migrate(&self, version: Option<usize>) -> LmbResult<()> {
         let mut conn = self.conn.lock();
         if let Some(version) = version {
             let _s = trace_span!("migrate_to_version", version).entered();
@@ -73,14 +73,14 @@ impl LamStore {
     }
 
     /// Return current version of migrations.
-    pub fn current_version(&self) -> LamResult<SchemaVersion> {
+    pub fn current_version(&self) -> LmbResult<SchemaVersion> {
         let conn = self.conn.lock();
         let version = MIGRATIONS.current_version(&conn)?;
         Ok(version)
     }
 
     /// Delete value by name.
-    pub fn delete<S>(&self, name: S) -> LamResult<usize>
+    pub fn delete<S>(&self, name: S) -> LmbResult<usize>
     where
         S: AsRef<str>,
     {
@@ -93,13 +93,13 @@ impl LamStore {
     /// when the value is absent.
     ///
     /// ```rust
-    /// use lam::*;
-    /// let store = LamStore::default();
-    /// assert_eq!(LamValue::None, store.get("a").unwrap());
+    /// use lmb::*;
+    /// let store = LmbStore::default();
+    /// assert_eq!(LmbValue::None, store.get("a").unwrap());
     /// store.put("a", &true.into());
-    /// assert_eq!(LamValue::from(true), store.get("a").unwrap());
+    /// assert_eq!(LmbValue::from(true), store.get("a").unwrap());
     /// ```
-    pub fn get<S: AsRef<str>>(&self, name: S) -> LamResult<LamValue> {
+    pub fn get<S: AsRef<str>>(&self, name: S) -> LmbResult<LmbValue> {
         let conn = self.conn.lock();
 
         let name = name.as_ref();
@@ -114,7 +114,7 @@ impl LamStore {
         let value: Vec<u8> = match res {
             Err(rusqlite::Error::QueryReturnedNoRows) => {
                 trace!("no_value");
-                return Ok(LamValue::None);
+                return Ok(LmbValue::None);
             }
             Err(e) => return Err(e.into()),
             Ok((v, type_hint)) => {
@@ -123,11 +123,11 @@ impl LamStore {
             }
         };
 
-        Ok(rmp_serde::from_slice::<LamValue>(&value)?)
+        Ok(rmp_serde::from_slice::<LmbValue>(&value)?)
     }
 
     /// List values.
-    pub fn list(&self) -> LamResult<Vec<LamValueMetadata>> {
+    pub fn list(&self) -> LmbResult<Vec<LmbValueMetadata>> {
         let conn = self.conn.lock();
         let mut cached_stmt = conn.prepare_cached(SQL_GET_ALL_VALUES)?;
         let mut rows = cached_stmt.query([])?;
@@ -138,7 +138,7 @@ impl LamStore {
             let size: usize = row.get_unwrap("size");
             let created_at: DateTime<Utc> = row.get_unwrap("created_at");
             let updated_at: DateTime<Utc> = row.get_unwrap("updated_at");
-            res.push(LamValueMetadata {
+            res.push(LmbValueMetadata {
                 name,
                 size,
                 type_hint,
@@ -151,20 +151,20 @@ impl LamStore {
 
     /// Put (insert or update) the value into the store.
     ///
-    /// The key distinction between this function and [`LamStore::update`] is
+    /// The key distinction between this function and [`LmbStore::update`] is
     /// that this function unconditionally puts with the provided value.
     ///
     /// ```rust
-    /// use lam::*;
-    /// let store = LamStore::default();
+    /// use lmb::*;
+    /// let store = LmbStore::default();
     /// store.put("a", &true.into());
-    /// assert_eq!(LamValue::from(true), store.get("a").unwrap());
+    /// assert_eq!(LmbValue::from(true), store.get("a").unwrap());
     /// store.put("b", &1.into());
-    /// assert_eq!(LamValue::from(1), store.get("b").unwrap());
+    /// assert_eq!(LmbValue::from(1), store.get("b").unwrap());
     /// store.put("c", &"hello".into());
-    /// assert_eq!(LamValue::from("hello"), store.get("c").unwrap());
+    /// assert_eq!(LmbValue::from("hello"), store.get("c").unwrap());
     /// ```
-    pub fn put<S: AsRef<str>>(&self, name: S, value: &LamValue) -> LamResult<usize> {
+    pub fn put<S: AsRef<str>>(&self, name: S, value: &LmbValue) -> LmbResult<usize> {
         let conn = self.conn.lock();
 
         let name = name.as_ref();
@@ -181,7 +181,7 @@ impl LamStore {
 
     /// Insert or update the value into the store.
     ///
-    /// Unlike [`LamStore::put`], this function accepts a closure and only mutates the value in the store
+    /// Unlike [`LmbStore::put`], this function accepts a closure and only mutates the value in the store
     /// when the closure returns a new value. If the closure results in an error,
     /// the value in the store remains unchanged.
     ///
@@ -190,42 +190,42 @@ impl LamStore {
     /// # Successfully update the value
     ///
     /// ```rust
-    /// use lam::*;
-    /// let store = LamStore::default();
+    /// use lmb::*;
+    /// let store = LmbStore::default();
     /// let x = store.update("b", |old| {
-    ///     if let LamValue::Integer(n) = old {
-    ///         *old = LamValue::from(*n + 1);
+    ///     if let LmbValue::Integer(n) = old {
+    ///         *old = LmbValue::from(*n + 1);
     ///     }
     ///     Ok(())
     /// }, Some(1.into()));
-    /// assert_eq!(LamValue::from(2), x.unwrap());
-    /// assert_eq!(LamValue::from(2), store.get("b").unwrap());
+    /// assert_eq!(LmbValue::from(2), x.unwrap());
+    /// assert_eq!(LmbValue::from(2), store.get("b").unwrap());
     /// ```
     ///
     /// # Do nothing when an error is returned
     ///
     /// ```rust
-    /// use lam::*;
-    /// let store = LamStore::default();
+    /// use lmb::*;
+    /// let store = LmbStore::default();
     /// store.put("a", &1.into());
     /// let x = store.update("a", |old| {
-    ///     if let LamValue::Integer(n) = old {
+    ///     if let LmbValue::Integer(n) = old {
     ///        if *n == 1 {
     ///            return Err(mlua::Error::runtime("something went wrong"));
     ///        }
-    ///        *old = LamValue::from(*n + 1);
+    ///        *old = LmbValue::from(*n + 1);
     ///     }
     ///     Ok(())
     /// }, Some(1.into()));
-    /// assert_eq!(LamValue::from(1), x.unwrap());
-    /// assert_eq!(LamValue::from(1), store.get("a").unwrap());
+    /// assert_eq!(LmbValue::from(1), x.unwrap());
+    /// assert_eq!(LmbValue::from(1), store.get("a").unwrap());
     /// ```
     pub fn update<S: AsRef<str>>(
         &self,
         name: S,
-        f: impl FnOnce(&mut LamValue) -> mlua::Result<()>,
-        default_v: Option<LamValue>,
-    ) -> LamResult<LamValue> {
+        f: impl FnOnce(&mut LmbValue) -> mlua::Result<()>,
+        default_v: Option<LmbValue>,
+    ) -> LmbResult<LmbValue> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
 
@@ -237,7 +237,7 @@ impl LamStore {
             match cached_stmt.query_row((name,), |row| row.get(0)) {
                 Err(rusqlite::Error::QueryReturnedNoRows) => {
                     trace!("default_value");
-                    rmp_serde::to_vec(default_v.as_ref().unwrap_or(&LamValue::None))?
+                    rmp_serde::to_vec(default_v.as_ref().unwrap_or(&LmbValue::None))?
                 }
                 Err(e) => return Err(e.into()),
                 Ok(v) => {
@@ -272,7 +272,7 @@ impl LamStore {
 }
 
 /// Value meatadata. Value itself is not included intentionally.
-pub struct LamValueMetadata {
+pub struct LmbValueMetadata {
     /// Name
     pub name: String,
     /// Size
@@ -285,7 +285,7 @@ pub struct LamValueMetadata {
     pub updated_at: DateTime<Utc>,
 }
 
-impl Default for LamStore {
+impl Default for LmbStore {
     fn default() -> Self {
         debug!("open store in memory");
         let conn = Connection::open_in_memory().expect("failed to open sqlite in memory");
@@ -306,12 +306,12 @@ mod tests {
     use std::{io::empty, thread};
     use test_case::test_case;
 
-    use crate::{EvaluationBuilder, LamStore, LamValue};
+    use crate::{EvaluationBuilder, LmbStore, LmbValue};
 
     #[test_case(vec![true.into(), 1.into(), "hello".into()].into())]
     #[test_case(hashmap! { "b" => true.into() }.into())]
-    fn complicated_types(value: LamValue) {
-        let store = LamStore::default();
+    fn complicated_types(value: LmbValue) {
+        let store = LmbStore::default();
         store.put("value", &value).unwrap();
         let actual = store.get("value").unwrap().to_string();
         assert!(actual.starts_with("table: 0x"));
@@ -320,12 +320,12 @@ mod tests {
     #[test]
     fn concurrency() {
         let script = r#"
-        return require('@lam'):update('a', function(v)
+        return require('@lmb'):update('a', function(v)
             return v+1
         end, 0)
         "#;
 
-        let store = LamStore::default();
+        let store = LmbStore::default();
 
         let mut threads = vec![];
         for _ in 0..=1000 {
@@ -340,19 +340,19 @@ mod tests {
         for t in threads {
             let _ = t.join();
         }
-        assert_eq!(LamValue::from(1001), store.get("a").unwrap());
+        assert_eq!(LmbValue::from(1001), store.get("a").unwrap());
     }
 
     #[test]
     fn get_set() {
         let script = r#"
-        local m = require('@lam')
+        local m = require('@lmb')
         local a = m:get('a')
         m:set('a', 4.56)
         return a
         "#;
 
-        let store = LamStore::default();
+        let store = LmbStore::default();
         store.put("a", &1.23.into()).unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
@@ -360,14 +360,14 @@ mod tests {
             .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from(1.23), res.payload);
-        assert_eq!(LamValue::from(4.56), store.get("a").unwrap());
-        assert_eq!(LamValue::None, store.get("b").unwrap());
+        assert_eq!(LmbValue::from(1.23), res.payload);
+        assert_eq!(LmbValue::from(4.56), store.get("a").unwrap());
+        assert_eq!(LmbValue::None, store.get("b").unwrap());
     }
 
     #[test]
     fn migrate() {
-        let store = LamStore::default();
+        let store = LmbStore::default();
         store.migrate(None).unwrap(); // duplicated
         store.current_version().unwrap();
         store.migrate(Some(0)).unwrap();
@@ -376,18 +376,18 @@ mod tests {
     #[test]
     fn new_store() {
         let store_file = NamedTempFile::new("db.sqlite3").unwrap();
-        let store = LamStore::new(store_file.path()).unwrap();
+        let store = LmbStore::new(store_file.path()).unwrap();
         store.migrate(None).unwrap();
     }
 
-    #[test_case("nil", LamValue::None)]
+    #[test_case("nil", LmbValue::None)]
     #[test_case("bt", true.into())]
     #[test_case("bf", false.into())]
     #[test_case("ni", 1.into())]
     #[test_case("nf", 1.23.into())]
     #[test_case("s", "hello".into())]
-    fn primitive_types(key: &'static str, value: LamValue) {
-        let store = LamStore::default();
+    fn primitive_types(key: &'static str, value: LmbValue) {
+        let store = LmbStore::default();
         store.put(key, &value).unwrap();
         assert_eq!(value, store.get(key).unwrap());
     }
@@ -395,13 +395,13 @@ mod tests {
     #[test]
     fn reuse() {
         let script = r#"
-        local m = require('@lam')
+        local m = require('@lmb')
         local a = m:get('a')
         m:set('a', a+1)
         return a
         "#;
 
-        let store = LamStore::default();
+        let store = LmbStore::default();
         store.put("a", &1.into()).unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
@@ -410,26 +410,26 @@ mod tests {
 
         {
             let res = e.evaluate().unwrap();
-            assert_eq!(LamValue::from(1), res.payload);
-            assert_eq!(LamValue::from(2), store.get("a").unwrap());
+            assert_eq!(LmbValue::from(1), res.payload);
+            assert_eq!(LmbValue::from(2), store.get("a").unwrap());
         }
 
         {
             let res = e.evaluate().unwrap();
-            assert_eq!(LamValue::from(2), res.payload);
-            assert_eq!(LamValue::from(3), store.get("a").unwrap());
+            assert_eq!(LmbValue::from(2), res.payload);
+            assert_eq!(LmbValue::from(3), store.get("a").unwrap());
         }
     }
 
     #[test]
     fn update_without_default_value() {
         let script = r#"
-        return require('@lam'):update('a', function(v)
+        return require('@lmb'):update('a', function(v)
             return v+1
         end)
         "#;
 
-        let store = LamStore::default();
+        let store = LmbStore::default();
         store.put("a", &1.into()).unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
@@ -437,14 +437,14 @@ mod tests {
             .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from(2), res.payload);
-        assert_eq!(LamValue::from(2), store.get("a").unwrap());
+        assert_eq!(LmbValue::from(2), res.payload);
+        assert_eq!(LmbValue::from(2), store.get("a").unwrap());
     }
 
     #[test_log::test]
     fn rollback_when_error() {
         let script = r#"
-        return require('@lam'):update('a', function(v)
+        return require('@lmb'):update('a', function(v)
             if v == 1 then
                 error('something went wrong')
             else
@@ -453,7 +453,7 @@ mod tests {
         end, 0)
         "#;
 
-        let store = LamStore::default();
+        let store = LmbStore::default();
         store.put("a", &1.into()).unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
@@ -461,7 +461,7 @@ mod tests {
             .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from(1), res.payload);
-        assert_eq!(LamValue::from(1), store.get("a").unwrap());
+        assert_eq!(LmbValue::from(1), res.payload);
+        assert_eq!(LmbValue::from(1), store.get("a").unwrap());
     }
 }

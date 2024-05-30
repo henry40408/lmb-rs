@@ -1,7 +1,7 @@
 --[[
 --description = "Echo headers and body from HTTP request."
 --]]
-local m = require("@lam")
+local m = require("@lmb")
 
 local t = {}
 t.request = m.request

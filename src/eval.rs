@@ -10,7 +10,7 @@ use std::{
 };
 use tracing::{debug, trace_span};
 
-use crate::{LamInput, LamResult, LamState, LamStore, LamValue, LuaLam, DEFAULT_TIMEOUT};
+use crate::{LmbInput, LmbResult, LmbState, LmbStore, LmbValue, LuaLmb, DEFAULT_TIMEOUT};
 
 /// Evaluation builder.
 pub struct EvaluationBuilder<R>
@@ -24,7 +24,7 @@ where
     /// Lua script in plain text.
     pub script: String,
     /// Store that persists data across each execution.
-    pub store: Option<LamStore>,
+    pub store: Option<LmbStore>,
     /// Execution timeout.
     pub timeout: Option<Duration>,
 }
@@ -37,7 +37,7 @@ where
     ///
     /// ```rust
     /// # use std::io::empty;
-    /// use lam::*;
+    /// use lmb::*;
     /// let _ = EvaluationBuilder::new("", empty());
     /// ```
     pub fn new<S: AsRef<str>>(script: S, input: R) -> Self {
@@ -56,7 +56,7 @@ where
     /// ```rust
     /// # use std::{io::{empty, BufReader}, sync::Arc};
     /// # use parking_lot::Mutex;
-    /// use lam::*;
+    /// use lmb::*;
     /// let input = Arc::new(Mutex::new(BufReader::new(empty())));
     /// let _ = EvaluationBuilder::new_with_reader("", input);
     /// ```
@@ -75,11 +75,11 @@ where
     ///
     /// ```rust
     /// # use std::io::empty;
-    /// use lam::*;
+    /// use lmb::*;
     /// let _ = EvaluationBuilder::new("", empty()).with_default_store();
     /// ```
     pub fn with_default_store(mut self) -> Self {
-        self.store = Some(LamStore::default());
+        self.store = Some(LmbStore::default());
         self
     }
 
@@ -87,7 +87,7 @@ where
     ///
     /// ```rust
     /// # use std::io::empty;
-    /// use lam::*;
+    /// use lmb::*;
     /// let _ = EvaluationBuilder::new("", empty()).with_name("script");
     /// ```
     pub fn with_name<S: AsRef<str>>(mut self, name: S) -> Self {
@@ -99,7 +99,7 @@ where
     ///
     /// ```rust
     /// # use std::{io::empty, time::Duration};
-    /// use lam::*;
+    /// use lmb::*;
     /// let timeout = Duration::from_secs(30);
     /// let _ = EvaluationBuilder::new("", empty()).with_timeout(Some(timeout));
     /// ```
@@ -112,11 +112,11 @@ where
     ///
     /// ```rust
     /// # use std::io::empty;
-    /// use lam::*;
-    /// let store = LamStore::default();
+    /// use lmb::*;
+    /// let store = LmbStore::default();
     /// let _ = EvaluationBuilder::new("", empty()).with_store(store);
     /// ```
-    pub fn with_store(mut self, store: LamStore) -> Self {
+    pub fn with_store(mut self, store: LmbStore) -> Self {
         self.store = Some(store);
         self
     }
@@ -130,10 +130,10 @@ where
     ///
     /// ```rust
     /// # use std::io::empty;
-    /// use lam::*;
+    /// use lmb::*;
     /// let e = EvaluationBuilder::new("return true", empty()).build();
     /// let res = e.evaluate().unwrap();
-    /// assert_eq!(LamValue::from(true), res.payload);
+    /// assert_eq!(LmbValue::from(true), res.payload);
     /// ```
     pub fn build(self) -> Arc<Evaluation<R>> {
         let vm = Lua::new();
@@ -168,7 +168,7 @@ where
     /// Max memory usage in bytes.
     pub max_memory: usize,
     /// Result returned by the function.
-    pub payload: LamValue,
+    pub payload: LmbValue,
 }
 
 /// A container that holds the compiled function and input for evaluation.
@@ -178,9 +178,9 @@ where
 {
     changed: Mutex<bool>,
     compiled: Vec<u8>,
-    input: LamInput<BufReader<R>>,
+    input: LmbInput<BufReader<R>>,
     name: String,
-    store: Option<LamStore>,
+    store: Option<LmbStore>,
     timeout: Duration,
     vm: Lua,
 }
@@ -193,12 +193,12 @@ where
     ///
     /// ```rust
     /// # use std::io::empty;
-    /// use lam::*;
+    /// use lmb::*;
     /// let e = EvaluationBuilder::new("return 1+1", empty()).build();
     /// let res = e.evaluate().unwrap();
-    /// assert_eq!(LamValue::from(2), res.payload);
+    /// assert_eq!(LmbValue::from(2), res.payload);
     /// ```
-    pub fn evaluate(self: &Arc<Self>) -> LamResult<Solution<R>> {
+    pub fn evaluate(self: &Arc<Self>) -> LmbResult<Solution<R>> {
         self.do_evaluate(None)
     }
 
@@ -206,14 +206,14 @@ where
     ///
     /// ```rust
     /// # use std::io::empty;
-    /// use lam::*;
+    /// use lmb::*;
     /// let e = EvaluationBuilder::new("return 1+1", empty()).build();
-    /// let state = LamState::new();
-    /// state.insert(LamStateKey::from("bool"), true.into());
+    /// let state = LmbState::new();
+    /// state.insert(LmbStateKey::from("bool"), true.into());
     /// let res = e.evaluate_with_state(state).unwrap();
-    /// assert_eq!(LamValue::from(2), res.payload);
+    /// assert_eq!(LmbValue::from(2), res.payload);
     /// ```
-    pub fn evaluate_with_state(self: &Arc<Self>, state: LamState) -> LamResult<Solution<R>> {
+    pub fn evaluate_with_state(self: &Arc<Self>, state: LmbState) -> LmbResult<Solution<R>> {
         self.do_evaluate(Some(state))
     }
 
@@ -221,18 +221,18 @@ where
     ///
     /// ```rust
     /// # use std::io::{BufReader, Cursor, empty};
-    /// use lam::*;
+    /// use lmb::*;
     ///
     /// let script = "return io.read('*a')";
     /// let mut e = EvaluationBuilder::new(script, Cursor::new("1")).build();
     ///
     /// let r = e.evaluate().unwrap();
-    /// assert_eq!(LamValue::from("1"), r.payload);
+    /// assert_eq!(LmbValue::from("1"), r.payload);
     ///
     /// e.set_input(Cursor::new("2"));
     ///
     /// let r = e.evaluate().unwrap();
-    /// assert_eq!(LamValue::from("2"), r.payload);
+    /// assert_eq!(LmbValue::from("2"), r.payload);
     /// ```
     pub fn set_input(self: &Arc<Self>, input: R) {
         let mut changed = self.changed.lock();
@@ -240,13 +240,13 @@ where
         *changed = true;
     }
 
-    fn do_evaluate(self: &Arc<Self>, state: Option<LamState>) -> LamResult<Solution<R>> {
+    fn do_evaluate(self: &Arc<Self>, state: Option<LmbState>) -> LmbResult<Solution<R>> {
         let vm = &self.vm;
 
         {
             let mut changed = self.changed.lock();
             if *changed {
-                LuaLam::register(vm, self.input.clone(), self.store.clone(), state)?;
+                LuaLmb::register(vm, self.input.clone(), self.store.clone(), state)?;
                 *changed = false;
             }
         }
@@ -298,7 +298,7 @@ mod tests {
     };
     use test_case::test_case;
 
-    use crate::{EvaluationBuilder, LamValue};
+    use crate::{EvaluationBuilder, LmbValue};
 
     #[test_case("./lua-examples/error.lua")]
     fn error_in_script(path: &str) {
@@ -309,8 +309,8 @@ mod tests {
 
     #[test_case("algebra.lua", "2", 4.into())]
     #[test_case("count-bytes.lua", "A", hashmap!{ "65" => 1.into() }.into())]
-    #[test_case("hello.lua", "", LamValue::None)]
-    #[test_case("input.lua", "lua", LamValue::None)]
+    #[test_case("hello.lua", "", LmbValue::None)]
+    #[test_case("input.lua", "lua", LmbValue::None)]
     #[test_case("read-unicode.lua", "你好，世界", "你好".into())]
     #[test_case("return-table.lua", "123", hashmap!{
         "bool" => true.into(),
@@ -318,7 +318,7 @@ mod tests {
         "str" => "hello".into()
     }.into())]
     #[test_case("store.lua", "", 1.into())]
-    fn evaluate_examples(filename: &str, input: &'static str, expected: LamValue) {
+    fn evaluate_examples(filename: &str, input: &'static str, expected: LmbValue) {
         let script = fs::read_to_string(format!("./lua-examples/{filename}")).unwrap();
         let e = EvaluationBuilder::new(&script, input.as_bytes())
             .with_default_store()
@@ -344,7 +344,7 @@ mod tests {
 
     #[test_case("return 1+1", "2")]
     #[test_case("return 'a'..1", "a1")]
-    #[test_case("return require('@lam')._VERSION", env!("APP_VERSION"))]
+    #[test_case("return require('@lmb')._VERSION", env!("APP_VERSION"))]
     fn evaluate_scripts(script: &str, expected: &str) {
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().expect(script);
@@ -367,10 +367,10 @@ mod tests {
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from("foo"), res.payload);
+        assert_eq!(LmbValue::from("foo"), res.payload);
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from("bar"), res.payload);
+        assert_eq!(LmbValue::from("bar"), res.payload);
     }
 
     #[test]
@@ -379,12 +379,12 @@ mod tests {
         let e = EvaluationBuilder::new(script, &b"0"[..]).build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from("0"), res.payload);
+        assert_eq!(LmbValue::from("0"), res.payload);
 
         e.set_input(&b"1"[..]);
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from("1"), res.payload);
+        assert_eq!(LmbValue::from("1"), res.payload);
     }
 
     #[test_case(r#""#, "")]
@@ -412,7 +412,7 @@ mod tests {
         let input = Arc::new(Mutex::new(BufReader::new(empty())));
         let e = EvaluationBuilder::new_with_reader("return nil", input.clone()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::None, res.payload);
+        assert_eq!(LmbValue::None, res.payload);
         let _input = input;
     }
 }

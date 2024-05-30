@@ -11,22 +11,22 @@ use tracing::{trace, trace_span, warn};
 use ureq::Request;
 use url::Url;
 
-use super::{lua_lam_read, lua_lam_read_unicode};
-use crate::{LamInput, LamValue};
+use super::{lua_lmb_read, lua_lmb_read_unicode};
+use crate::{LmbInput, LmbValue};
 
 /// HTTP module
-pub struct LuaLamHTTP {}
+pub struct LuaLmbHTTP {}
 
 /// HTTP response
-pub struct LuaLamHTTPResponse {
+pub struct LuaLmbHTTPResponse {
     charset: String,
     content_type: String,
     headers: HashMap<String, Vec<String>>,
-    reader: LamInput<BufReader<Box<dyn Read + Send + Sync + 'static>>>,
+    reader: LmbInput<BufReader<Box<dyn Read + Send + Sync + 'static>>>,
     status_code: u16,
 }
 
-impl LuaUserData for LuaLamHTTPResponse {
+impl LuaUserData for LuaLmbHTTPResponse {
     fn add_fields<'lua, F: LuaUserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_method_get("charset", |_, this| Ok(this.charset.clone()));
         fields.add_field_method_get("content_type", |_, this| Ok(this.content_type.clone()));
@@ -40,20 +40,20 @@ impl LuaUserData for LuaLamHTTPResponse {
                 warn!("content type is not application/json, convert with caution");
             }
             let mut reader = this.reader.lock();
-            let value: LamValue = serde_json::from_reader(&mut *reader).into_lua_err()?;
+            let value: LmbValue = serde_json::from_reader(&mut *reader).into_lua_err()?;
             Ok(value)
         });
         methods.add_method("read", |vm, this, f: Option<LuaValue<'lua>>| {
-            lua_lam_read(vm, &this.reader, f)
+            lua_lmb_read(vm, &this.reader, f)
         });
         methods.add_method("read_unicode", |vm, this, f: LuaValue<'lua>| {
-            lua_lam_read_unicode(vm, &this.reader, f)
+            lua_lmb_read_unicode(vm, &this.reader, f)
         });
     }
 }
 
-fn set_headers(req: Request, headers: &LamValue) -> Request {
-    let LamValue::Table(h) = headers else {
+fn set_headers(req: Request, headers: &LmbValue) -> Request {
+    let LmbValue::Table(h) = headers else {
         return req;
     };
     let mut new_req = req;
@@ -63,20 +63,20 @@ fn set_headers(req: Request, headers: &LamValue) -> Request {
     new_req
 }
 
-fn lua_lam_fetch(
+fn lua_lmb_fetch(
     _: &Lua,
-    _: &LuaLamHTTP,
+    _: &LuaLmbHTTP,
     (uri, options): (String, Option<LuaTable<'_>>),
-) -> LuaResult<LuaLamHTTPResponse> {
+) -> LuaResult<LuaLmbHTTPResponse> {
     let options = options.as_ref();
     let url: Url = uri.parse().into_lua_err()?;
     let method: String = options
         .and_then(|t| t.get("method").ok().map(|s: String| s))
         .unwrap_or_else(|| "GET".to_string());
     let method: Method = method.parse().unwrap_or(Method::GET);
-    let headers: LamValue = options
+    let headers: LmbValue = options
         .and_then(|t| t.get("headers").ok())
-        .unwrap_or(LamValue::None);
+        .unwrap_or(LmbValue::None);
     let _s = trace_span!("send_http_request", %method, %url, ?headers).entered();
     let res = if method.is_idempotent() {
         let req = ureq::request_url(method.as_str(), &url);
@@ -107,7 +107,7 @@ fn lua_lam_fetch(
     let status_code = res.status();
     trace!(status_code, charset, content_type, "response");
     let reader = Arc::new(Mutex::new(BufReader::new(res.into_reader())));
-    Ok(LuaLamHTTPResponse {
+    Ok(LuaLmbHTTPResponse {
         charset,
         content_type,
         headers,
@@ -116,9 +116,9 @@ fn lua_lam_fetch(
     })
 }
 
-impl LuaUserData for LuaLamHTTP {
+impl LuaUserData for LuaLmbHTTP {
     fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_method("fetch", lua_lam_fetch);
+        methods.add_method("fetch", lua_lmb_fetch);
     }
 }
 
@@ -129,7 +129,7 @@ mod tests {
     use mockito::Server;
     use serde_json::{json, Value};
 
-    use crate::{EvaluationBuilder, LamValue};
+    use crate::{EvaluationBuilder, LmbValue};
 
     #[test]
     fn http_get() {
@@ -145,14 +145,14 @@ mod tests {
         let url = server.url();
         let script = format!(
             r#"
-            local m = require('@lam/http')
+            local m = require('@lmb/http')
             local res = m:fetch('{url}/html')
             return res:read('*a')
             "#
         );
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from(body), res.payload);
+        assert_eq!(LmbValue::from(body), res.payload);
 
         get_mock.assert();
     }
@@ -172,14 +172,14 @@ mod tests {
         let url = server.url();
         let script = format!(
             r#"
-            local m = require('@lam/http')
+            local m = require('@lmb/http')
             local res = m:fetch('{url}/headers', {{ headers = {{ a = 'b' }} }})
             return res:read('*a')
             "#
         );
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from(body), res.payload);
+        assert_eq!(LmbValue::from(body), res.payload);
 
         get_mock.assert();
     }
@@ -198,14 +198,14 @@ mod tests {
         let url = server.url();
         let script = format!(
             r#"
-            local m = require('@lam/http')
+            local m = require('@lmb/http')
             local res = m:fetch('{url}/html')
             return res:read_unicode('*a')
             "#
         );
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from(body), res.payload);
+        assert_eq!(LmbValue::from(body), res.payload);
 
         get_mock.assert();
     }
@@ -224,8 +224,8 @@ mod tests {
         let url = server.url();
         let script = format!(
             r#"
-            local m = require('@lam/http')
-            local j = require('@lam/json')
+            local m = require('@lmb/http')
+            local j = require('@lmb/json')
             local res = m:fetch('{url}/json')
             return j:encode(res:json())
             "#
@@ -254,7 +254,7 @@ mod tests {
         let url = server.url();
         let script = format!(
             r#"
-            local m = require('@lam/http')
+            local m = require('@lmb/http')
             local res = m:fetch('{url}/add', {{
               method = 'POST',
               body = '1+1',
@@ -264,7 +264,7 @@ mod tests {
         );
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LamValue::from("2"), res.payload);
+        assert_eq!(LmbValue::from("2"), res.payload);
 
         post_mock.assert();
     }

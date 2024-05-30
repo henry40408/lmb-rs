@@ -1,5 +1,5 @@
 [package]
-name = "lam"
+name = "lmb"
 version = "0.0.0-dev"
 edition = "2021"
 build = "build.rs"

@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 use bencher::{benchmark_group, benchmark_main, Bencher};
-use lam::EvaluationBuilder;
+use lmb::EvaluationBuilder;
 use mlua::prelude::*;
 use std::io::{empty, BufReader, Cursor, Read as _};
 
@@ -9,7 +9,7 @@ static SCRIPT: &str = "return true";
 
 /// evaluation
 
-fn lam_evaluate(bencher: &mut Bencher) {
+fn lmb_evaluate(bencher: &mut Bencher) {
     let e = EvaluationBuilder::new(SCRIPT, empty()).build();
     bencher.iter(|| e.evaluate().unwrap());
 }
@@ -34,21 +34,21 @@ fn mlua_sandbox_eval(bencher: &mut Bencher) {
 
 /// store
 
-fn lam_no_store(bencher: &mut Bencher) {
+fn lmb_no_store(bencher: &mut Bencher) {
     let e = EvaluationBuilder::new(SCRIPT, empty()).build();
     bencher.iter(|| e.evaluate().unwrap());
 }
 
-fn lam_default_store(bencher: &mut Bencher) {
+fn lmb_default_store(bencher: &mut Bencher) {
     let e = EvaluationBuilder::new(SCRIPT, empty())
         .with_default_store()
         .build();
     bencher.iter(|| e.evaluate().unwrap());
 }
 
-fn lam_update(bencher: &mut Bencher) {
+fn lmb_update(bencher: &mut Bencher) {
     let script = r#"
-    return require('@lam'):update('a', function(v)
+    return require('@lmb'):update('a', function(v)
         return v+1
     end, 0)
     "#;
@@ -60,7 +60,7 @@ fn lam_update(bencher: &mut Bencher) {
 
 /// read
 
-fn lam_read_all(bencher: &mut Bencher) {
+fn lmb_read_all(bencher: &mut Bencher) {
     let input = "1";
     let script = "return io.read('*a')";
     let e = EvaluationBuilder::new(script, input.as_bytes()).build();
@@ -70,7 +70,7 @@ fn lam_read_all(bencher: &mut Bencher) {
     });
 }
 
-fn lam_read_line(bencher: &mut Bencher) {
+fn lmb_read_line(bencher: &mut Bencher) {
     let input = "1";
     let script = "return io.read('*l')";
     let e = EvaluationBuilder::new(script, input.as_bytes()).build();
@@ -80,7 +80,7 @@ fn lam_read_line(bencher: &mut Bencher) {
     });
 }
 
-fn lam_read_number(bencher: &mut Bencher) {
+fn lmb_read_number(bencher: &mut Bencher) {
     let input = "1";
     let script = "return io.read('*n')";
     let e = EvaluationBuilder::new(script, input.as_bytes()).build();
@@ -90,9 +90,9 @@ fn lam_read_number(bencher: &mut Bencher) {
     });
 }
 
-fn lam_read_unicode(bencher: &mut Bencher) {
+fn lmb_read_unicode(bencher: &mut Bencher) {
     let input = "1";
-    let script = "return require('@lam'):read_unicode(1)";
+    let script = "return require('@lmb'):read_unicode(1)";
     let e = EvaluationBuilder::new(script, input.as_bytes()).build();
     bencher.iter(|| {
         e.set_input(&b"0"[..]);
@@ -110,18 +110,18 @@ fn read_from_buf_reader(bencher: &mut Bencher) {
 
 benchmark_group!(
     evaluation,
-    lam_evaluate,
+    lmb_evaluate,
     mlua_call,
     mlua_eval,
     mlua_sandbox_eval
 );
 benchmark_group!(
     read,
-    lam_read_all,
-    lam_read_line,
-    lam_read_number,
-    lam_read_unicode,
+    lmb_read_all,
+    lmb_read_line,
+    lmb_read_number,
+    lmb_read_unicode,
     read_from_buf_reader,
 );
-benchmark_group!(store, lam_default_store, lam_no_store, lam_update);
+benchmark_group!(store, lmb_default_store, lmb_no_store, lmb_update);
 benchmark_main!(evaluation, read, store);

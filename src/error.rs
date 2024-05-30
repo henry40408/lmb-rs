@@ -1,9 +1,9 @@
 use mlua::prelude::*;
 use thiserror::Error;
 
-/// Lam error.
+/// Lmb error.
 #[derive(Debug, Error)]
-pub enum LamError {
+pub enum LmbError {
     /// Error from database.
     #[error("sqlite error: {0}")]
     Database(#[from] rusqlite::Error),
