@@ -20,21 +20,21 @@ static LUA_ERROR_REGEX: Lazy<Regex> = Lazy::new(|| {
         .expect("failed to compile regular expression for Lua error message")
 });
 
-/// Options to print script
+/// Options to print script.
 #[derive(Clone, Default)]
 pub struct PrintOptions {
-    /// Line number to be highlighted.
+    /// Line number to be highlighted
     pub highlighted: Option<usize>,
     /// JSON mode
     pub json: bool,
-    /// No colors
+    /// No colors <https://no-color.org/>
     pub no_color: bool,
     /// Theme
     pub theme: Option<String>,
 }
 
 impl PrintOptions {
-    /// Create a option with "no color"
+    /// Create a option with "no color".
     pub fn no_color() -> Self {
         Self {
             no_color: true,
@@ -43,7 +43,7 @@ impl PrintOptions {
     }
 }
 
-/// Print script with syntax highlighting
+/// Print script with syntax highlighting.
 pub fn render_script<S, W>(mut f: W, script: S, options: &PrintOptions) -> anyhow::Result<bool>
 where
     S: AsRef<str>,
@@ -96,7 +96,7 @@ where
     Ok(())
 }
 
-/// Print solution when success or error and script when fail
+/// Print solution when success or error and script when fail.
 pub fn render_evaluation_result<R, S, W>(
     mut f: W,
     script: S,

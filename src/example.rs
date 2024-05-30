@@ -3,7 +3,7 @@ use include_dir::{include_dir, Dir};
 use once_cell::sync::Lazy;
 use toml::{Table, Value};
 
-/// Lua example
+/// Lua example.
 #[derive(Default)]
 pub struct Example {
     /// Name
@@ -41,7 +41,7 @@ impl Visitor for Example {
 
 static EXAMPLES_DIR: Dir<'_> = include_dir!("lua-examples");
 
-/// Embedded Lua examples
+/// Embedded Lua examples.
 pub static EXAMPLES: Lazy<Vec<Example>> = Lazy::new(|| {
     let mut examples = vec![];
     for f in EXAMPLES_DIR
