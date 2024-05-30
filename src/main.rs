@@ -451,7 +451,7 @@ async fn main() -> ExitCode {
         match e.downcast_ref::<LmbError>() {
             // the following errors are handled, do nothing
             Some(&LmbError::Lua(LuaError::RuntimeError(_) | LuaError::SyntaxError { .. })) => {}
-            _ => eprintln!("{e:?}"),
+            _ => eprintln!("{e}"),
         }
         return ExitCode::FAILURE;
     }
