@@ -5,7 +5,7 @@ use comfy_table::{presets, Table};
 use cron::Schedule;
 use lmb::{
     check_syntax, render_evaluation_result, render_fullmoon_result, render_script, schedule_script,
-    EvaluationBuilder, LmbError, LmbResult, LmbStore, PrintOptions, ScheduleOptions, StoreOptions,
+    EvaluationBuilder, LmbError, LmbStore, PrintOptions, ScheduleOptions, StoreOptions,
     DEFAULT_TIMEOUT, EXAMPLES,
 };
 use mlua::prelude::*;
@@ -193,7 +193,7 @@ fn read_script(input: &mut Input) -> anyhow::Result<(String, String)> {
     Ok((name, script))
 }
 
-fn prepare_store(options: &StoreOptions) -> LmbResult<LmbStore> {
+fn prepare_store(options: &StoreOptions) -> anyhow::Result<LmbStore> {
     let store = if let Some(store_path) = &options.store_path {
         let store = LmbStore::new(store_path)?;
         if options.run_migrations {
@@ -269,7 +269,7 @@ async fn try_main() -> anyhow::Result<()> {
                 }
                 Err(e) => {
                     eprint!("{buf}");
-                    Err(e)
+                    Err(e.into())
                 }
             }
         }
@@ -302,7 +302,7 @@ async fn try_main() -> anyhow::Result<()> {
                 }
                 Err(e) => {
                     eprint!("{buf}");
-                    Err(e)
+                    Err(e.into())
                 }
             }
         }

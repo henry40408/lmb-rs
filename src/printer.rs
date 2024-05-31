@@ -44,7 +44,7 @@ impl PrintOptions {
 }
 
 /// Print script with syntax highlighting.
-pub fn render_script<S, W>(mut f: W, script: S, options: &PrintOptions) -> anyhow::Result<bool>
+pub fn render_script<S, W>(mut f: W, script: S, options: &PrintOptions) -> LmbResult<bool>
 where
     S: AsRef<str>,
     W: Write,
@@ -73,12 +73,7 @@ where
     Ok(controller.run(inputs, Some(&mut f))?)
 }
 
-fn render_lua_error<S, W>(
-    mut f: W,
-    script: S,
-    message: S,
-    options: &PrintOptions,
-) -> anyhow::Result<()>
+fn render_lua_error<S, W>(mut f: W, script: S, message: S, options: &PrintOptions) -> LmbResult<()>
 where
     S: AsRef<str>,
     W: Write,
@@ -102,7 +97,7 @@ pub fn render_evaluation_result<R, S, W>(
     script: S,
     result: LmbResult<Solution<R>>,
     options: &PrintOptions,
-) -> anyhow::Result<()>
+) -> LmbResult<()>
 where
     for<'lua> R: 'lua + Read,
     S: AsRef<str>,
@@ -121,13 +116,13 @@ where
         Err(e) => match &e {
             LmbError::Lua(LuaError::RuntimeError(message)) => {
                 render_lua_error(f, script.as_ref(), message, options)?;
-                Err(e.into())
+                Err(e)
             }
             LmbError::Lua(LuaError::SyntaxError { message, .. }) => {
                 render_lua_error(f, script.as_ref(), message, options)?;
-                Err(e.into())
+                Err(e)
             }
-            _ => Err(e.into()),
+            _ => Err(e),
         },
     }
 }
