@@ -5,7 +5,7 @@ use comfy_table::{presets, Table};
 use cron::Schedule;
 use lmb::{
     check_syntax, render_evaluation_result, render_fullmoon_result, render_script, schedule_script,
-    EvaluationBuilder, LmbError, LmbStore, PrintOptions, ScheduleOptions, StoreOptions,
+    EvaluationBuilder, LmbError, LmbStore, LmbValue, PrintOptions, ScheduleOptions, StoreOptions,
     DEFAULT_TIMEOUT, EXAMPLES,
 };
 use mlua::prelude::*;
@@ -167,6 +167,9 @@ enum StoreCommands {
         /// Name
         #[arg(long)]
         name: String,
+        /// Plain. Consider value as plain string instead of JSON value.
+        #[arg(long)]
+        plain: bool,
         /// Value, the content should be a valid JSON value e.g. true or "string" or 1
         #[arg(long, value_parser, default_value = "-")]
         value: Input,
@@ -428,10 +431,18 @@ async fn try_main() -> anyhow::Result<()> {
                     store.migrate(version)?;
                     Ok(())
                 }
-                StoreCommands::Put { name, mut value } => {
+                StoreCommands::Put {
+                    name,
+                    plain,
+                    mut value,
+                } => {
                     let mut buf = String::new();
                     value.read_to_string(&mut buf)?;
-                    let value = serde_json::from_str(&buf)?;
+                    let value = if plain {
+                        LmbValue::String(buf)
+                    } else {
+                        serde_json::from_str(&buf)?
+                    };
                     let affected = store.put(name, &value)?;
                     print!("{affected}");
                     Ok(())
