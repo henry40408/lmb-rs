@@ -119,7 +119,7 @@ where
 }
 
 /// Print solution when success or error and script when fail.
-pub fn render_evaluation_result<R, S, W>(
+pub fn render_solution<R, S, W>(
     mut f: W,
     name: S,
     script: S,
@@ -171,7 +171,7 @@ where
 mod tests {
     use std::io::empty;
 
-    use crate::{render_evaluation_result, render_script, EvaluationBuilder, PrintOptions};
+    use crate::{render_script, render_solution, EvaluationBuilder, PrintOptions};
 
     #[test]
     fn print_lua_code() {
@@ -188,7 +188,7 @@ mod tests {
         let result = e.evaluate();
         let mut buf = String::new();
         let options = PrintOptions::no_color();
-        render_evaluation_result(&mut buf, "-", script, result, &options).unwrap();
+        render_solution(&mut buf, "-", script, result, &options).unwrap();
         assert_eq!("2", buf);
     }
 
@@ -199,7 +199,7 @@ mod tests {
         let result = e.evaluate();
         let mut buf = String::new();
         let options = PrintOptions::no_color();
-        assert!(render_evaluation_result(&mut buf, "-", script, result, &options).is_err());
+        assert!(render_solution(&mut buf, "-", script, result, &options).is_err());
         assert!(buf.contains("attempt to perform arithmetic (add) on nil and number"));
     }
 }

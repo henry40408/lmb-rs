@@ -4,7 +4,7 @@ use clio::*;
 use comfy_table::{presets, Table};
 use cron::Schedule;
 use lmb::{
-    check_syntax, render_evaluation_result, render_fullmoon_result, render_script, schedule_script,
+    check_syntax, render_fullmoon_result, render_script, render_solution, schedule_script,
     EvaluationBuilder, LmbError, LmbStore, LmbValue, PrintOptions, ScheduleOptions, StoreOptions,
     DEFAULT_TIMEOUT, EXAMPLES,
 };
@@ -265,7 +265,7 @@ async fn try_main() -> anyhow::Result<()> {
                 .build();
             let res = e.evaluate();
             let mut buf = String::new();
-            match render_evaluation_result(&mut buf, name, script, res, &print_options) {
+            match render_solution(&mut buf, name, script, res, &print_options) {
                 Ok(_) => {
                     print!("{buf}");
                     Ok(())
@@ -298,8 +298,7 @@ async fn try_main() -> anyhow::Result<()> {
                 .build();
             let res = e.evaluate();
             let mut buf = String::new();
-            match render_evaluation_result(&mut buf, name, script.to_string(), res, &print_options)
-            {
+            match render_solution(&mut buf, name, script.to_string(), res, &print_options) {
                 Ok(_) => {
                     print!("{buf}");
                     Ok(())
