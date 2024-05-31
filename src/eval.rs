@@ -144,8 +144,9 @@ where
             let _s = trace_span!("compile_script").entered();
             compiler.compile(&self.script)
         };
+        LuaLmb::register(&vm, self.input.clone(), self.store.clone(), None)
+            .expect("failed to initalize the binding");
         Arc::new(Evaluation {
-            changed: Mutex::new(true),
             compiled,
             input: self.input,
             name: self.name.unwrap_or_default(),
@@ -176,7 +177,6 @@ pub struct Evaluation<R>
 where
     for<'lua> R: 'lua + Read,
 {
-    changed: Mutex<bool>,
     compiled: Vec<u8>,
     input: LmbInput<R>,
     name: String,
@@ -235,20 +235,13 @@ where
     /// assert_eq!(LmbValue::from("2"), r.payload);
     /// ```
     pub fn set_input(self: &Arc<Self>, input: R) {
-        let mut changed = self.changed.lock();
         *self.input.lock() = BufReader::new(input);
-        *changed = true;
     }
 
     fn do_evaluate(self: &Arc<Self>, state: Option<LmbState>) -> LmbResult<Solution<R>> {
         let vm = &self.vm;
-
-        {
-            let mut changed = self.changed.lock();
-            if *changed {
-                LuaLmb::register(vm, self.input.clone(), self.store.clone(), state)?;
-                *changed = false;
-            }
+        if state.is_some() {
+            LuaLmb::register(vm, self.input.clone(), self.store.clone(), state)?;
         }
 
         let max_memory = Arc::new(AtomicUsize::new(0));
@@ -298,7 +291,7 @@ mod tests {
     };
     use test_case::test_case;
 
-    use crate::{EvaluationBuilder, LmbValue};
+    use crate::{EvaluationBuilder, LmbState, LmbStateKey, LmbValue};
 
     #[test_case("./lua-examples/error.lua")]
     fn error_in_script(path: &str) {
@@ -323,7 +316,7 @@ mod tests {
         let e = EvaluationBuilder::new(&script, input.as_bytes())
             .with_default_store()
             .build();
-        let res = e.evaluate().expect(&script);
+        let res = e.evaluate().unwrap();
         assert_eq!(expected, res.payload);
     }
 
@@ -347,7 +340,7 @@ mod tests {
     #[test_case("return require('@lmb')._VERSION", env!("APP_VERSION"))]
     fn evaluate_scripts(script: &str, expected: &str) {
         let e = EvaluationBuilder::new(script, empty()).build();
-        let res = e.evaluate().expect(script);
+        let res = e.evaluate().unwrap();
         assert_eq!(expected, res.payload.to_string());
     }
 
@@ -355,7 +348,7 @@ mod tests {
     #[test_case(r#"return {true,1.23,"hello"}"#)]
     fn collection_to_string(script: &str) {
         let e = EvaluationBuilder::new(script, empty()).build();
-        let res = e.evaluate().expect(script);
+        let res = e.evaluate().unwrap();
         let actual = res.payload.to_string();
         assert!(actual.starts_with("table: 0x"));
     }
@@ -396,7 +389,7 @@ mod tests {
     #[test_case(r#"return 'hello'"#, "hello")]
     fn return_to_string(script: &str, expected: &str) {
         let e = EvaluationBuilder::new(script, empty()).build();
-        let res = e.evaluate().expect(script);
+        let res = e.evaluate().unwrap();
         assert_eq!(expected, res.payload.to_string());
     }
 
@@ -414,5 +407,22 @@ mod tests {
         let res = e.evaluate().unwrap();
         assert_eq!(LmbValue::None, res.payload);
         let _input = input;
+    }
+
+    #[test]
+    fn with_state() {
+        let e = EvaluationBuilder::new(r#"return require("@lmb").request"#, empty()).build();
+        {
+            let state = LmbState::new();
+            state.insert(LmbStateKey::Request, 1.into());
+            let res = e.evaluate_with_state(state).unwrap();
+            assert_eq!(LmbValue::Integer(1), res.payload);
+        }
+        {
+            let state = LmbState::new();
+            state.insert(LmbStateKey::Request, 2.into());
+            let res = e.evaluate_with_state(state).unwrap();
+            assert_eq!(LmbValue::Integer(2), res.payload);
+        }
     }
 }

@@ -221,7 +221,7 @@ mod tests {
     #[test_case("assert(not io.read(1))")]
     fn read_empty(script: &'static str) {
         let e = EvaluationBuilder::new(script, empty()).build();
-        let _ = e.evaluate().expect(script);
+        let _ = e.evaluate().unwrap();
     }
 
     #[test_case("1", 1.into())]
@@ -233,7 +233,7 @@ mod tests {
     fn read_number(input: &'static str, expected: LmbValue) {
         let script = "return io.read('*n')";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
-        let res = e.evaluate().expect(input);
+        let res = e.evaluate().unwrap();
         assert_eq!(expected, res.payload);
     }
 
@@ -245,7 +245,7 @@ mod tests {
     fn read_string(script: &str, expected: LmbValue) {
         let input = "foo\nbar";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
-        let res = e.evaluate().expect(script);
+        let res = e.evaluate().unwrap();
         assert_eq!(expected, res.payload);
     }
 
