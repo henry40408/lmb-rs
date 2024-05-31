@@ -22,7 +22,7 @@ pub struct LuaLmbHTTPResponse {
     charset: String,
     content_type: String,
     headers: HashMap<String, Vec<String>>,
-    reader: LmbInput<BufReader<Box<dyn Read + Send + Sync + 'static>>>,
+    reader: LmbInput<Box<dyn Read + Send + Sync + 'static>>,
     status_code: StatusCode,
 }
 

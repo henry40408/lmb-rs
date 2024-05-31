@@ -178,7 +178,7 @@ where
 {
     changed: Mutex<bool>,
     compiled: Vec<u8>,
-    input: LmbInput<BufReader<R>>,
+    input: LmbInput<R>,
     name: String,
     store: Option<LmbStore>,
     timeout: Duration,

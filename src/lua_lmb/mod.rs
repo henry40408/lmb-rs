@@ -1,6 +1,5 @@
 use mlua::prelude::*;
-use std::io::{stderr, Write as _};
-use std::io::{stdout, BufRead};
+use std::io::{stderr, stdout, Read, Write as _};
 
 use crate::{LmbInput, LmbResult, LmbState, LmbStateKey, LmbStore, LmbValue};
 
@@ -20,7 +19,7 @@ const K_LOADED: &str = "_LOADED";
 /// Interface of Lmb between Lua and Rust.
 pub struct LuaLmb<R>
 where
-    R: BufRead,
+    R: Read,
 {
     input: LmbInput<R>,
     state: Option<LmbState>,
@@ -29,7 +28,7 @@ where
 
 impl<R> LuaLmb<R>
 where
-    for<'lua> R: 'lua + BufRead + Send,
+    for<'lua> R: 'lua + Read + Send,
 {
     /// Create a new instance of interface with input [`LmbInput`] and store [`LmbStore`].
     ///
@@ -118,7 +117,7 @@ impl LuaUserData for LmbStderr {
 
 fn lua_lmb_get<R>(_: &Lua, lmb: &LuaLmb<R>, key: String) -> LuaResult<LmbValue>
 where
-    R: BufRead,
+    R: Read,
 {
     let Some(store) = &lmb.store else {
         return Ok(LmbValue::None);
@@ -131,7 +130,7 @@ where
 
 fn lua_lmb_set<R>(_: &Lua, lmb: &LuaLmb<R>, (key, value): (String, LmbValue)) -> LuaResult<LmbValue>
 where
-    R: BufRead,
+    R: Read,
 {
     let Some(store) = &lmb.store else {
         return Ok(LmbValue::None);
@@ -146,7 +145,7 @@ fn lua_lmb_update<'lua, R>(
     (key, f, default_v): (String, LuaFunction<'lua>, Option<LmbValue>),
 ) -> LuaResult<LmbValue>
 where
-    R: BufRead,
+    R: Read,
 {
     let update_fn = |old: &mut LmbValue| -> LuaResult<()> {
         let old_v = vm.to_value(old)?;
@@ -164,7 +163,7 @@ where
 
 impl<R> LuaUserData for LuaLmb<R>
 where
-    for<'lua> R: 'lua + BufRead,
+    for<'lua> R: 'lua + Read,
 {
     fn add_fields<'lua, F: LuaUserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field("_VERSION", env!("APP_VERSION"));
