@@ -107,8 +107,12 @@ impl LuaUserData for LmbStderr {
     fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method("write", |_, _, vs: LuaMultiValue<'_>| {
             let mut locked = stderr().lock();
-            for v in vs.into_vec() {
+            let vs = vs.into_vec();
+            for (idx, v) in vs.iter().enumerate() {
                 write!(locked, "{}", v.to_string()?)?;
+                if idx != vs.len() - 1 {
+                    write!(locked, "\t")?;
+                }
             }
             Ok(())
         });
