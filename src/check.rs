@@ -36,40 +36,48 @@ pub fn render_fullmoon_result<S>(
 where
     S: AsRef<str>,
 {
-    if let full_moon::Error::AstError(full_moon::ast::AstError::UnexpectedToken {
-        token,
-        additional,
-    }) = result
-    {
-        let mut colors = ColorGenerator::new();
-        let color = colors.next();
+    let mut colors = ColorGenerator::new();
+    let color = colors.next();
+    let name = name.as_ref();
 
-        let mut buf = Vec::new();
-        let name = name.as_ref();
-        let message = additional
-            .as_ref()
-            .map_or_else(String::new, |s| s.to_string());
-        let start = token.start_position().bytes();
-        let end = token.end_position().bytes();
-        let span = start..end;
-        let _ = Report::build(ReportKind::Error, name, start)
-            .with_config(
-                Config::default()
-                    .with_char_set(CharSet::Ascii)
-                    .with_compact(true)
-                    .with_color(!no_color),
-            )
-            .with_label(
-                Label::new((name, span))
-                    .with_color(color)
-                    .with_message(&message),
-            )
-            .with_message(&message)
-            .finish()
-            .write((name, Source::from(script)), &mut buf);
-        return Some(String::from_utf8_lossy(&buf).trim().to_string());
-    }
-    None
+    let (message, start, end) = match result {
+        full_moon::Error::TokenizerError(e) => (
+            e.error().to_string(),
+            e.position().bytes(),
+            e.position().bytes() + 1,
+        ),
+        full_moon::Error::AstError(full_moon::ast::AstError::UnexpectedToken {
+            token,
+            additional,
+        }) => (
+            additional
+                .as_ref()
+                .map_or_else(String::new, |s| s.to_string()),
+            token.start_position().bytes(),
+            token.end_position().bytes(),
+        ),
+        full_moon::Error::AstError(_) => return None,
+    };
+
+    let mut buf = Vec::new();
+    let span = start..end;
+    let _ = Report::build(ReportKind::Error, name, start)
+        .with_config(
+            Config::default()
+                .with_char_set(CharSet::Ascii)
+                .with_compact(true)
+                .with_color(!no_color),
+        )
+        .with_label(
+            Label::new((name, span))
+                .with_color(color)
+                .with_message(&message),
+        )
+        .with_message(&message)
+        .finish()
+        .write((name, Source::from(script)), &mut buf);
+
+    Some(String::from_utf8_lossy(&buf).trim().to_string())
 }
 
 #[cfg(test)]
