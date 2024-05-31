@@ -262,7 +262,7 @@ async fn try_main() -> anyhow::Result<()> {
                 .build();
             let res = e.evaluate();
             let mut buf = String::new();
-            match render_evaluation_result(&mut buf, script, res, &print_options) {
+            match render_evaluation_result(&mut buf, name, script, res, &print_options) {
                 Ok(_) => {
                     print!("{buf}");
                     Ok(())
@@ -295,7 +295,8 @@ async fn try_main() -> anyhow::Result<()> {
                 .build();
             let res = e.evaluate();
             let mut buf = String::new();
-            match render_evaluation_result(&mut buf, script, res, &print_options) {
+            match render_evaluation_result(&mut buf, name, script.to_string(), res, &print_options)
+            {
                 Ok(_) => {
                     print!("{buf}");
                     Ok(())

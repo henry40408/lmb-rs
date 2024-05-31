@@ -1,9 +1,9 @@
 use std::fmt::Write;
 use std::io::Read;
 
+use ariadne::{CharSet, ColorGenerator, Label, Report, ReportKind, Source};
 use bat::{
     assets::HighlightingAssets,
-    config::Config,
     controller::Controller,
     line_range::{HighlightedLineRanges, LineRange, LineRanges},
     style::{StyleComponent, StyleComponents},
@@ -50,7 +50,7 @@ where
     W: Write,
 {
     let style_components = StyleComponents::new(&[StyleComponent::LineNumbers]);
-    let mut config = Config {
+    let mut config = bat::config::Config {
         colored_output: !options.no_color,
         language: Some("lua"),
         style_components,
@@ -73,19 +73,46 @@ where
     Ok(controller.run(inputs, Some(&mut f))?)
 }
 
-fn render_lua_error<S, W>(mut f: W, script: S, message: S, options: &PrintOptions) -> LmbResult<()>
+fn render_lua_error<S, W>(
+    mut f: W,
+    name: S,
+    script: S,
+    message: S,
+    options: &PrintOptions,
+) -> LmbResult<()>
 where
     S: AsRef<str>,
     W: Write,
 {
+    let name = name.as_ref();
     let first_line = message.as_ref().lines().next().unwrap_or_default();
-    writeln!(f, "{first_line}")?;
     if let Ok(Some(c)) = LUA_ERROR_REGEX.captures(first_line) {
         let try_line_number = c.get(1).and_then(|n| n.as_str().parse::<usize>().ok());
         if let Some(line_number) = try_line_number {
-            let mut new_options = options.clone();
-            new_options.highlighted = Some(line_number);
-            render_script(f, script, &new_options)?;
+            let mut buf = Vec::new();
+            let mut colors = ColorGenerator::new();
+            let color = colors.next();
+            let source = Source::from(script.as_ref());
+            let line = source
+                .line(line_number - 1) // index, not line number
+                .expect("cannot find line in source");
+            let span = line.span();
+            let _ = Report::build(ReportKind::Error, name, span.start)
+                .with_config(
+                    ariadne::Config::default()
+                        .with_char_set(CharSet::Ascii)
+                        .with_compact(true)
+                        .with_color(!options.no_color),
+                )
+                .with_label(
+                    Label::new((name, span))
+                        .with_color(color)
+                        .with_message(first_line),
+                )
+                .with_message(first_line)
+                .finish()
+                .write((name, source), &mut buf);
+            let _ = write!(f, "{}", String::from_utf8_lossy(&buf));
         }
     }
     Ok(())
@@ -94,6 +121,7 @@ where
 /// Print solution when success or error and script when fail.
 pub fn render_evaluation_result<R, S, W>(
     mut f: W,
+    name: S,
     script: S,
     result: LmbResult<Solution<R>>,
     options: &PrintOptions,
@@ -115,11 +143,23 @@ where
         }
         Err(e) => match &e {
             LmbError::Lua(LuaError::RuntimeError(message)) => {
-                render_lua_error(f, script.as_ref(), message, options)?;
+                render_lua_error(
+                    f,
+                    name.as_ref().to_string(),
+                    script.as_ref().to_string(),
+                    message.to_string(),
+                    options,
+                )?;
                 Err(e)
             }
             LmbError::Lua(LuaError::SyntaxError { message, .. }) => {
-                render_lua_error(f, script.as_ref(), message, options)?;
+                render_lua_error(
+                    f,
+                    name.as_ref().to_string(),
+                    script.as_ref().to_string(),
+                    message.to_string(),
+                    options,
+                )?;
                 Err(e)
             }
             _ => Err(e),
@@ -148,7 +188,7 @@ mod tests {
         let result = e.evaluate();
         let mut buf = String::new();
         let options = PrintOptions::no_color();
-        render_evaluation_result(&mut buf, script, result, &options).unwrap();
+        render_evaluation_result(&mut buf, "-", script, result, &options).unwrap();
         assert_eq!("2", buf);
     }
 
@@ -159,7 +199,7 @@ mod tests {
         let result = e.evaluate();
         let mut buf = String::new();
         let options = PrintOptions::no_color();
-        assert!(render_evaluation_result(&mut buf, script, result, &options).is_err());
+        assert!(render_evaluation_result(&mut buf, "-", script, result, &options).is_err());
         assert!(buf.contains("attempt to perform arithmetic (add) on nil and number"));
     }
 }
