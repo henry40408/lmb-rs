@@ -70,7 +70,7 @@ opt-level = "z"
 # other than runtime errors from the Lua virtual machine,
 # so it is intentional not to enable abort mode on panic.
 # https://github.com/mlua-rs/mlua/issues/350#issuecomment-1870522709
-#panic="abort"
+#panic = "abort"
 strip = true
 
 # https://github.com/Kampfkarren/full-moon/issues/140#issuecomment-925954867

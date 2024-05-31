@@ -119,13 +119,10 @@ fn lua_lmb_get<R>(_: &Lua, lmb: &LuaLmb<R>, key: String) -> LuaResult<LmbValue>
 where
     R: Read,
 {
-    let Some(store) = &lmb.store else {
-        return Ok(LmbValue::None);
-    };
-    if let Ok(v) = store.get(key.as_str()) {
-        return Ok(v);
-    }
-    Ok(LmbValue::None)
+    lmb.store.as_ref().map_or_else(
+        || Ok(LmbValue::None),
+        |s| s.get(key.as_str()).or_else(|_| Ok(LmbValue::None)),
+    )
 }
 
 fn lua_lmb_set<R>(_: &Lua, lmb: &LuaLmb<R>, (key, value): (String, LmbValue)) -> LuaResult<LmbValue>
@@ -147,17 +144,15 @@ fn lua_lmb_update<'lua, R>(
 where
     R: Read,
 {
+    let Some(store) = &lmb.store else {
+        return Ok(LmbValue::None);
+    };
     let update_fn = |old: &mut LmbValue| -> LuaResult<()> {
         let old_v = vm.to_value(old)?;
         let new = f.call::<_, LmbValue>(old_v)?;
         *old = new;
         Ok(())
     };
-
-    let Some(store) = &lmb.store else {
-        return Ok(LmbValue::None);
-    };
-
     store.update(key, update_fn, default_v).into_lua_err()
 }
 
@@ -168,10 +163,11 @@ where
     fn add_fields<'lua, F: LuaUserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field("_VERSION", env!("APP_VERSION"));
         fields.add_field_method_get("request", |vm, this| {
-            let Some(m) = &this.state else {
-                return Ok(LuaNil);
-            };
-            let Some(v) = m.get(&LmbStateKey::Request) else {
+            let Some(v) = this
+                .state
+                .as_ref()
+                .and_then(|m| m.get(&LmbStateKey::Request))
+            else {
                 return Ok(LuaNil);
             };
             vm.to_value(&*v)
