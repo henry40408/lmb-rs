@@ -348,6 +348,7 @@ mod tests {
         let script = r#"
         local m = require('@lmb')
         local a = m:get('a')
+        assert(not m:get('b'))
         m:set('a', 4.56)
         return a
         "#;

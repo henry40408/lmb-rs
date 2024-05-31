@@ -40,7 +40,10 @@ impl LmbValue {
 
 impl<'lua> IntoLua<'lua> for LmbValue {
     fn into_lua(self, lua: &'lua Lua) -> LuaResult<LuaValue<'lua>> {
-        lua.to_value(&self)
+        match self {
+            Self::None => Ok(LuaNil),
+            _ => lua.to_value(&self),
+        }
     }
 }
 
