@@ -67,6 +67,16 @@ fn eval_stdin() {
 }
 
 #[test]
+fn eval_stdin_syntax_error() {
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
+    cmd.write_stdin("return !true");
+    cmd.args(["--no-color", "eval", "--file", "-"]);
+    cmd.assert()
+        .failure()
+        .stderr(predicates::str::contains("Unexpected"));
+}
+
+#[test]
 fn eval_store_migrate() {
     let store = NamedTempFile::new("db.sqlite3").unwrap();
     let store_path = store.path().to_string_lossy();
