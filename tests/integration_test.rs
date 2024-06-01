@@ -5,7 +5,7 @@ use assert_fs::NamedTempFile;
 use serde_json::{json, Value};
 
 #[test]
-fn check_stdin() {
+fn check_stdin_syntax_error() {
     let mut cmd = Command::cargo_bin("lmb").unwrap();
     cmd.write_stdin("ret true");
     cmd.args(["--no-color", "check", "--file", "-"]);
@@ -14,6 +14,20 @@ fn check_stdin() {
    ,-["-":1:1]
  1 |ret true
    | `-- leftover token
+"#,
+    );
+}
+
+#[test]
+fn check_stdin_tokenizer_error() {
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
+    cmd.write_stdin("return !true");
+    cmd.args(["--no-color", "check", "--file", "-"]);
+    cmd.assert().failure().stderr(
+        r#"Error: unexpected character !
+   ,-["-":1:8]
+ 1 |return !true
+   |       `- unexpected character !
 "#,
     );
 }
@@ -50,6 +64,16 @@ fn eval_stdin() {
     cmd.write_stdin("return 1+1");
     cmd.args(["eval", "--file", "-"]);
     cmd.assert().success().stdout("2");
+}
+
+#[test]
+fn eval_stdin_syntax_error() {
+    let mut cmd = Command::cargo_bin("lmb").unwrap();
+    cmd.write_stdin("return !true");
+    cmd.args(["--no-color", "eval", "--file", "-"]);
+    cmd.assert()
+        .failure()
+        .stderr(predicates::str::contains("Unexpected"));
 }
 
 #[test]

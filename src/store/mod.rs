@@ -288,13 +288,13 @@ pub struct LmbValueMetadata {
 impl Default for LmbStore {
     fn default() -> Self {
         debug!("open store in memory");
-        let conn = Connection::open_in_memory().expect("failed to open sqlite in memory");
+        let conn = Connection::open_in_memory().expect("failed to open SQLite database in memory");
         let store = Self {
             conn: Arc::new(Mutex::new(conn)),
         };
         store
             .migrate(None)
-            .expect("failed to migrate database in memory");
+            .expect("failed to migrate SQLite database in memory");
         store
     }
 }
@@ -348,6 +348,7 @@ mod tests {
         let script = r#"
         local m = require('@lmb')
         local a = m:get('a')
+        assert(not m:get('b'))
         m:set('a', 4.56)
         return a
         "#;

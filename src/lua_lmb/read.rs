@@ -1,4 +1,4 @@
-use std::io::BufRead;
+use std::io::{BufRead as _, Read};
 
 use mlua::prelude::*;
 
@@ -13,7 +13,7 @@ pub(crate) fn lua_lmb_read<'lua, R>(
     f: Option<LuaValue<'lua>>,
 ) -> LuaResult<LuaValue<'lua>>
 where
-    R: BufRead,
+    R: Read,
 {
     let Some(f) = f else {
         // This pattern is the default for read, so io.read() has the same effect as io.read("*line").
@@ -83,7 +83,7 @@ pub(crate) fn lua_lmb_read_unicode<'lua, R>(
     f: LuaValue<'lua>,
 ) -> LuaResult<LuaValue<'lua>>
 where
-    R: BufRead,
+    R: Read,
 {
     if let Some(f) = f.as_str() {
         match f {

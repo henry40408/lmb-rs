@@ -4,8 +4,8 @@ use clio::*;
 use comfy_table::{presets, Table};
 use cron::Schedule;
 use lmb::{
-    check_syntax, render_evaluation_result, render_fullmoon_result, render_script, schedule_script,
-    EvaluationBuilder, LmbError, LmbResult, LmbStore, PrintOptions, ScheduleOptions, StoreOptions,
+    check_syntax, render_fullmoon_result, render_script, render_solution, schedule_script,
+    EvaluationBuilder, LmbError, LmbStore, LmbValue, PrintOptions, ScheduleOptions, StoreOptions,
     DEFAULT_TIMEOUT, EXAMPLES,
 };
 use mlua::prelude::*;
@@ -167,6 +167,9 @@ enum StoreCommands {
         /// Name
         #[arg(long)]
         name: String,
+        /// Plain. Consider value as plain string instead of JSON value.
+        #[arg(long)]
+        plain: bool,
         /// Value, the content should be a valid JSON value e.g. true or "string" or 1
         #[arg(long, value_parser, default_value = "-")]
         value: Input,
@@ -193,7 +196,7 @@ fn read_script(input: &mut Input) -> anyhow::Result<(String, String)> {
     Ok((name, script))
 }
 
-fn prepare_store(options: &StoreOptions) -> LmbResult<LmbStore> {
+fn prepare_store(options: &StoreOptions) -> anyhow::Result<LmbStore> {
     let store = if let Some(store_path) = &options.store_path {
         let store = LmbStore::new(store_path)?;
         if options.run_migrations {
@@ -262,14 +265,14 @@ async fn try_main() -> anyhow::Result<()> {
                 .build();
             let res = e.evaluate();
             let mut buf = String::new();
-            match render_evaluation_result(&mut buf, script, res, &print_options) {
+            match render_solution(&mut buf, name, script, res, &print_options) {
                 Ok(_) => {
                     print!("{buf}");
                     Ok(())
                 }
                 Err(e) => {
                     eprint!("{buf}");
-                    Err(e)
+                    Err(e.into())
                 }
             }
         }
@@ -295,14 +298,14 @@ async fn try_main() -> anyhow::Result<()> {
                 .build();
             let res = e.evaluate();
             let mut buf = String::new();
-            match render_evaluation_result(&mut buf, script, res, &print_options) {
+            match render_solution(&mut buf, name, script.to_string(), res, &print_options) {
                 Ok(_) => {
                     print!("{buf}");
                     Ok(())
                 }
                 Err(e) => {
                     eprint!("{buf}");
-                    Err(e)
+                    Err(e.into())
                 }
             }
         }
@@ -427,10 +430,18 @@ async fn try_main() -> anyhow::Result<()> {
                     store.migrate(version)?;
                     Ok(())
                 }
-                StoreCommands::Put { name, mut value } => {
+                StoreCommands::Put {
+                    name,
+                    plain,
+                    mut value,
+                } => {
                     let mut buf = String::new();
                     value.read_to_string(&mut buf)?;
-                    let value = serde_json::from_str(&buf)?;
+                    let value = if plain {
+                        LmbValue::String(buf)
+                    } else {
+                        serde_json::from_str(&buf)?
+                    };
                     let affected = store.put(name, &value)?;
                     print!("{affected}");
                     Ok(())
@@ -451,7 +462,7 @@ async fn main() -> ExitCode {
         match e.downcast_ref::<LmbError>() {
             // the following errors are handled, do nothing
             Some(&LmbError::Lua(LuaError::RuntimeError(_) | LuaError::SyntaxError { .. })) => {}
-            _ => eprintln!("{e:?}"),
+            _ => eprintln!("{e}"),
         }
         return ExitCode::FAILURE;
     }

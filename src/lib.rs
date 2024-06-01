@@ -7,7 +7,7 @@ use include_dir::{include_dir, Dir};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use rusqlite_migration::Migrations;
-use std::{sync::Arc, time::Duration};
+use std::{io::BufReader, sync::Arc, time::Duration};
 
 pub use check::*;
 pub use error::*;
@@ -40,7 +40,7 @@ static MIGRATIONS: Lazy<Migrations<'static>> = Lazy::new(|| {
 });
 
 /// Function input.
-pub type LmbInput<R> = Arc<Mutex<R>>;
+pub type LmbInput<R> = Arc<Mutex<BufReader<R>>>;
 
 /// Generic result type of Lmb.
 pub type LmbResult<T> = Result<T, LmbError>;

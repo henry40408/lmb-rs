@@ -1,6 +1,5 @@
 use mlua::prelude::*;
-use std::io::{stderr, Write as _};
-use std::io::{stdout, BufRead};
+use std::io::{stderr, stdout, Read, Write as _};
 
 use crate::{LmbInput, LmbResult, LmbState, LmbStateKey, LmbStore, LmbValue};
 
@@ -20,7 +19,7 @@ const K_LOADED: &str = "_LOADED";
 /// Interface of Lmb between Lua and Rust.
 pub struct LuaLmb<R>
 where
-    R: BufRead,
+    R: Read,
 {
     input: LmbInput<R>,
     state: Option<LmbState>,
@@ -29,7 +28,7 @@ where
 
 impl<R> LuaLmb<R>
 where
-    for<'lua> R: 'lua + BufRead + Send,
+    for<'lua> R: 'lua + Read + Send,
 {
     /// Create a new instance of interface with input [`LmbInput`] and store [`LmbStore`].
     ///
@@ -108,8 +107,12 @@ impl LuaUserData for LmbStderr {
     fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method("write", |_, _, vs: LuaMultiValue<'_>| {
             let mut locked = stderr().lock();
-            for v in vs.into_vec() {
+            let vs = vs.into_vec();
+            for (idx, v) in vs.iter().enumerate() {
                 write!(locked, "{}", v.to_string()?)?;
+                if idx != vs.len() - 1 {
+                    write!(locked, "\t")?;
+                }
             }
             Ok(())
         });
@@ -118,20 +121,17 @@ impl LuaUserData for LmbStderr {
 
 fn lua_lmb_get<R>(_: &Lua, lmb: &LuaLmb<R>, key: String) -> LuaResult<LmbValue>
 where
-    R: BufRead,
+    R: Read,
 {
-    let Some(store) = &lmb.store else {
-        return Ok(LmbValue::None);
-    };
-    if let Ok(v) = store.get(key.as_str()) {
-        return Ok(v);
-    }
-    Ok(LmbValue::None)
+    lmb.store.as_ref().map_or_else(
+        || Ok(LmbValue::None),
+        |s| s.get(key.as_str()).or_else(|_| Ok(LmbValue::None)),
+    )
 }
 
 fn lua_lmb_set<R>(_: &Lua, lmb: &LuaLmb<R>, (key, value): (String, LmbValue)) -> LuaResult<LmbValue>
 where
-    R: BufRead,
+    R: Read,
 {
     let Some(store) = &lmb.store else {
         return Ok(LmbValue::None);
@@ -146,33 +146,32 @@ fn lua_lmb_update<'lua, R>(
     (key, f, default_v): (String, LuaFunction<'lua>, Option<LmbValue>),
 ) -> LuaResult<LmbValue>
 where
-    R: BufRead,
+    R: Read,
 {
+    let Some(store) = &lmb.store else {
+        return Ok(LmbValue::None);
+    };
     let update_fn = |old: &mut LmbValue| -> LuaResult<()> {
         let old_v = vm.to_value(old)?;
         let new = f.call::<_, LmbValue>(old_v)?;
         *old = new;
         Ok(())
     };
-
-    let Some(store) = &lmb.store else {
-        return Ok(LmbValue::None);
-    };
-
     store.update(key, update_fn, default_v).into_lua_err()
 }
 
 impl<R> LuaUserData for LuaLmb<R>
 where
-    for<'lua> R: 'lua + BufRead,
+    for<'lua> R: 'lua + Read,
 {
     fn add_fields<'lua, F: LuaUserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field("_VERSION", env!("APP_VERSION"));
         fields.add_field_method_get("request", |vm, this| {
-            let Some(m) = &this.state else {
-                return Ok(LuaNil);
-            };
-            let Some(v) = m.get(&LmbStateKey::Request) else {
+            let Some(v) = this
+                .state
+                .as_ref()
+                .and_then(|m| m.get(&LmbStateKey::Request))
+            else {
                 return Ok(LuaNil);
             };
             vm.to_value(&*v)
@@ -222,7 +221,7 @@ mod tests {
     #[test_case("assert(not io.read(1))")]
     fn read_empty(script: &'static str) {
         let e = EvaluationBuilder::new(script, empty()).build();
-        let _ = e.evaluate().expect(script);
+        let _ = e.evaluate().unwrap();
     }
 
     #[test_case("1", 1.into())]
@@ -234,7 +233,7 @@ mod tests {
     fn read_number(input: &'static str, expected: LmbValue) {
         let script = "return io.read('*n')";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
-        let res = e.evaluate().expect(input);
+        let res = e.evaluate().unwrap();
         assert_eq!(expected, res.payload);
     }
 
@@ -246,7 +245,7 @@ mod tests {
     fn read_string(script: &str, expected: LmbValue) {
         let input = "foo\nbar";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
-        let res = e.evaluate().expect(script);
+        let res = e.evaluate().unwrap();
         assert_eq!(expected, res.payload);
     }
 
