@@ -1,5 +1,6 @@
 use mlua::{prelude::*, Compiler};
 use parking_lot::Mutex;
+use serde_json::Value;
 use std::{
     io::{BufReader, Read},
     sync::{
@@ -10,7 +11,7 @@ use std::{
 };
 use tracing::{debug, trace_span};
 
-use crate::{LmbInput, LmbResult, LmbState, LmbStore, LmbValue, LuaLmb, DEFAULT_TIMEOUT};
+use crate::{LmbInput, LmbResult, LmbState, LmbStore, LuaLmb, DEFAULT_TIMEOUT};
 
 /// Evaluation builder.
 pub struct EvaluationBuilder<R>
@@ -130,10 +131,11 @@ where
     ///
     /// ```rust
     /// # use std::io::empty;
+    /// # use serde_json::json;
     /// use lmb::*;
     /// let e = EvaluationBuilder::new("return true", empty()).build();
     /// let res = e.evaluate().unwrap();
-    /// assert_eq!(LmbValue::from(true), res.payload);
+    /// assert_eq!(json!(true), res.payload);
     /// ```
     pub fn build(self) -> Arc<Evaluation<R>> {
         let vm = Lua::new();
@@ -169,7 +171,7 @@ where
     /// Max memory usage in bytes.
     pub max_memory: usize,
     /// Result returned by the function.
-    pub payload: LmbValue,
+    pub payload: Value,
 }
 
 /// A container that holds the compiled function and input for evaluation.
@@ -193,10 +195,11 @@ where
     ///
     /// ```rust
     /// # use std::io::empty;
+    /// # use serde_json::json;
     /// use lmb::*;
     /// let e = EvaluationBuilder::new("return 1+1", empty()).build();
     /// let res = e.evaluate().unwrap();
-    /// assert_eq!(LmbValue::from(2), res.payload);
+    /// assert_eq!(json!(2), res.payload);
     /// ```
     pub fn evaluate(self: &Arc<Self>) -> LmbResult<Solution<R>> {
         self.do_evaluate(None)
@@ -206,12 +209,13 @@ where
     ///
     /// ```rust
     /// # use std::io::empty;
+    /// # use serde_json::json;
     /// use lmb::*;
     /// let e = EvaluationBuilder::new("return 1+1", empty()).build();
     /// let state = LmbState::new();
     /// state.insert(LmbStateKey::from("bool"), true.into());
     /// let res = e.evaluate_with_state(state).unwrap();
-    /// assert_eq!(LmbValue::from(2), res.payload);
+    /// assert_eq!(json!(2), res.payload);
     /// ```
     pub fn evaluate_with_state(self: &Arc<Self>, state: LmbState) -> LmbResult<Solution<R>> {
         self.do_evaluate(Some(state))
@@ -221,18 +225,19 @@ where
     ///
     /// ```rust
     /// # use std::io::{BufReader, Cursor, empty};
+    /// # use serde_json::json;
     /// use lmb::*;
     ///
     /// let script = "return io.read('*a')";
     /// let mut e = EvaluationBuilder::new(script, Cursor::new("1")).build();
     ///
     /// let r = e.evaluate().unwrap();
-    /// assert_eq!(LmbValue::from("1"), r.payload);
+    /// assert_eq!(json!("1"), r.payload);
     ///
     /// e.set_input(Cursor::new("2"));
     ///
     /// let r = e.evaluate().unwrap();
-    /// assert_eq!(LmbValue::from("2"), r.payload);
+    /// assert_eq!(json!("2"), r.payload);
     /// ```
     pub fn set_input(self: &Arc<Self>, input: R) {
         *self.input.lock() = BufReader::new(input);
@@ -265,7 +270,7 @@ where
         let chunk = vm.load(&self.compiled).set_name(script_name);
 
         let _s = trace_span!("evaluate").entered();
-        let result = chunk.eval()?;
+        let result = vm.from_value(chunk.eval()?)?;
 
         let duration = start.elapsed();
         let max_memory = max_memory.load(Ordering::Acquire);
@@ -281,8 +286,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use maplit::hashmap;
     use parking_lot::Mutex;
+    use serde_json::{json, Value};
     use std::{
         fs,
         io::{empty, BufReader},
@@ -291,7 +296,7 @@ mod tests {
     };
     use test_case::test_case;
 
-    use crate::{EvaluationBuilder, LmbState, LmbStateKey, LmbValue};
+    use crate::{EvaluationBuilder, LmbState, LmbStateKey};
 
     #[test_case("./lua-examples/error.lua")]
     fn error_in_script(path: &str) {
@@ -301,17 +306,13 @@ mod tests {
     }
 
     #[test_case("algebra.lua", "2", 4.into())]
-    #[test_case("count-bytes.lua", "A", hashmap!{ "65" => 1.into() }.into())]
-    #[test_case("hello.lua", "", LmbValue::None)]
-    #[test_case("input.lua", "lua", LmbValue::None)]
+    #[test_case("count-bytes.lua", "A", json!({ "65": 1 }))]
+    #[test_case("hello.lua", "", json!(null))]
+    #[test_case("input.lua", "lua", json!(null))]
     #[test_case("read-unicode.lua", "你好，世界", "你好".into())]
-    #[test_case("return-table.lua", "123", hashmap!{
-        "bool" => true.into(),
-        "num" => 1.23.into(),
-        "str" => "hello".into()
-    }.into())]
+    #[test_case("return-table.lua", "123", json!({ "bool": true, "num": 1.23, "str": "hello" }))]
     #[test_case("store.lua", "", 1.into())]
-    fn evaluate_examples(filename: &str, input: &'static str, expected: LmbValue) {
+    fn evaluate_examples(filename: &str, input: &'static str, expected: Value) {
         let script = fs::read_to_string(format!("./lua-examples/{filename}")).unwrap();
         let e = EvaluationBuilder::new(&script, input.as_bytes())
             .with_default_store()
@@ -335,22 +336,13 @@ mod tests {
         assert!(elapsed < 300, "actual elapsed {elapsed:?}"); // 300% error
     }
 
-    #[test_case("return 1+1", "2")]
-    #[test_case("return 'a'..1", "a1")]
-    #[test_case("return require('@lmb')._VERSION", env!("APP_VERSION"))]
-    fn evaluate_scripts(script: &str, expected: &str) {
+    #[test_case("return 1+1", json!(2))]
+    #[test_case("return 'a'..1", json!("a1"))]
+    #[test_case("return require('@lmb')._VERSION", json!(env!("APP_VERSION")))]
+    fn evaluate_scripts(script: &str, expected: Value) {
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(expected, res.payload.to_string());
-    }
-
-    #[test_case(r#"return {a=true,b=1.23,c="hello"}"#)]
-    #[test_case(r#"return {true,1.23,"hello"}"#)]
-    fn collection_to_string(script: &str) {
-        let e = EvaluationBuilder::new(script, empty()).build();
-        let res = e.evaluate().unwrap();
-        let actual = res.payload.to_string();
-        assert!(actual.starts_with("table: 0x"));
+        assert_eq!(expected, res.payload);
     }
 
     #[test]
@@ -360,10 +352,10 @@ mod tests {
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::from("foo"), res.payload);
+        assert_eq!(json!("foo"), res.payload);
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::from("bar"), res.payload);
+        assert_eq!(json!("bar"), res.payload);
     }
 
     #[test]
@@ -372,25 +364,12 @@ mod tests {
         let e = EvaluationBuilder::new(script, &b"0"[..]).build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::from("0"), res.payload);
+        assert_eq!(json!("0"), res.payload);
 
         e.set_input(&b"1"[..]);
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::from("1"), res.payload);
-    }
-
-    #[test_case(r#""#, "")]
-    #[test_case(r#"return nil"#, "")]
-    #[test_case(r#"return true"#, "true")]
-    #[test_case(r#"return false"#, "false")]
-    #[test_case(r#"return 1"#, "1")]
-    #[test_case(r#"return 1.23"#, "1.23")]
-    #[test_case(r#"return 'hello'"#, "hello")]
-    fn return_to_string(script: &str, expected: &str) {
-        let e = EvaluationBuilder::new(script, empty()).build();
-        let res = e.evaluate().unwrap();
-        assert_eq!(expected, res.payload.to_string());
+        assert_eq!(json!("1"), res.payload);
     }
 
     #[test]
@@ -405,7 +384,7 @@ mod tests {
         let input = Arc::new(Mutex::new(BufReader::new(empty())));
         let e = EvaluationBuilder::new_with_reader("return nil", input.clone()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::None, res.payload);
+        assert_eq!(json!(null), res.payload);
         let _input = input;
     }
 
@@ -416,13 +395,13 @@ mod tests {
             let state = LmbState::new();
             state.insert(LmbStateKey::Request, 1.into());
             let res = e.evaluate_with_state(state).unwrap();
-            assert_eq!(LmbValue::Integer(1), res.payload);
+            assert_eq!(json!(1), res.payload);
         }
         {
             let state = LmbState::new();
             state.insert(LmbStateKey::Request, 2.into());
             let res = e.evaluate_with_state(state).unwrap();
-            assert_eq!(LmbValue::Integer(2), res.payload);
+            assert_eq!(json!(2), res.payload);
         }
     }
 }

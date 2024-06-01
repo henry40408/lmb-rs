@@ -17,7 +17,6 @@ pub use lua_lmb::*;
 pub use printer::*;
 pub use schedule::*;
 pub use store::*;
-pub use value::*;
 
 mod check;
 mod error;
@@ -27,7 +26,6 @@ mod lua_lmb;
 mod printer;
 mod schedule;
 mod store;
-mod value;
 
 /// Default timeout for evaluation in seconds.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -64,7 +62,7 @@ where
 }
 
 /// State of each evaluation.
-pub type LmbState = DashMap<LmbStateKey, LmbValue>;
+pub type LmbState = DashMap<LmbStateKey, serde_json::Value>;
 
 #[cfg(test)]
 mod tests {

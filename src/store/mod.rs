@@ -1,8 +1,9 @@
 use chrono::{DateTime, Utc};
-use get_size::GetSize;
+use get_size::GetSize as _;
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use rusqlite_migration::SchemaVersion;
+use serde_json::Value;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -10,7 +11,7 @@ use std::{
 use stmt::*;
 use tracing::{debug, trace, trace_span};
 
-use crate::{LmbResult, LmbValue, MIGRATIONS};
+use crate::{LmbResult, MIGRATIONS};
 
 mod stmt;
 
@@ -27,6 +28,17 @@ pub struct StoreOptions {
 #[derive(Clone)]
 pub struct LmbStore {
     conn: Arc<Mutex<Connection>>,
+}
+
+fn type_hint(v: &Value) -> &'static str {
+    match v {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
 }
 
 impl LmbStore {
@@ -93,13 +105,14 @@ impl LmbStore {
     /// when the value is absent.
     ///
     /// ```rust
+    /// # use serde_json::json;
     /// use lmb::*;
     /// let store = LmbStore::default();
-    /// assert_eq!(LmbValue::None, store.get("a").unwrap());
+    /// assert_eq!(json!(null), store.get("a").unwrap());
     /// store.put("a", &true.into());
-    /// assert_eq!(LmbValue::from(true), store.get("a").unwrap());
+    /// assert_eq!(json!(true), store.get("a").unwrap());
     /// ```
-    pub fn get<S: AsRef<str>>(&self, name: S) -> LmbResult<LmbValue> {
+    pub fn get<S: AsRef<str>>(&self, name: S) -> LmbResult<Value> {
         let conn = self.conn.lock();
 
         let name = name.as_ref();
@@ -114,7 +127,7 @@ impl LmbStore {
         let value: Vec<u8> = match res {
             Err(rusqlite::Error::QueryReturnedNoRows) => {
                 trace!("no_value");
-                return Ok(LmbValue::None);
+                return Ok(Value::Null);
             }
             Err(e) => return Err(e.into()),
             Ok((v, type_hint)) => {
@@ -123,7 +136,7 @@ impl LmbStore {
             }
         };
 
-        Ok(rmp_serde::from_slice::<LmbValue>(&value)?)
+        Ok(rmp_serde::from_slice::<Value>(&value)?)
     }
 
     /// List values.
@@ -155,21 +168,22 @@ impl LmbStore {
     /// that this function unconditionally puts with the provided value.
     ///
     /// ```rust
+    /// # use serde_json::json;
     /// use lmb::*;
     /// let store = LmbStore::default();
     /// store.put("a", &true.into());
-    /// assert_eq!(LmbValue::from(true), store.get("a").unwrap());
+    /// assert_eq!(json!(true), store.get("a").unwrap());
     /// store.put("b", &1.into());
-    /// assert_eq!(LmbValue::from(1), store.get("b").unwrap());
+    /// assert_eq!(json!(1), store.get("b").unwrap());
     /// store.put("c", &"hello".into());
-    /// assert_eq!(LmbValue::from("hello"), store.get("c").unwrap());
+    /// assert_eq!(json!("hello"), store.get("c").unwrap());
     /// ```
-    pub fn put<S: AsRef<str>>(&self, name: S, value: &LmbValue) -> LmbResult<usize> {
+    pub fn put<S: AsRef<str>>(&self, name: S, value: &Value) -> LmbResult<usize> {
         let conn = self.conn.lock();
 
         let name = name.as_ref();
         let size = value.get_size();
-        let type_hint = value.type_hint();
+        let type_hint = type_hint(value);
         let value = rmp_serde::to_vec(&value)?;
 
         let mut cached_stmt = conn.prepare_cached(SQL_UPSERT_STORE)?;
@@ -190,42 +204,46 @@ impl LmbStore {
     /// # Successfully update the value
     ///
     /// ```rust
+    /// # use serde_json::{json, Value};
     /// use lmb::*;
     /// let store = LmbStore::default();
     /// let x = store.update("b", |old| {
-    ///     if let LmbValue::Integer(n) = old {
-    ///         *old = LmbValue::from(*n + 1);
+    ///     if let Value::Number(_) = old {
+    ///         let n = old.as_i64().unwrap();
+    ///         *old = json!(n + 1);
     ///     }
     ///     Ok(())
     /// }, Some(1.into()));
-    /// assert_eq!(LmbValue::from(2), x.unwrap());
-    /// assert_eq!(LmbValue::from(2), store.get("b").unwrap());
+    /// assert_eq!(json!(2), x.unwrap());
+    /// assert_eq!(json!(2), store.get("b").unwrap());
     /// ```
     ///
     /// # Do nothing when an error is returned
     ///
     /// ```rust
+    /// # use serde_json::{json, Value};
     /// use lmb::*;
     /// let store = LmbStore::default();
     /// store.put("a", &1.into());
     /// let x = store.update("a", |old| {
-    ///     if let LmbValue::Integer(n) = old {
-    ///        if *n == 1 {
+    ///     if let Value::Number(_) = old {
+    ///        let n = old.as_i64().unwrap();
+    ///        if n == 1 {
     ///            return Err(mlua::Error::runtime("something went wrong"));
     ///        }
-    ///        *old = LmbValue::from(*n + 1);
+    ///        *old = json!(n + 1);
     ///     }
     ///     Ok(())
     /// }, Some(1.into()));
-    /// assert_eq!(LmbValue::from(1), x.unwrap());
-    /// assert_eq!(LmbValue::from(1), store.get("a").unwrap());
+    /// assert_eq!(json!(1), x.unwrap());
+    /// assert_eq!(json!(1), store.get("a").unwrap());
     /// ```
     pub fn update<S: AsRef<str>>(
         &self,
         name: S,
-        f: impl FnOnce(&mut LmbValue) -> mlua::Result<()>,
-        default_v: Option<LmbValue>,
-    ) -> LmbResult<LmbValue> {
+        f: impl FnOnce(&mut Value) -> mlua::Result<()>,
+        default_v: Option<Value>,
+    ) -> LmbResult<Value> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
 
@@ -237,7 +255,7 @@ impl LmbStore {
             match cached_stmt.query_row((name,), |row| row.get(0)) {
                 Err(rusqlite::Error::QueryReturnedNoRows) => {
                     trace!("default_value");
-                    rmp_serde::to_vec(default_v.as_ref().unwrap_or(&LmbValue::None))?
+                    rmp_serde::to_vec(default_v.as_ref().unwrap_or(&Value::Null))?
                 }
                 Err(e) => return Err(e.into()),
                 Ok(v) => {
@@ -247,7 +265,7 @@ impl LmbStore {
             }
         };
 
-        let mut value = rmp_serde::from_slice(&value)?;
+        let mut value: Value = rmp_serde::from_slice(&value)?;
         {
             let _s = trace_span!("call_function").entered();
             let Ok(_) = f(&mut value) else {
@@ -257,8 +275,8 @@ impl LmbStore {
                 return Ok(value);
             };
         }
-        let size = value.get_size();
-        let type_hint = value.type_hint();
+        let size = (&value).get_size();
+        let type_hint = type_hint(&value);
         {
             let value = rmp_serde::to_vec(&value)?;
             let mut cached_stmt = tx.prepare_cached(SQL_UPSERT_STORE)?;
@@ -302,20 +320,11 @@ impl Default for LmbStore {
 #[cfg(test)]
 mod tests {
     use assert_fs::NamedTempFile;
-    use maplit::hashmap;
+    use serde_json::{json, Value};
     use std::{io::empty, thread};
     use test_case::test_case;
 
-    use crate::{EvaluationBuilder, LmbStore, LmbValue};
-
-    #[test_case(vec![true.into(), 1.into(), "hello".into()].into())]
-    #[test_case(hashmap! { "b" => true.into() }.into())]
-    fn complicated_types(value: LmbValue) {
-        let store = LmbStore::default();
-        store.put("value", &value).unwrap();
-        let actual = store.get("value").unwrap().to_string();
-        assert!(actual.starts_with("table: 0x"));
-    }
+    use crate::{EvaluationBuilder, LmbStore};
 
     #[test]
     fn concurrency() {
@@ -340,7 +349,7 @@ mod tests {
         for t in threads {
             let _ = t.join();
         }
-        assert_eq!(LmbValue::from(1001), store.get("a").unwrap());
+        assert_eq!(json!(1001), store.get("a").unwrap());
     }
 
     #[test]
@@ -361,9 +370,9 @@ mod tests {
             .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::from(1.23), res.payload);
-        assert_eq!(LmbValue::from(4.56), store.get("a").unwrap());
-        assert_eq!(LmbValue::None, store.get("b").unwrap());
+        assert_eq!(json!(1.23), res.payload);
+        assert_eq!(json!(4.56), store.get("a").unwrap());
+        assert_eq!(json!(null), store.get("b").unwrap());
     }
 
     #[test]
@@ -381,13 +390,13 @@ mod tests {
         store.migrate(None).unwrap();
     }
 
-    #[test_case("nil", LmbValue::None)]
-    #[test_case("bt", true.into())]
-    #[test_case("bf", false.into())]
-    #[test_case("ni", 1.into())]
-    #[test_case("nf", 1.23.into())]
-    #[test_case("s", "hello".into())]
-    fn primitive_types(key: &'static str, value: LmbValue) {
+    #[test_case("nil", json!(null))]
+    #[test_case("bt", json!(true))]
+    #[test_case("bf", json!(false))]
+    #[test_case("ni", json!(1))]
+    #[test_case("nf", json!(1.23))]
+    #[test_case("s", json!("hello"))]
+    fn primitive_types(key: &'static str, value: Value) {
         let store = LmbStore::default();
         store.put(key, &value).unwrap();
         assert_eq!(value, store.get(key).unwrap());
@@ -411,14 +420,14 @@ mod tests {
 
         {
             let res = e.evaluate().unwrap();
-            assert_eq!(LmbValue::from(1), res.payload);
-            assert_eq!(LmbValue::from(2), store.get("a").unwrap());
+            assert_eq!(json!(1), res.payload);
+            assert_eq!(json!(2), store.get("a").unwrap());
         }
 
         {
             let res = e.evaluate().unwrap();
-            assert_eq!(LmbValue::from(2), res.payload);
-            assert_eq!(LmbValue::from(3), store.get("a").unwrap());
+            assert_eq!(json!(2), res.payload);
+            assert_eq!(json!(3), store.get("a").unwrap());
         }
     }
 
@@ -438,8 +447,8 @@ mod tests {
             .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::from(2), res.payload);
-        assert_eq!(LmbValue::from(2), store.get("a").unwrap());
+        assert_eq!(json!(2), res.payload);
+        assert_eq!(json!(2), store.get("a").unwrap());
     }
 
     #[test_log::test]
@@ -462,7 +471,7 @@ mod tests {
             .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::from(1), res.payload);
-        assert_eq!(LmbValue::from(1), store.get("a").unwrap());
+        assert_eq!(json!(1), res.payload);
+        assert_eq!(json!(1), store.get("a").unwrap());
     }
 }
