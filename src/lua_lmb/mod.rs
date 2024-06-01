@@ -1,7 +1,8 @@
 use mlua::prelude::*;
+use serde_json::Value;
 use std::io::{stderr, stdout, Read, Write as _};
 
-use crate::{LmbInput, LmbResult, LmbState, LmbStateKey, LmbStore, LmbValue};
+use crate::{LmbInput, LmbResult, LmbState, LmbStateKey, LmbStore};
 
 use crypto::*;
 use http::*;
@@ -119,45 +120,59 @@ impl LuaUserData for LmbStderr {
     }
 }
 
-fn lua_lmb_get<R>(_: &Lua, lmb: &LuaLmb<R>, key: String) -> LuaResult<LmbValue>
-where
-    R: Read,
-{
-    lmb.store.as_ref().map_or_else(
-        || Ok(LmbValue::None),
-        |s| s.get(key.as_str()).or_else(|_| Ok(LmbValue::None)),
-    )
-}
-
-fn lua_lmb_set<R>(_: &Lua, lmb: &LuaLmb<R>, (key, value): (String, LmbValue)) -> LuaResult<LmbValue>
+fn lua_lmb_get<'lua, R>(vm: &'lua Lua, lmb: &LuaLmb<R>, key: String) -> LuaResult<LuaValue<'lua>>
 where
     R: Read,
 {
     let Some(store) = &lmb.store else {
-        return Ok(LmbValue::None);
+        return Ok(LuaNil);
     };
-    store.put(key, &value).into_lua_err()?;
-    Ok(value)
+    let value = store.get(key.as_str()).into_lua_err()?;
+    match value {
+        Value::Null => Ok(LuaNil),
+        _ => vm.to_value(&value),
+    }
+}
+
+fn lua_lmb_set<'lua, R>(
+    vm: &'lua Lua,
+    lmb: &LuaLmb<R>,
+    (key, value): (String, LuaValue<'lua>),
+) -> LuaResult<LuaValue<'lua>>
+where
+    R: Read,
+{
+    let Some(store) = &lmb.store else {
+        return Ok(LuaNil);
+    };
+    let serialized = serde_json::to_value(&value).into_lua_err()?;
+    store.put(key, &serialized).into_lua_err()?;
+    vm.to_value(&value)
 }
 
 fn lua_lmb_update<'lua, R>(
     vm: &'lua Lua,
     lmb: &LuaLmb<R>,
-    (key, f, default_v): (String, LuaFunction<'lua>, Option<LmbValue>),
-) -> LuaResult<LmbValue>
+    (key, f, default_v): (String, LuaFunction<'lua>, Option<LuaValue<'lua>>),
+) -> LuaResult<LuaValue<'lua>>
 where
     R: Read,
 {
     let Some(store) = &lmb.store else {
-        return Ok(LmbValue::None);
+        return Ok(LuaNil);
     };
-    let update_fn = |old: &mut LmbValue| -> LuaResult<()> {
+    let update_fn = |old: &mut Value| -> LuaResult<()> {
         let old_v = vm.to_value(old)?;
-        let new = f.call::<_, LmbValue>(old_v)?;
-        *old = new;
+        let new = f.call::<_, LuaValue<'_>>(old_v)?;
+        *old = vm.from_value(new)?;
         Ok(())
     };
-    store.update(key, update_fn, default_v).into_lua_err()
+    let default_v = match default_v {
+        Some(v) => Some(vm.from_value(v)?),
+        None => None,
+    };
+    let value = store.update(key, update_fn, default_v).into_lua_err()?;
+    vm.to_value(&value)
 }
 
 impl<R> LuaUserData for LuaLmb<R>
@@ -190,10 +205,11 @@ where
 
 #[cfg(test)]
 mod tests {
+    use serde_json::{json, Value};
     use std::io::empty;
     use test_case::test_case;
 
-    use crate::{EvaluationBuilder, LmbValue};
+    use crate::EvaluationBuilder;
 
     #[test]
     fn read_binary() {
@@ -208,10 +224,7 @@ mod tests {
         "#;
         let e = EvaluationBuilder::new(script, input).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(
-            LmbValue::from(vec![1.into(), 2.into(), 3.into()]),
-            res.payload
-        );
+        assert_eq!(json!([1, 2, 3]), res.payload);
     }
 
     #[test_case("assert(not io.read())")]
@@ -227,10 +240,10 @@ mod tests {
     #[test_case("1", 1.into())]
     #[test_case("1.2", 1.2.into())]
     #[test_case("1.23e-10", 0.000000000123.into())]
-    #[test_case("", LmbValue::None)]
-    #[test_case("x", LmbValue::None)]
+    #[test_case("", json!(null))]
+    #[test_case("x", json!(null))]
     #[test_case("1\n", 1.into())]
-    fn read_number(input: &'static str, expected: LmbValue) {
+    fn read_number(input: &'static str, expected: Value) {
         let script = "return io.read('*n')";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
@@ -242,7 +255,7 @@ mod tests {
     #[test_case("return io.read('*l')", "foo".into())]
     #[test_case("return io.read(1)", "f".into())]
     #[test_case("return io.read(4)", "foo\n".into())]
-    fn read_string(script: &str, expected: LmbValue) {
+    fn read_string(script: &str, expected: Value) {
         let input = "foo\nbar";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
@@ -257,7 +270,7 @@ mod tests {
         let input = "你好";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::from(expected), res.payload);
+        assert_eq!(json!(expected), res.payload);
     }
 
     #[test]
@@ -268,13 +281,13 @@ mod tests {
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::from("你"), res.payload);
+        assert_eq!(json!("你"), res.payload);
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::from("好"), res.payload);
+        assert_eq!(json!("好"), res.payload);
 
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::None, res.payload);
+        assert_eq!(json!(null), res.payload);
     }
 
     #[test_case("你好\n世界", "*a", "你好\n世界")]
@@ -284,7 +297,7 @@ mod tests {
         let script = format!(r#"return require('@lmb'):read_unicode('{f}')"#);
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::String(expected.to_string()), res.payload);
+        assert_eq!(json!(expected.to_string()), res.payload);
     }
 
     #[test]
@@ -294,7 +307,7 @@ mod tests {
         let script = "return require('@lmb'):read_unicode(1)";
         let e = EvaluationBuilder::new(script, input).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::None, res.payload);
+        assert_eq!(json!(null), res.payload);
     }
 
     #[test]
@@ -304,7 +317,7 @@ mod tests {
         let script = "return require('@lmb'):read_unicode(12)";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::from(input), res.payload);
+        assert_eq!(json!(input), res.payload);
     }
 
     #[test_case(1, "a")]
@@ -315,7 +328,7 @@ mod tests {
         let script = format!("return require('@lmb'):read_unicode({n})");
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::from(expected), res.payload);
+        assert_eq!(json!(expected), res.payload);
     }
 
     #[test]
@@ -323,11 +336,11 @@ mod tests {
         let script = "io.write('l', 'a', 'm'); return nil";
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::None, res.payload);
+        assert_eq!(json!(null), res.payload);
 
         let script = "io.stderr:write('err', 'or'); return nil";
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::None, res.payload);
+        assert_eq!(json!(null), res.payload);
     }
 }

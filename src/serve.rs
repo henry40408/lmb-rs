@@ -8,7 +8,8 @@ use axum::{
     Router,
 };
 use lmb::{EvaluationBuilder, LmbState, LmbStateKey, LmbStore};
-use std::{collections::HashMap, fmt::Display, io::Cursor, time::Duration};
+use serde_json::{Map, Value};
+use std::{fmt::Display, io::Cursor, time::Duration};
 use tokio::net::ToSocketAddrs;
 use tower_http::trace::{self, TraceLayer};
 use tracing::{error, info, warn, Level};
@@ -52,7 +53,7 @@ where
         .with_store(state.store.clone())
         .build();
 
-    let mut headers_map = HashMap::new();
+    let mut headers_map: Map<_, Value> = Map::new();
     for (name, value) in headers {
         if let Some(name) = name {
             let value = value.to_str().unwrap_or("");
@@ -60,10 +61,10 @@ where
         }
     }
 
-    let mut request_map = HashMap::new();
-    request_map.insert("method", method.as_str().into());
-    request_map.insert("path", path.as_ref().into());
-    request_map.insert("headers", headers_map.into());
+    let mut request_map: Map<_, Value> = Map::new();
+    request_map.insert("method".into(), method.as_str().into());
+    request_map.insert("path".into(), path.as_ref().into());
+    request_map.insert("headers".into(), headers_map.into());
 
     let eval_state = LmbState::new();
     eval_state.insert(LmbStateKey::Request, request_map.into());

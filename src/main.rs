@@ -5,10 +5,11 @@ use comfy_table::{presets, Table};
 use cron::Schedule;
 use lmb::{
     check_syntax, render_fullmoon_result, render_script, render_solution, schedule_script,
-    EvaluationBuilder, LmbError, LmbStore, LmbValue, PrintOptions, ScheduleOptions, StoreOptions,
+    EvaluationBuilder, LmbError, LmbStore, PrintOptions, ScheduleOptions, StoreOptions,
     DEFAULT_TIMEOUT, EXAMPLES,
 };
 use mlua::prelude::*;
+use serde_json::json;
 use serve::ServeOptions;
 use std::io::Read;
 use std::str::FromStr;
@@ -438,7 +439,7 @@ async fn try_main() -> anyhow::Result<()> {
                     let mut buf = String::new();
                     value.read_to_string(&mut buf)?;
                     let value = if plain {
-                        LmbValue::String(buf)
+                        json!(buf)
                     } else {
                         serde_json::from_str(&buf)?
                     };

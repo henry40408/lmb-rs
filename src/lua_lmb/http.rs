@@ -7,12 +7,13 @@ use std::{
 use http::{Method, StatusCode};
 use mlua::prelude::*;
 use parking_lot::Mutex;
+use serde_json::Value;
 use tracing::{trace, trace_span, warn};
 use ureq::Request;
 use url::Url;
 
 use super::{lua_lmb_read, lua_lmb_read_unicode};
-use crate::{LmbInput, LmbValue};
+use crate::LmbInput;
 
 /// HTTP module
 pub struct LuaLmbHTTP {}
@@ -36,12 +37,13 @@ impl LuaUserData for LuaLmbHTTPResponse {
     }
 
     fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_method("json", |_, this, ()| {
+        methods.add_method("json", |vm, this, ()| {
             if "application/json" != this.content_type {
                 warn!("content type is not application/json, convert with caution");
             }
             let mut reader = this.reader.lock();
-            let value: LmbValue = serde_json::from_reader(&mut *reader).into_lua_err()?;
+            let value: Value = serde_json::from_reader(&mut *reader).into_lua_err()?;
+            let value = vm.to_value(&value)?;
             Ok(value)
         });
         methods.add_method("read", |vm, this, f: Option<LuaValue<'lua>>| {
@@ -53,19 +55,23 @@ impl LuaUserData for LuaLmbHTTPResponse {
     }
 }
 
-fn set_headers(req: Request, headers: &LmbValue) -> Request {
-    let LmbValue::Table(h) = headers else {
+fn set_headers(req: Request, headers: &Value) -> Request {
+    let Value::Object(h) = headers else {
         return req;
     };
     let mut new_req = req;
     for (k, v) in h.iter() {
-        new_req = new_req.set(k.as_str(), &v.to_string());
+        let v = match v {
+            Value::String(v) => v.as_str().to_string(),
+            _ => v.to_string(),
+        };
+        new_req = new_req.set(k.as_str(), &v);
     }
     new_req
 }
 
 fn lua_lmb_fetch(
-    _: &Lua,
+    vm: &Lua,
     _: &LuaLmbHTTP,
     (uri, options): (String, Option<LuaTable<'_>>),
 ) -> LuaResult<LuaLmbHTTPResponse> {
@@ -75,9 +81,10 @@ fn lua_lmb_fetch(
         .and_then(|t| t.get("method").ok().map(|s: String| s))
         .unwrap_or_else(|| "GET".to_string());
     let method: Method = method.parse().unwrap_or(Method::GET);
-    let headers: LmbValue = options
+    let headers: Value = options
         .and_then(|t| t.get("headers").ok())
-        .unwrap_or(LmbValue::None);
+        .and_then(|m| vm.from_value(m).ok())
+        .unwrap_or(Value::Null);
     let _s = trace_span!("send_http_request", %method, %url, ?headers).entered();
     let res = if method.is_safe() {
         let req = ureq::request_url(method.as_str(), &url);
@@ -132,9 +139,9 @@ mod tests {
     use std::io::empty;
 
     use mockito::Server;
-    use serde_json::{json, Value};
+    use serde_json::json;
 
-    use crate::{EvaluationBuilder, LmbValue};
+    use crate::EvaluationBuilder;
 
     #[test]
     fn http_get() {
@@ -157,7 +164,7 @@ mod tests {
         );
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::from(body), res.payload);
+        assert_eq!(json!(body), res.payload);
 
         get_mock.assert();
     }
@@ -184,7 +191,7 @@ mod tests {
         );
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::from(body), res.payload);
+        assert_eq!(json!(body), res.payload);
 
         get_mock.assert();
     }
@@ -210,7 +217,7 @@ mod tests {
         );
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::from(body), res.payload);
+        assert_eq!(json!(body), res.payload);
 
         get_mock.assert();
     }
@@ -230,17 +237,13 @@ mod tests {
         let script = format!(
             r#"
             local m = require('@lmb/http')
-            local j = require('@lmb/json')
             local res = m:fetch('{url}/json')
-            return j:encode(res:json())
+            return res:json()
             "#
         );
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-
-        let actual: Value = serde_json::from_str(&res.payload.to_string()).unwrap();
-        let expected = json!({ "a": 1 });
-        assert_eq!(expected, actual);
+        assert_eq!(json!({ "a": 1 }), res.payload);
 
         get_mock.assert();
     }
@@ -269,7 +272,7 @@ mod tests {
         );
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(LmbValue::from("2"), res.payload);
+        assert_eq!(json!("2"), res.payload);
 
         post_mock.assert();
     }
