@@ -170,28 +170,6 @@ mod tests {
     use serde_json::{json, Value};
 
     #[tokio::test]
-    async fn serve() {
-        let cli = Cli::parse_from(["lmb", "--json", "serve", "--file", "-"]);
-        let script = "return 1";
-        let store_options = StoreOptions {
-            store_path: None,
-            run_migrations: true,
-        };
-        let opts = ServeOptions {
-            bind: "",
-            json: cli.json,
-            script,
-            store_options,
-            ..Default::default()
-        };
-        let router = init_route(&opts).unwrap();
-        let server = TestServer::new(router.into_make_service()).unwrap();
-        let res = server.post("/").await;
-        assert_eq!(200, res.status_code());
-        assert_eq!("1", res.text());
-    }
-
-    #[tokio::test]
     async fn echo_request() {
         let cli = Cli::parse_from(["lmb", "--json", "serve", "--file", "-"]);
         let script = r#"
@@ -226,5 +204,71 @@ mod tests {
             },
         });
         assert_eq!(expected, value);
+    }
+
+    #[tokio::test]
+    async fn json_string() {
+        let cli = Cli::parse_from(["lmb", "--json", "serve", "--file", "-"]);
+        let script = "return 'hello'";
+        let store_options = StoreOptions {
+            store_path: None,
+            run_migrations: true,
+        };
+        let opts = ServeOptions {
+            bind: "",
+            json: cli.json,
+            script,
+            store_options,
+            ..Default::default()
+        };
+        let router = init_route(&opts).unwrap();
+        let server = TestServer::new(router.into_make_service()).unwrap();
+        let res = server.post("/").await;
+        assert_eq!(200, res.status_code());
+        assert_eq!(r#""hello""#, res.text());
+    }
+
+    #[tokio::test]
+    async fn raw_string() {
+        let cli = Cli::parse_from(["lmb", "serve", "--file", "-"]);
+        let script = "return 'hello'";
+        let store_options = StoreOptions {
+            store_path: None,
+            run_migrations: true,
+        };
+        let opts = ServeOptions {
+            bind: "",
+            json: cli.json,
+            script,
+            store_options,
+            ..Default::default()
+        };
+        let router = init_route(&opts).unwrap();
+        let server = TestServer::new(router.into_make_service()).unwrap();
+        let res = server.post("/").await;
+        assert_eq!(200, res.status_code());
+        assert_eq!("hello", res.text());
+    }
+
+    #[tokio::test]
+    async fn serve() {
+        let cli = Cli::parse_from(["lmb", "--json", "serve", "--file", "-"]);
+        let script = "return 1";
+        let store_options = StoreOptions {
+            store_path: None,
+            run_migrations: true,
+        };
+        let opts = ServeOptions {
+            bind: "",
+            json: cli.json,
+            script,
+            store_options,
+            ..Default::default()
+        };
+        let router = init_route(&opts).unwrap();
+        let server = TestServer::new(router.into_make_service()).unwrap();
+        let res = server.post("/").await;
+        assert_eq!(200, res.status_code());
+        assert_eq!("1", res.text());
     }
 }
