@@ -78,7 +78,11 @@ where
                 };
                 (StatusCode::OK, serialized)
             } else {
-                (StatusCode::OK, res.payload.to_string())
+                let body = match res.payload {
+                    Value::String(s) => s,
+                    _ => res.payload.to_string(),
+                };
+                (StatusCode::OK, body)
             }
         }
         Err(err) => {
