@@ -259,10 +259,12 @@ mod tests {
         let cli = Cli::parse_from(["lmb", "serve", "--file", "-"]);
         let script = r#"
         local m = require('@lmb')
+        print(m.response)
         local res = {}
         res.status_code = 418 -- I'm a teapot
-        res.headers = { whoami = "a teapot" }
+        res.headers = { quantity = 1, whoami = "a teapot" }
         m.response = res
+        print(m.response)
         return "I'm a teapot."
         "#;
         let store_options = StoreOptions {
@@ -288,6 +290,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn headers_status_code_bad_script() {
+        let cli = Cli::parse_from(["lmb", "serve", "--file", "-"]);
+        let script = "ret 'hello'";
+        let store_options = StoreOptions {
+            store_path: None,
+            run_migrations: true,
+        };
+        let opts = ServeOptions {
+            bind: "",
+            json: cli.json,
+            script,
+            store_options,
+            ..Default::default()
+        };
+        let router = init_route(&opts).unwrap();
+        let server = TestServer::new(router.into_make_service()).unwrap();
+        let res = server.post("/").await;
+        assert_eq!(500, res.status_code());
+        assert_eq!("", res.text());
+    }
+
+    #[tokio::test]
+    async fn headers_status_code_invalid_status_code() {
+        let cli = Cli::parse_from(["lmb", "serve", "--file", "-"]);
+        let script = r#"
+        local m = require('@lmb')
+        local res = {}
+        res.status_code = 10000
+        m.response = res
+        return "hello"
+        "#;
+        let store_options = StoreOptions {
+            store_path: None,
+            run_migrations: true,
+        };
+        let opts = ServeOptions {
+            bind: "",
+            json: cli.json,
+            script,
+            store_options,
+            ..Default::default()
+        };
+        let router = init_route(&opts).unwrap();
+        let server = TestServer::new(router.into_make_service()).unwrap();
+        let res = server.post("/").await;
+        assert_eq!(500, res.status_code());
+        assert_eq!("", res.text());
+    }
+
+    #[tokio::test]
     async fn json_string() {
         let cli = Cli::parse_from(["lmb", "--json", "serve", "--file", "-"]);
         let script = "return 'hello'";
@@ -307,6 +359,28 @@ mod tests {
         let res = server.post("/").await;
         assert_eq!(200, res.status_code());
         assert_eq!(r#""hello""#, res.text());
+    }
+
+    #[tokio::test]
+    async fn number() {
+        let cli = Cli::parse_from(["lmb", "serve", "--file", "-"]);
+        let script = r#"return 1"#;
+        let store_options = StoreOptions {
+            store_path: None,
+            run_migrations: true,
+        };
+        let opts = ServeOptions {
+            bind: "",
+            json: cli.json,
+            script,
+            store_options,
+            ..Default::default()
+        };
+        let router = init_route(&opts).unwrap();
+        let server = TestServer::new(router.into_make_service()).unwrap();
+        let res = server.post("/").await;
+        assert_eq!(200, res.status_code());
+        assert_eq!("1", res.text());
     }
 
     #[tokio::test]

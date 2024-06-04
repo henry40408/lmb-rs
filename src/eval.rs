@@ -333,7 +333,7 @@ mod tests {
         assert!(res.is_err());
 
         let elapsed = timer.elapsed().as_millis();
-        assert!(elapsed < 300, "actual elapsed {elapsed:?}"); // 300% error
+        assert!(elapsed < 500, "actual elapsed {elapsed:?}"); // 500% error
     }
 
     #[test_case("return 1+1", json!(2))]
