@@ -198,6 +198,22 @@ where
             };
             vm.to_value(&*v)
         });
+        fields.add_field_method_get("response", |vm, this| {
+            let Some(v) = this
+                .state
+                .as_ref()
+                .and_then(|m| m.get(&LmbStateKey::Response))
+            else {
+                return Ok(LuaNil);
+            };
+            vm.to_value(&*v)
+        });
+        fields.add_field_method_set("response", |vm, this, value: LuaValue<'lua>| {
+            if let Some(v) = this.state.as_ref() {
+                v.insert(LmbStateKey::Response, vm.from_value(value)?);
+            }
+            Ok(())
+        });
     }
 
     fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {

@@ -391,16 +391,15 @@ mod tests {
     #[test]
     fn with_state() {
         let e = EvaluationBuilder::new(r#"return require("@lmb").request"#, empty()).build();
+        let state = Arc::new(LmbState::new());
+        state.insert(LmbStateKey::Request, 1.into());
         {
-            let state = Arc::new(LmbState::new());
-            state.insert(LmbStateKey::Request, 1.into());
-            let res = e.evaluate_with_state(state).unwrap();
+            let res = e.evaluate_with_state(state.clone()).unwrap();
             assert_eq!(json!(1), res.payload);
         }
+        state.insert(LmbStateKey::Request, 2.into());
         {
-            let state = Arc::new(LmbState::new());
-            state.insert(LmbStateKey::Request, 2.into());
-            let res = e.evaluate_with_state(state).unwrap();
+            let res = e.evaluate_with_state(state.clone()).unwrap();
             assert_eq!(json!(2), res.payload);
         }
     }

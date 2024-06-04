@@ -46,8 +46,10 @@ pub type LmbResult<T> = Result<T, LmbError>;
 /// State key.
 #[derive(Hash, PartialEq, Eq)]
 pub enum LmbStateKey {
-    /// Reserved key for HTTP request object
+    /// HTTP request object
     Request,
+    /// HTTP response object
+    Response,
     /// Plain string key
     String(String),
 }
