@@ -18,7 +18,7 @@ mod read;
 const K_LOADED: &str = "_LOADED";
 
 /// Interface of Lmb between Lua and Rust.
-pub struct LuaLmb<R>
+pub struct LuaBinding<R>
 where
     R: Read,
 {
@@ -27,7 +27,7 @@ where
     store: Option<LmbStore>,
 }
 
-impl<R> LuaLmb<R>
+impl<R> LuaBinding<R>
 where
     for<'lua> R: 'lua + Read + Send,
 {
@@ -120,7 +120,11 @@ impl LuaUserData for LmbStderr {
     }
 }
 
-fn lua_lmb_get<'lua, R>(vm: &'lua Lua, lmb: &LuaLmb<R>, key: String) -> LuaResult<LuaValue<'lua>>
+fn lua_lmb_get<'lua, R>(
+    vm: &'lua Lua,
+    lmb: &LuaBinding<R>,
+    key: String,
+) -> LuaResult<LuaValue<'lua>>
 where
     R: Read,
 {
@@ -136,7 +140,7 @@ where
 
 fn lua_lmb_set<'lua, R>(
     vm: &'lua Lua,
-    lmb: &LuaLmb<R>,
+    lmb: &LuaBinding<R>,
     (key, value): (String, LuaValue<'lua>),
 ) -> LuaResult<LuaValue<'lua>>
 where
@@ -152,7 +156,7 @@ where
 
 fn lua_lmb_update<'lua, R>(
     vm: &'lua Lua,
-    lmb: &LuaLmb<R>,
+    lmb: &LuaBinding<R>,
     (key, f, default_v): (String, LuaFunction<'lua>, Option<LuaValue<'lua>>),
 ) -> LuaResult<LuaValue<'lua>>
 where
@@ -175,7 +179,7 @@ where
     vm.to_value(&value)
 }
 
-impl<R> LuaUserData for LuaLmb<R>
+impl<R> LuaUserData for LuaBinding<R>
 where
     for<'lua> R: 'lua + Read,
 {

@@ -11,7 +11,7 @@ use std::{
 };
 use tracing::{debug, trace_span};
 
-use crate::{LmbInput, LmbResult, LmbState, LmbStore, LuaLmb, DEFAULT_TIMEOUT};
+use crate::{LmbInput, LmbResult, LmbState, LmbStore, LuaBinding, DEFAULT_TIMEOUT};
 
 /// Evaluation builder.
 pub struct EvaluationBuilder<R>
@@ -146,7 +146,7 @@ where
             let _s = trace_span!("compile_script").entered();
             compiler.compile(&self.script)
         };
-        LuaLmb::register(&vm, self.input.clone(), self.store.clone(), None)
+        LuaBinding::register(&vm, self.input.clone(), self.store.clone(), None)
             .expect("failed to initalize the binding");
         Arc::new(Evaluation {
             compiled,
@@ -246,7 +246,7 @@ where
     fn do_evaluate(self: &Arc<Self>, state: Option<LmbState>) -> LmbResult<Solution<R>> {
         let vm = &self.vm;
         if state.is_some() {
-            LuaLmb::register(vm, self.input.clone(), self.store.clone(), state)?;
+            LuaBinding::register(vm, self.input.clone(), self.store.clone(), state)?;
         }
 
         let max_memory = Arc::new(AtomicUsize::new(0));
