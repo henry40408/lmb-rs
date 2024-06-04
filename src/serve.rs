@@ -9,7 +9,7 @@ use axum::{
 };
 use lmb::{EvaluationBuilder, LmbState, LmbStateKey, LmbStore};
 use serde_json::{Map, Value};
-use std::{fmt::Display, io::Cursor, time::Duration};
+use std::{fmt::Display, io::Cursor, sync::Arc, time::Duration};
 use tokio::net::ToSocketAddrs;
 use tower_http::trace::{self, TraceLayer};
 use tracing::{error, info, warn, Level};
@@ -66,7 +66,7 @@ where
     request_map.insert("path".into(), path.as_ref().into());
     request_map.insert("headers".into(), headers_map.into());
 
-    let eval_state = LmbState::new();
+    let eval_state = Arc::new(LmbState::new());
     eval_state.insert(LmbStateKey::Request, request_map.into());
 
     let res = e.evaluate_with_state(eval_state);

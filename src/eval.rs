@@ -208,16 +208,16 @@ where
     /// Evaluate the function with a state.
     ///
     /// ```rust
-    /// # use std::io::empty;
+    /// # use std::{io::empty, sync::Arc};
     /// # use serde_json::json;
     /// use lmb::*;
     /// let e = EvaluationBuilder::new("return 1+1", empty()).build();
-    /// let state = LmbState::new();
+    /// let state = Arc::new(LmbState::new());
     /// state.insert(LmbStateKey::from("bool"), true.into());
     /// let res = e.evaluate_with_state(state).unwrap();
     /// assert_eq!(json!(2), res.payload);
     /// ```
-    pub fn evaluate_with_state(self: &Arc<Self>, state: LmbState) -> LmbResult<Solution<R>> {
+    pub fn evaluate_with_state(self: &Arc<Self>, state: Arc<LmbState>) -> LmbResult<Solution<R>> {
         self.do_evaluate(Some(state))
     }
 
@@ -243,7 +243,7 @@ where
         *self.input.lock() = BufReader::new(input);
     }
 
-    fn do_evaluate(self: &Arc<Self>, state: Option<LmbState>) -> LmbResult<Solution<R>> {
+    fn do_evaluate(self: &Arc<Self>, state: Option<Arc<LmbState>>) -> LmbResult<Solution<R>> {
         let vm = &self.vm;
         if state.is_some() {
             LuaBinding::register(vm, self.input.clone(), self.store.clone(), state)?;
@@ -392,13 +392,13 @@ mod tests {
     fn with_state() {
         let e = EvaluationBuilder::new(r#"return require("@lmb").request"#, empty()).build();
         {
-            let state = LmbState::new();
+            let state = Arc::new(LmbState::new());
             state.insert(LmbStateKey::Request, 1.into());
             let res = e.evaluate_with_state(state).unwrap();
             assert_eq!(json!(1), res.payload);
         }
         {
-            let state = LmbState::new();
+            let state = Arc::new(LmbState::new());
             state.insert(LmbStateKey::Request, 2.into());
             let res = e.evaluate_with_state(state).unwrap();
             assert_eq!(json!(2), res.payload);

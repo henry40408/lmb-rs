@@ -1,6 +1,9 @@
 use mlua::prelude::*;
 use serde_json::Value;
-use std::io::{stderr, stdout, Read, Write as _};
+use std::{
+    io::{stderr, stdout, Read, Write as _},
+    sync::Arc,
+};
 
 use crate::{LmbInput, LmbResult, LmbState, LmbStateKey, LmbStore};
 
@@ -23,7 +26,7 @@ where
     R: Read,
 {
     input: LmbInput<R>,
-    state: Option<LmbState>,
+    state: Option<Arc<LmbState>>,
     store: Option<LmbStore>,
 }
 
@@ -41,9 +44,9 @@ where
     /// use lmb::*;
     /// let input = Arc::new(Mutex::new(BufReader::new(Cursor::new("0"))));
     /// let store = LmbStore::default();
-    /// let _ = LuaLmb::new(input, Some(store), None);
+    /// let _ = LuaBinding::new(input, Some(store), None);
     /// ```
-    pub fn new(input: LmbInput<R>, store: Option<LmbStore>, state: Option<LmbState>) -> Self {
+    pub fn new(input: LmbInput<R>, store: Option<LmbStore>, state: Option<Arc<LmbState>>) -> Self {
         Self {
             input,
             state,
@@ -61,13 +64,13 @@ where
     /// let vm = Lua::new();
     /// let input = Arc::new(Mutex::new(BufReader::new(Cursor::new("0"))));
     /// let store = LmbStore::default();
-    /// let _ = LuaLmb::register(&vm, input, Some(store), None);
+    /// let _ = LuaBinding::register(&vm, input, Some(store), None);
     /// ```
     pub fn register(
         vm: &Lua,
         input: LmbInput<R>,
         store: Option<LmbStore>,
-        state: Option<LmbState>,
+        state: Option<Arc<LmbState>>,
     ) -> LmbResult<()> {
         let io_table = vm.create_table()?;
 
@@ -77,7 +80,7 @@ where
         })?;
         io_table.set("read", read_fn)?;
 
-        io_table.set("stderr", LmbStderr {})?;
+        io_table.set("stderr", LuaStderr {})?;
 
         let write_fn = vm.create_function(|_, vs: LuaMultiValue<'_>| {
             let mut locked = stdout().lock();
@@ -102,9 +105,9 @@ where
     }
 }
 
-struct LmbStderr {}
+struct LuaStderr {}
 
-impl LuaUserData for LmbStderr {
+impl LuaUserData for LuaStderr {
     fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method("write", |_, _, vs: LuaMultiValue<'_>| {
             let mut locked = stderr().lock();
