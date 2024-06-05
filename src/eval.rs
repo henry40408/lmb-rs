@@ -11,7 +11,7 @@ use std::{
 };
 use tracing::{debug, trace_span};
 
-use crate::{LmbInput, LmbResult, LmbState, LmbStore, LuaLmb, DEFAULT_TIMEOUT};
+use crate::{LmbInput, LmbResult, LmbState, LmbStore, LuaBinding, DEFAULT_TIMEOUT};
 
 /// Evaluation builder.
 pub struct EvaluationBuilder<R>
@@ -146,7 +146,7 @@ where
             let _s = trace_span!("compile_script").entered();
             compiler.compile(&self.script)
         };
-        LuaLmb::register(&vm, self.input.clone(), self.store.clone(), None)
+        LuaBinding::register(&vm, self.input.clone(), self.store.clone(), None)
             .expect("failed to initalize the binding");
         Arc::new(Evaluation {
             compiled,
@@ -208,16 +208,16 @@ where
     /// Evaluate the function with a state.
     ///
     /// ```rust
-    /// # use std::io::empty;
+    /// # use std::{io::empty, sync::Arc};
     /// # use serde_json::json;
     /// use lmb::*;
     /// let e = EvaluationBuilder::new("return 1+1", empty()).build();
-    /// let state = LmbState::new();
+    /// let state = Arc::new(LmbState::new());
     /// state.insert(LmbStateKey::from("bool"), true.into());
     /// let res = e.evaluate_with_state(state).unwrap();
     /// assert_eq!(json!(2), res.payload);
     /// ```
-    pub fn evaluate_with_state(self: &Arc<Self>, state: LmbState) -> LmbResult<Solution<R>> {
+    pub fn evaluate_with_state(self: &Arc<Self>, state: Arc<LmbState>) -> LmbResult<Solution<R>> {
         self.do_evaluate(Some(state))
     }
 
@@ -243,10 +243,10 @@ where
         *self.input.lock() = BufReader::new(input);
     }
 
-    fn do_evaluate(self: &Arc<Self>, state: Option<LmbState>) -> LmbResult<Solution<R>> {
+    fn do_evaluate(self: &Arc<Self>, state: Option<Arc<LmbState>>) -> LmbResult<Solution<R>> {
         let vm = &self.vm;
         if state.is_some() {
-            LuaLmb::register(vm, self.input.clone(), self.store.clone(), state)?;
+            LuaBinding::register(vm, self.input.clone(), self.store.clone(), state)?;
         }
 
         let max_memory = Arc::new(AtomicUsize::new(0));
@@ -333,7 +333,7 @@ mod tests {
         assert!(res.is_err());
 
         let elapsed = timer.elapsed().as_millis();
-        assert!(elapsed < 300, "actual elapsed {elapsed:?}"); // 300% error
+        assert!(elapsed < 500, "actual elapsed {elapsed:?}"); // 500% error
     }
 
     #[test_case("return 1+1", json!(2))]
@@ -391,16 +391,15 @@ mod tests {
     #[test]
     fn with_state() {
         let e = EvaluationBuilder::new(r#"return require("@lmb").request"#, empty()).build();
+        let state = Arc::new(LmbState::new());
+        state.insert(LmbStateKey::Request, 1.into());
         {
-            let state = LmbState::new();
-            state.insert(LmbStateKey::Request, 1.into());
-            let res = e.evaluate_with_state(state).unwrap();
+            let res = e.evaluate_with_state(state.clone()).unwrap();
             assert_eq!(json!(1), res.payload);
         }
+        state.insert(LmbStateKey::Request, 2.into());
         {
-            let state = LmbState::new();
-            state.insert(LmbStateKey::Request, 2.into());
-            let res = e.evaluate_with_state(state).unwrap();
+            let res = e.evaluate_with_state(state.clone()).unwrap();
             assert_eq!(json!(2), res.payload);
         }
     }

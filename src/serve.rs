@@ -7,9 +7,12 @@ use axum::{
     routing::any,
     Router,
 };
+use http::{HeaderName, HeaderValue};
 use lmb::{EvaluationBuilder, LmbState, LmbStateKey, LmbStore};
 use serde_json::{Map, Value};
-use std::{fmt::Display, io::Cursor, time::Duration};
+use std::{
+    collections::HashMap, fmt::Display, io::Cursor, str::FromStr as _, sync::Arc, time::Duration,
+};
 use tokio::net::ToSocketAddrs;
 use tower_http::trace::{self, TraceLayer};
 use tracing::{error, info, warn, Level};
@@ -66,26 +69,74 @@ where
     request_map.insert("path".into(), path.as_ref().into());
     request_map.insert("headers".into(), headers_map.into());
 
-    let eval_state = LmbState::new();
+    let eval_state = Arc::new(LmbState::new());
     eval_state.insert(LmbStateKey::Request, request_map.into());
 
-    let res = e.evaluate_with_state(eval_state);
+    let res = e.evaluate_with_state(eval_state.clone());
     match res {
-        Ok(res) => {
-            if state.json {
-                let Ok(serialized) = serde_json::to_string(&res.payload) else {
-                    return (StatusCode::INTERNAL_SERVER_ERROR, "".to_string());
-                };
-                (StatusCode::OK, serialized)
-            } else {
-                (StatusCode::OK, res.payload.to_string())
+        Ok(res) => match build_response(state.json, eval_state, res.payload) {
+            Ok(t) => t,
+            Err(err) => {
+                error!(?err, "failed to build response");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    HeaderMap::new(),
+                    String::new(),
+                )
             }
-        }
+        },
         Err(err) => {
             error!(%err, "failed to run Lua script");
-            (StatusCode::BAD_REQUEST, "".to_string())
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                HeaderMap::new(),
+                String::new(),
+            )
         }
     }
+}
+
+fn build_response(
+    json: bool,
+    state: Arc<LmbState>,
+    value: Value,
+) -> anyhow::Result<(StatusCode, HeaderMap, String)> {
+    let (status_code, headers) = state
+        .view(&LmbStateKey::Response, |_k, res| {
+            let status_code = res
+                .get("status_code")
+                .and_then(|s| s.as_u64())
+                .unwrap_or(200u64);
+            let mut m = HashMap::new();
+            if let Some(h) = res.get("headers").and_then(|h| h.as_object()) {
+                for (name, value) in h.iter() {
+                    m.insert(
+                        name.to_string(),
+                        match value {
+                            Value::String(s) => s.to_string(),
+                            _ => value.to_string(),
+                        },
+                    );
+                }
+            }
+            (status_code, m)
+        })
+        .unwrap_or_else(|| (200u64, HashMap::new()));
+
+    let status_code = StatusCode::from_u16(u16::try_from(status_code)?)?;
+    let mut header_map = HeaderMap::new();
+    for (name, value) in headers.iter() {
+        header_map.insert(HeaderName::from_str(name)?, HeaderValue::from_str(value)?);
+    }
+    let body = if json {
+        serde_json::to_string(&value)?
+    } else {
+        match value {
+            Value::String(s) => s,
+            _ => value.to_string(),
+        }
+    };
+    Ok((status_code, header_map, body))
 }
 
 async fn index_route(
@@ -163,29 +214,8 @@ mod tests {
     use crate::{serve::ServeOptions, Cli, StoreOptions};
     use axum_test::TestServer;
     use clap::Parser;
+    use http::HeaderValue;
     use serde_json::{json, Value};
-
-    #[tokio::test]
-    async fn serve() {
-        let cli = Cli::parse_from(["lmb", "--json", "serve", "--file", "-"]);
-        let script = "return 1";
-        let store_options = StoreOptions {
-            store_path: None,
-            run_migrations: true,
-        };
-        let opts = ServeOptions {
-            bind: "",
-            json: cli.json,
-            script,
-            store_options,
-            ..Default::default()
-        };
-        let router = init_route(&opts).unwrap();
-        let server = TestServer::new(router.into_make_service()).unwrap();
-        let res = server.post("/").await;
-        assert_eq!(200, res.status_code());
-        assert_eq!("1", res.text());
-    }
 
     #[tokio::test]
     async fn echo_request() {
@@ -222,5 +252,178 @@ mod tests {
             },
         });
         assert_eq!(expected, value);
+    }
+
+    #[tokio::test]
+    async fn headers_status_code() {
+        let cli = Cli::parse_from(["lmb", "serve", "--file", "-"]);
+        let script = r#"
+        local m = require('@lmb')
+        print(m.response)
+        local res = {}
+        res.status_code = 418 -- I'm a teapot
+        res.headers = { quantity = 1, whoami = "a teapot" }
+        m.response = res
+        print(m.response)
+        return "I'm a teapot."
+        "#;
+        let store_options = StoreOptions {
+            store_path: None,
+            run_migrations: true,
+        };
+        let opts = ServeOptions {
+            bind: "",
+            json: cli.json,
+            script,
+            store_options,
+            ..Default::default()
+        };
+        let router = init_route(&opts).unwrap();
+        let server = TestServer::new(router.into_make_service()).unwrap();
+        let res = server.post("/").await;
+        assert_eq!(418, res.status_code());
+        assert_eq!(
+            HeaderValue::from_static("a teapot"),
+            res.headers().get("whoami").unwrap()
+        );
+        assert_eq!("I'm a teapot.", res.text());
+    }
+
+    #[tokio::test]
+    async fn headers_status_code_bad_script() {
+        let cli = Cli::parse_from(["lmb", "serve", "--file", "-"]);
+        let script = "ret 'hello'";
+        let store_options = StoreOptions {
+            store_path: None,
+            run_migrations: true,
+        };
+        let opts = ServeOptions {
+            bind: "",
+            json: cli.json,
+            script,
+            store_options,
+            ..Default::default()
+        };
+        let router = init_route(&opts).unwrap();
+        let server = TestServer::new(router.into_make_service()).unwrap();
+        let res = server.post("/").await;
+        assert_eq!(500, res.status_code());
+        assert_eq!("", res.text());
+    }
+
+    #[tokio::test]
+    async fn headers_status_code_invalid_status_code() {
+        let cli = Cli::parse_from(["lmb", "serve", "--file", "-"]);
+        let script = r#"
+        local m = require('@lmb')
+        local res = {}
+        res.status_code = 10000
+        m.response = res
+        return "hello"
+        "#;
+        let store_options = StoreOptions {
+            store_path: None,
+            run_migrations: true,
+        };
+        let opts = ServeOptions {
+            bind: "",
+            json: cli.json,
+            script,
+            store_options,
+            ..Default::default()
+        };
+        let router = init_route(&opts).unwrap();
+        let server = TestServer::new(router.into_make_service()).unwrap();
+        let res = server.post("/").await;
+        assert_eq!(500, res.status_code());
+        assert_eq!("", res.text());
+    }
+
+    #[tokio::test]
+    async fn json_string() {
+        let cli = Cli::parse_from(["lmb", "--json", "serve", "--file", "-"]);
+        let script = "return 'hello'";
+        let store_options = StoreOptions {
+            store_path: None,
+            run_migrations: true,
+        };
+        let opts = ServeOptions {
+            bind: "",
+            json: cli.json,
+            script,
+            store_options,
+            ..Default::default()
+        };
+        let router = init_route(&opts).unwrap();
+        let server = TestServer::new(router.into_make_service()).unwrap();
+        let res = server.post("/").await;
+        assert_eq!(200, res.status_code());
+        assert_eq!(r#""hello""#, res.text());
+    }
+
+    #[tokio::test]
+    async fn number() {
+        let cli = Cli::parse_from(["lmb", "serve", "--file", "-"]);
+        let script = r#"return 1"#;
+        let store_options = StoreOptions {
+            store_path: None,
+            run_migrations: true,
+        };
+        let opts = ServeOptions {
+            bind: "",
+            json: cli.json,
+            script,
+            store_options,
+            ..Default::default()
+        };
+        let router = init_route(&opts).unwrap();
+        let server = TestServer::new(router.into_make_service()).unwrap();
+        let res = server.post("/").await;
+        assert_eq!(200, res.status_code());
+        assert_eq!("1", res.text());
+    }
+
+    #[tokio::test]
+    async fn raw_string() {
+        let cli = Cli::parse_from(["lmb", "serve", "--file", "-"]);
+        let script = "return 'hello'";
+        let store_options = StoreOptions {
+            store_path: None,
+            run_migrations: true,
+        };
+        let opts = ServeOptions {
+            bind: "",
+            json: cli.json,
+            script,
+            store_options,
+            ..Default::default()
+        };
+        let router = init_route(&opts).unwrap();
+        let server = TestServer::new(router.into_make_service()).unwrap();
+        let res = server.post("/").await;
+        assert_eq!(200, res.status_code());
+        assert_eq!("hello", res.text());
+    }
+
+    #[tokio::test]
+    async fn serve() {
+        let cli = Cli::parse_from(["lmb", "--json", "serve", "--file", "-"]);
+        let script = "return 1";
+        let store_options = StoreOptions {
+            store_path: None,
+            run_migrations: true,
+        };
+        let opts = ServeOptions {
+            bind: "",
+            json: cli.json,
+            script,
+            store_options,
+            ..Default::default()
+        };
+        let router = init_route(&opts).unwrap();
+        let server = TestServer::new(router.into_make_service()).unwrap();
+        let res = server.post("/").await;
+        assert_eq!(200, res.status_code());
+        assert_eq!("1", res.text());
     }
 }

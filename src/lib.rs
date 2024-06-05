@@ -13,7 +13,7 @@ pub use check::*;
 pub use error::*;
 pub use eval::*;
 pub use example::*;
-pub use lua_lmb::*;
+pub use lua_binding::*;
 pub use printer::*;
 pub use schedule::*;
 pub use store::*;
@@ -22,7 +22,7 @@ mod check;
 mod error;
 mod eval;
 mod example;
-mod lua_lmb;
+mod lua_binding;
 mod printer;
 mod schedule;
 mod store;
@@ -46,8 +46,10 @@ pub type LmbResult<T> = Result<T, LmbError>;
 /// State key.
 #[derive(Hash, PartialEq, Eq)]
 pub enum LmbStateKey {
-    /// Reserved key for HTTP request object
+    /// HTTP request object
     Request,
+    /// HTTP response object
+    Response,
     /// Plain string key
     String(String),
 }
