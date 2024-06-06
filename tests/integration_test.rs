@@ -146,7 +146,7 @@ fn schedule() {
     let store_path = store.path().to_string_lossy();
 
     let mut cmd = Command::cargo_bin("lmb").unwrap();
-    cmd.write_stdin("require('@lmb'):set('a', 1); return true");
+    cmd.write_stdin("require('@lmb'):put('a', 1); return true");
     cmd.args([
         "--store-path",
         &store_path,

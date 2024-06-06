@@ -353,12 +353,12 @@ mod tests {
     }
 
     #[test]
-    fn get_set() {
+    fn get_put() {
         let script = r#"
         local m = require('@lmb')
         local a = m:get('a')
         assert(not m:get('b'))
-        m:set('a', 4.56)
+        m:put('a', 4.56)
         return a
         "#;
 
@@ -407,7 +407,7 @@ mod tests {
         let script = r#"
         local m = require('@lmb')
         local a = m:get('a')
-        m:set('a', a+1)
+        m:put('a', a+1)
         return a
         "#;
 
