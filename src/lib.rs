@@ -68,7 +68,83 @@ pub type LmbState = DashMap<LmbStateKey, serde_json::Value>;
 
 #[cfg(test)]
 mod tests {
-    use crate::{LmbStateKey, MIGRATIONS};
+    use std::io::empty;
+
+    use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag, TagEnd};
+    use serde_json::json;
+
+    use crate::{EvaluationBuilder, LmbStateKey, LmbStore, MIGRATIONS};
+
+    #[test]
+    fn lua_doc() {
+        let value = include_str!("../docs/lua.md");
+        let parser = Parser::new(value);
+
+        let blocks = {
+            let mut blocks = vec![];
+            let mut text = String::new();
+            let mut is_code = false;
+            for event in parser {
+                match event {
+                    Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(l))) => {
+                        if l.to_string() == "lua" {
+                            is_code = true;
+                        }
+                    }
+                    Event::Text(t) => {
+                        if is_code {
+                            text.push_str(&t);
+                        }
+                    }
+                    Event::End(TagEnd::CodeBlock) => {
+                        if is_code {
+                            blocks.push(text.clone());
+                            text.clear();
+                            is_code = false;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            blocks
+        };
+
+        let mut server = mockito::Server::new();
+
+        let headers_mock = server
+            .mock("GET", "/headers")
+            .with_status(200)
+            .match_header("I-Am", "A teapot")
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::to_string(&json!({ "headers": { "I-Am": "A teapot" } })).unwrap(),
+            )
+            .create();
+
+        let post_mock = server
+            .mock("POST", "/post")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::to_string(
+                    &json!({ "data": serde_json::to_string(&json!({ "foo": "bar" })).unwrap() }),
+                )
+                .unwrap(),
+            )
+            .create();
+
+        for block in blocks {
+            let block = block.replace("https://httpbin.org", &server.url());
+            let store = LmbStore::default();
+            let e = EvaluationBuilder::new(&block, empty())
+                .with_store(store)
+                .build();
+            e.evaluate().unwrap();
+        }
+
+        post_mock.assert();
+        headers_mock.assert();
+    }
 
     #[test]
     fn migrations() {
