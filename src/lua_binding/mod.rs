@@ -141,7 +141,7 @@ where
     }
 }
 
-fn lua_lmb_set<'lua, R>(
+fn lua_lmb_put<'lua, R>(
     vm: &'lua Lua,
     lmb: &LuaBinding<R>,
     (key, value): (String, LuaValue<'lua>),
@@ -221,7 +221,7 @@ where
         methods.add_method("read_unicode", |vm, this, f| {
             lua_lmb_read_unicode(vm, &this.input, f)
         });
-        methods.add_method("set", lua_lmb_set);
+        methods.add_method("put", lua_lmb_put);
         methods.add_method("update", lua_lmb_update);
     }
 }
