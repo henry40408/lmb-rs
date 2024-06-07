@@ -25,7 +25,8 @@ static VERSION: &str = env!("APP_VERSION");
 #[derive(Parser)]
 #[command(about, author, version=VERSION)]
 struct Cli {
-    /// Checks the syntax of the function, disabled by default for performance reasons
+    /// Checks the syntax of the function before evaluation or serving,
+    /// disabled by default for startup performance
     #[arg(long, env = "LMB_CHECK_SYNTAX")]
     check_syntax: bool,
 
@@ -33,7 +34,9 @@ struct Cli {
     #[arg(long, short = 'd', env = "DEBUG")]
     debug: bool,
 
-    /// Output as JSON
+    /// Enable JSON mode.
+    /// When evaluating, output the solution in JSON format.
+    /// When serving, always respond with the solution as a JSON value
     #[arg(long)]
     json: bool,
 
@@ -41,15 +44,19 @@ struct Cli {
     #[arg(long, env = "NO_COLOR")]
     no_color: bool,
 
-    /// Store path
+    /// Store path. By default, the store is in-memory,
+    /// and changes will be lost when the program terminates.
+    /// To persist values, a store path must be specified
     #[arg(long, env = "LMB_STORE_PATH")]
     store_path: Option<PathBuf>,
 
-    /// Run migrations
+    /// Migrate the store before startup.
+    /// If the store path is not specified and the store is in-memory,
+    /// it will be automatically migrated
     #[arg(long, env = "LMB_RUN_MIGRATIONS")]
     run_migrations: bool,
 
-    /// Theme. Checkout `list-themes` for available themes.
+    /// Theme. Checkout `list-themes` for available themes
     #[arg(long, env = "LMB_THEME")]
     theme: Option<String>,
 
@@ -61,21 +68,21 @@ struct Cli {
 enum Commands {
     /// Check syntax of script
     Check {
-        /// Script path
+        /// Script path. Specify "-" or omit to load the script from standard input
         #[arg(long, value_parser, default_value = "-")]
         file: Input,
     },
     /// Evaluate a script file
     #[command(alias = "eval")]
     Evaluate {
-        /// Script path
+        /// Script path. Specify "-" or omit to load the script from standard input
         #[arg(long, value_parser, default_value = "-")]
         file: Input,
         /// Timeout in seconds
         #[arg(long, default_value_t = DEFAULT_TIMEOUT.as_secs())]
         timeout: u64,
     },
-    /// Interact with examples
+    /// Check out examples and evaluate or serve them
     #[command(subcommand)]
     Example(ExampleCommands),
     /// List available themes
@@ -85,26 +92,26 @@ enum Commands {
         /// Cron
         #[arg(long)]
         cron: String,
-        /// Run for the first time immediately
+        /// Run the script at startup even if the next execution is not due
         #[arg(long)]
         initial_run: bool,
-        /// Script path
+        /// Script path. Specify "-" or omit to load the script from standard input
         #[arg(long, value_parser, default_value = "-")]
         file: Input,
     },
-    /// Run a HTTP server from a Lua script
+    /// Handle HTTP requests with the script
     Serve {
-        /// Bind
+        /// Bind the server to a specific host and port
         #[arg(long, default_value = "127.0.0.1:3000")]
         bind: String,
-        /// Script path
+        /// Script path. Specify "-" or omit to load the script from standard input
         #[arg(long, value_parser, default_value = "-")]
         file: Input,
         /// Timeout in seconds
         #[arg(long)]
         timeout: Option<u64>,
     },
-    /// Commands on store
+    /// Store commands
     #[command(subcommand)]
     Store(StoreCommands),
 }
@@ -126,7 +133,7 @@ enum ExampleCommands {
     },
     /// Handle HTTP requests with the example
     Serve {
-        /// Bind
+        /// Bind the server to a specific host and port
         #[arg(long, default_value = "127.0.0.1:3000")]
         bind: String,
         /// Example name
@@ -157,18 +164,18 @@ enum StoreCommands {
     },
     /// List values
     List,
-    /// Run migrations on the store
+    /// Migrate the store
     Migrate {
-        /// Target version, 0 to revert ALL migrations
+        /// Target version. Specify 0 to revert ALL migrations. Omit to migrate to the latest
         #[arg(long)]
         version: Option<usize>,
     },
-    /// Put a value
+    /// Insert or update a value
     Put {
         /// Name
         #[arg(long)]
         name: String,
-        /// Plain. Consider value as plain string instead of JSON value.
+        /// Consider value as plain string instead of JSON value
         #[arg(long)]
         plain: bool,
         /// Value, the content should be a valid JSON value e.g. true or "string" or 1
