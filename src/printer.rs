@@ -84,38 +84,45 @@ where
     S: AsRef<str>,
     W: Write,
 {
-    let name = name.as_ref();
     let first_line = message.as_ref().lines().next().unwrap_or_default();
-    if let Ok(Some(c)) = LUA_ERROR_REGEX.captures(first_line) {
-        let try_line_number = c.get(1).and_then(|n| n.as_str().parse::<usize>().ok());
-        if let Some(line_number) = try_line_number {
-            let mut buf = Vec::new();
-            let mut colors = ColorGenerator::new();
-            let color = colors.next();
-            let source = Source::from(script.as_ref());
-            let line = source
-                .line(line_number - 1) // index, not line number
-                .expect("cannot find line in source");
-            let span = line.span();
-            let _ = Report::build(ReportKind::Error, name, span.start)
-                .with_config(
-                    ariadne::Config::default()
-                        .with_char_set(CharSet::Ascii)
-                        .with_compact(true)
-                        .with_color(!options.no_color),
-                )
-                .with_label(
-                    Label::new((name, span))
-                        .with_color(color)
-                        .with_message(first_line),
-                )
-                .with_message(first_line)
-                .finish()
-                .write((name, source), &mut buf);
-            let _ = write!(f, "{}", String::from_utf8_lossy(&buf));
-        }
-    }
-    Ok(())
+    let Ok(Some(captures)) = LUA_ERROR_REGEX.captures(first_line) else {
+        return Ok(write!(f, "{}", first_line)?);
+    };
+
+    let Some(line_number) = captures
+        .get(1)
+        .and_then(|n| n.as_str().parse::<usize>().ok())
+    else {
+        return Ok(write!(f, "{}", first_line)?);
+    };
+
+    let mut buf = Vec::new();
+    let mut colors = ColorGenerator::new();
+
+    let source = Source::from(script.as_ref());
+    let line = source
+        .line(line_number - 1) // index, not line number
+        .expect("cannot find line in source");
+    let span = line.span();
+
+    let name = name.as_ref();
+    let _ = Report::build(ReportKind::Error, name, span.start)
+        .with_config(
+            ariadne::Config::default()
+                .with_char_set(CharSet::Ascii)
+                .with_compact(true)
+                .with_color(!options.no_color),
+        )
+        .with_label(
+            Label::new((name, span))
+                .with_color(colors.next())
+                .with_message(first_line),
+        )
+        .with_message(first_line)
+        .finish()
+        .write((name, source), &mut buf);
+
+    Ok(write!(f, "{}", String::from_utf8_lossy(&buf))?)
 }
 
 /// Print solution when success or error and script when fail.
