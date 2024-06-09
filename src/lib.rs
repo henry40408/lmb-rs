@@ -14,7 +14,6 @@ pub use error::*;
 pub use eval::*;
 pub use example::*;
 pub use lua_binding::*;
-pub use printer::*;
 pub use schedule::*;
 pub use store::*;
 
@@ -23,7 +22,6 @@ mod error;
 mod eval;
 mod example;
 mod lua_binding;
-mod printer;
 mod schedule;
 mod store;
 
@@ -65,6 +63,15 @@ where
 
 /// State of each evaluation.
 pub type LmbState = DashMap<LmbStateKey, serde_json::Value>;
+
+/// Options to print script.
+#[derive(Clone, Default)]
+pub struct PrintOptions {
+    /// No colors <https://no-color.org/>
+    pub no_color: bool,
+    /// Theme
+    pub theme: Option<String>,
+}
 
 #[cfg(test)]
 mod tests {

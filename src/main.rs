@@ -4,9 +4,8 @@ use clio::*;
 use comfy_table::{presets, Table};
 use cron::Schedule;
 use lmb::{
-    check_syntax, render_fullmoon_result, render_script, render_solution, schedule_script,
-    EvaluationBuilder, LmbError, LmbStore, PrintOptions, ScheduleOptions, StoreOptions,
-    DEFAULT_TIMEOUT, EXAMPLES,
+    check_syntax, render_fullmoon_result, schedule_script, EvaluationBuilder, LmbError, LmbStore,
+    PrintOptions, ScheduleOptions, StoreOptions, DEFAULT_TIMEOUT, EXAMPLES,
 };
 use mlua::prelude::*;
 use serde_json::json;
@@ -198,7 +197,7 @@ fn do_check_syntax<S: AsRef<str>>(no_color: bool, name: S, script: S) -> anyhow:
 }
 
 fn read_script(input: &mut Input) -> anyhow::Result<(String, String)> {
-    let name = input.path().to_string();
+    let name = input.path().to_string_lossy().to_string();
     let mut script = String::new();
     input.read_to_string(&mut script)?;
     Ok((name, script))
@@ -246,10 +245,8 @@ async fn try_main() -> anyhow::Result<()> {
         .init();
 
     let print_options = PrintOptions {
-        json: cli.json,
         no_color: cli.no_color,
         theme: cli.theme,
-        ..Default::default()
     };
     let store_options = StoreOptions {
         store_path: cli.store_path,
@@ -271,14 +268,15 @@ async fn try_main() -> anyhow::Result<()> {
                 .with_store(store)
                 .with_timeout(Some(Duration::from_secs(timeout)))
                 .build();
-            let res = e.evaluate();
             let mut buf = String::new();
-            match render_solution(&mut buf, name, script, res, &print_options) {
-                Ok(_) => {
+            match e.evaluate() {
+                Ok(s) => {
+                    s.render(&mut buf, cli.json)?;
                     print!("{buf}");
                     Ok(())
                 }
                 Err(e) => {
+                    e.render_lua_error(&mut buf, name, script, cli.no_color)?;
                     eprint!("{buf}");
                     Err(e.into())
                 }
@@ -290,7 +288,8 @@ async fn try_main() -> anyhow::Result<()> {
             };
             let script = &found.script.trim();
             let mut buf = String::new();
-            render_script(&mut buf, script, &print_options)?;
+            let e = EvaluationBuilder::new(script, io::stdin()).build();
+            e.render_script(&mut buf, &print_options)?;
             println!("{buf}");
             Ok(())
         }
@@ -304,14 +303,15 @@ async fn try_main() -> anyhow::Result<()> {
                 .with_name(name.as_str())
                 .with_store(store)
                 .build();
-            let res = e.evaluate();
             let mut buf = String::new();
-            match render_solution(&mut buf, name, script.to_string(), res, &print_options) {
-                Ok(_) => {
+            match e.evaluate() {
+                Ok(s) => {
+                    s.render(&mut buf, cli.json)?;
                     print!("{buf}");
                     Ok(())
                 }
                 Err(e) => {
+                    e.render_lua_error(&mut buf, name, script.to_string(), cli.no_color)?;
                     eprint!("{buf}");
                     Err(e.into())
                 }

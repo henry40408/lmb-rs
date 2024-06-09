@@ -1,5 +1,17 @@
+use std::fmt::Write;
+
+use ariadne::{CharSet, ColorGenerator, Label, Report, ReportKind, Source};
+use fancy_regex::Regex;
 use mlua::prelude::*;
+use once_cell::sync::Lazy;
 use thiserror::Error;
+
+use crate::LmbResult;
+
+static LUA_ERROR_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\[[^\]]+\]:(\d+):(.+)")
+        .expect("failed to compile regular expression for Lua error message")
+});
 
 /// Lmb error.
 #[derive(Debug, Error)]
@@ -19,6 +31,9 @@ pub enum LmbError {
     /// Invalid key length for HMAC
     #[error("invalid length: {0}")]
     InvalidLength(#[from] crypto_common::InvalidLength),
+    /// IO error.
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
     /// Error from Lua engine.
     #[error("lua error: {0}")]
     Lua(#[from] LuaError),
@@ -31,4 +46,86 @@ pub enum LmbError {
     /// Error from [`serde_json`].
     #[error("serde JSON error: {0}")]
     SerdeJSONError(#[from] serde_json::Error),
+}
+
+impl LmbError {
+    /// Render Lua runtime or syntax error
+    pub fn render_lua_error<S, W>(
+        &self,
+        mut f: W,
+        name: S,
+        script: S,
+        no_color: bool,
+    ) -> LmbResult<()>
+    where
+        S: AsRef<str>,
+        W: Write,
+    {
+        let message = match self {
+            Self::Lua(LuaError::RuntimeError(message) | LuaError::SyntaxError { message, .. }) => {
+                message
+            }
+            _ => return Ok(()),
+        };
+
+        let first_line = message.lines().next().unwrap_or_default();
+        let Ok(Some(captures)) = LUA_ERROR_REGEX.captures(first_line) else {
+            return Ok(write!(f, "{}", first_line)?);
+        };
+
+        let Some(line_number) = captures
+            .get(1)
+            .and_then(|n| n.as_str().parse::<usize>().ok())
+        else {
+            return Ok(write!(f, "{}", first_line)?);
+        };
+
+        let mut buf = Vec::new();
+        let mut colors = ColorGenerator::new();
+
+        let source = Source::from(script.as_ref());
+        let line = source
+            .line(line_number - 1) // index, not line number
+            .expect("cannot find line in source");
+        let span = line.span();
+
+        let name = name.as_ref();
+        let message = captures.get(2).map_or(first_line, |s| s.as_str().trim());
+        Report::build(ReportKind::Error, name, span.start)
+            .with_config(
+                ariadne::Config::default()
+                    .with_char_set(CharSet::Ascii)
+                    .with_compact(true)
+                    .with_color(!no_color),
+            )
+            .with_label(
+                Label::new((name, span))
+                    .with_color(colors.next())
+                    .with_message(message),
+            )
+            .with_message(message)
+            .finish()
+            .write((name, source), &mut buf)?;
+
+        Ok(write!(f, "{}", String::from_utf8_lossy(&buf))?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::empty;
+
+    use crate::EvaluationBuilder;
+
+    #[test]
+    fn render_error() {
+        let script = "return nil+1";
+        let e = EvaluationBuilder::new(script, empty()).build();
+        let Err(err) = e.evaluate() else {
+            panic!("expect error");
+        };
+        let mut buf = String::new();
+        err.render_lua_error(&mut buf, "-", script, true).unwrap();
+        assert!(buf.contains("attempt to perform arithmetic (add) on nil and number"));
+    }
 }

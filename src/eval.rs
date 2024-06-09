@@ -1,7 +1,15 @@
+use bat::{
+    assets::HighlightingAssets,
+    controller::Controller,
+    input::Input,
+    style::{StyleComponent, StyleComponents},
+};
+use console::Term;
 use mlua::{prelude::*, Compiler};
 use parking_lot::Mutex;
 use serde_json::Value;
 use std::{
+    fmt::Write,
     io::{BufReader, Read},
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -11,7 +19,7 @@ use std::{
 };
 use tracing::{debug, trace_span};
 
-use crate::{LmbInput, LmbResult, LmbState, LmbStore, LuaBinding, DEFAULT_TIMEOUT};
+use crate::{LmbInput, LmbResult, LmbState, LmbStore, LuaBinding, PrintOptions, DEFAULT_TIMEOUT};
 
 /// Evaluation builder.
 pub struct EvaluationBuilder<R>
@@ -152,6 +160,7 @@ where
             compiled,
             input: self.input,
             name: self.name.unwrap_or_default(),
+            script: self.script,
             store: self.store,
             timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
             vm,
@@ -174,6 +183,27 @@ where
     pub payload: Value,
 }
 
+impl<R> Solution<R>
+where
+    for<'lua> R: 'lua + Read,
+{
+    /// Render the solution.
+    pub fn render<W>(&self, mut f: W, json: bool) -> LmbResult<()>
+    where
+        W: Write,
+    {
+        if json {
+            let res = serde_json::to_string(&self.payload)?;
+            Ok(write!(f, "{}", res)?)
+        } else {
+            match &self.payload {
+                Value::String(s) => Ok(write!(f, "{}", s)?),
+                _ => Ok(write!(f, "{}", self.payload)?),
+            }
+        }
+    }
+}
+
 /// A container that holds the compiled function and input for evaluation.
 pub struct Evaluation<R>
 where
@@ -182,6 +212,7 @@ where
     compiled: Vec<u8>,
     input: LmbInput<R>,
     name: String,
+    script: String,
     store: Option<LmbStore>,
     timeout: Duration,
     vm: Lua,
@@ -219,6 +250,32 @@ where
     /// ```
     pub fn evaluate_with_state(self: &Arc<Self>, state: Arc<LmbState>) -> LmbResult<Solution<R>> {
         self.do_evaluate(Some(state))
+    }
+
+    /// Render the script.
+    pub fn render_script<W>(&self, mut f: W, options: &PrintOptions) -> LmbResult<bool>
+    where
+        W: Write,
+    {
+        let components = &[StyleComponent::Grid, StyleComponent::LineNumbers];
+        let style_components = StyleComponents::new(components);
+        let mut config = bat::config::Config {
+            colored_output: !options.no_color,
+            language: Some("lua"),
+            style_components,
+            true_color: true,
+            // required to print line numbers
+            term_width: Term::stdout().size().1 as usize,
+            ..Default::default()
+        };
+        if let Some(theme) = &options.theme {
+            config.theme.clone_from(theme);
+        }
+        let assets = HighlightingAssets::from_binary();
+        let reader = Box::new(self.script.as_bytes());
+        let inputs = vec![Input::from_reader(reader)];
+        let controller = Controller::new(&config, &assets);
+        Ok(controller.run(inputs, Some(&mut f))?)
     }
 
     /// Replace the function input after the container is built.
@@ -356,6 +413,16 @@ mod tests {
 
         let res = e.evaluate().unwrap();
         assert_eq!(json!("bar"), res.payload);
+    }
+
+    #[test]
+    fn render_solution() {
+        let script = "return 1+1";
+        let e = EvaluationBuilder::new(script, empty()).build();
+        let solution = e.evaluate().unwrap();
+        let mut buf = String::new();
+        solution.render(&mut buf, false).unwrap();
+        assert_eq!("2", buf);
     }
 
     #[test]
