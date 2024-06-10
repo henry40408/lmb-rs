@@ -65,7 +65,6 @@ where
 pub type LmbState = DashMap<LmbStateKey, serde_json::Value>;
 
 /// Options to print script.
-#[derive(Clone, Default)]
 pub struct PrintOptions {
     /// No colors <https://no-color.org/>
     pub no_color: bool,

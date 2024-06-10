@@ -209,10 +209,12 @@ pub struct Evaluation<R>
 where
     for<'lua> R: 'lua + Read,
 {
+    /// Source code of script.
+    pub script: String,
+    /// Name.
+    pub name: String,
     compiled: Vec<u8>,
     input: LmbInput<R>,
-    name: String,
-    script: String,
     store: Option<LmbStore>,
     timeout: Duration,
     vm: Lua,
@@ -253,7 +255,7 @@ where
     }
 
     /// Render the script.
-    pub fn render_script<W>(&self, mut f: W, options: &PrintOptions) -> LmbResult<bool>
+    pub fn write_script<W>(&self, mut f: W, options: &PrintOptions) -> LmbResult<bool>
     where
         W: Write,
     {

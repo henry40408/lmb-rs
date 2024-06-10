@@ -1,4 +1,4 @@
-use std::fmt::Write;
+use std::{fmt::Write, io::Read};
 
 use ariadne::{CharSet, ColorGenerator, Label, Report, ReportKind, Source};
 use fancy_regex::Regex;
@@ -6,7 +6,7 @@ use mlua::prelude::*;
 use once_cell::sync::Lazy;
 use thiserror::Error;
 
-use crate::LmbResult;
+use crate::{Evaluation, LmbResult};
 
 static LUA_ERROR_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"\[[^\]]+\]:(\d+):(.+)")
@@ -50,15 +50,14 @@ pub enum LmbError {
 
 impl LmbError {
     /// Render Lua runtime or syntax error
-    pub fn render_lua_error<S, W>(
+    pub fn write_lua_error<R, W>(
         &self,
         mut f: W,
-        name: S,
-        script: S,
+        e: &Evaluation<R>,
         no_color: bool,
     ) -> LmbResult<()>
     where
-        S: AsRef<str>,
+        for<'lua> R: 'lua + Read,
         W: Write,
     {
         let message = match self {
@@ -83,13 +82,13 @@ impl LmbError {
         let mut buf = Vec::new();
         let mut colors = ColorGenerator::new();
 
-        let source = Source::from(script.as_ref());
+        let source = Source::from(&e.script);
         let line = source
             .line(line_number - 1) // index, not line number
             .expect("cannot find line in source");
         let span = line.span();
 
-        let name = name.as_ref();
+        let name = &e.name;
         let message = captures.get(2).map_or(first_line, |s| s.as_str().trim());
         Report::build(ReportKind::Error, name, span.start)
             .with_config(
@@ -125,7 +124,7 @@ mod tests {
             panic!("expect error");
         };
         let mut buf = String::new();
-        err.render_lua_error(&mut buf, "-", script, true).unwrap();
+        err.write_lua_error(&mut buf, &e, true).unwrap();
         assert!(buf.contains("attempt to perform arithmetic (add) on nil and number"));
     }
 }

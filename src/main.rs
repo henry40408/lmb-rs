@@ -275,10 +275,10 @@ async fn try_main() -> anyhow::Result<()> {
                     print!("{buf}");
                     Ok(())
                 }
-                Err(e) => {
-                    e.render_lua_error(&mut buf, name, script, cli.no_color)?;
+                Err(err) => {
+                    err.write_lua_error(&mut buf, &e, cli.no_color)?;
                     eprint!("{buf}");
-                    Err(e.into())
+                    Err(err.into())
                 }
             }
         }
@@ -289,7 +289,7 @@ async fn try_main() -> anyhow::Result<()> {
             let script = &found.script.trim();
             let mut buf = String::new();
             let e = EvaluationBuilder::new(script, io::stdin()).build();
-            e.render_script(&mut buf, &print_options)?;
+            e.write_script(&mut buf, &print_options)?;
             println!("{buf}");
             Ok(())
         }
@@ -310,10 +310,10 @@ async fn try_main() -> anyhow::Result<()> {
                     print!("{buf}");
                     Ok(())
                 }
-                Err(e) => {
-                    e.render_lua_error(&mut buf, name, script.to_string(), cli.no_color)?;
+                Err(err) => {
+                    err.write_lua_error(&mut buf, &e, cli.no_color)?;
                     eprint!("{buf}");
-                    Err(e.into())
+                    Err(err.into())
                 }
             }
         }
