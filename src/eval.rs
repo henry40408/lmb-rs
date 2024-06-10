@@ -67,9 +67,9 @@ where
     /// # use parking_lot::Mutex;
     /// use lmb::*;
     /// let input = Arc::new(Mutex::new(BufReader::new(empty())));
-    /// let _ = EvaluationBuilder::new_with_reader("", input);
+    /// let _ = EvaluationBuilder::with_reader("", input);
     /// ```
-    pub fn new_with_reader<S: AsRef<str>>(script: S, input: Arc<Mutex<BufReader<R>>>) -> Self {
+    pub fn with_reader<S: AsRef<str>>(script: S, input: Arc<Mutex<BufReader<R>>>) -> Self {
         Self {
             input,
             name: None,
@@ -85,9 +85,9 @@ where
     /// ```rust
     /// # use std::io::empty;
     /// use lmb::*;
-    /// let _ = EvaluationBuilder::new("", empty()).with_default_store();
+    /// let _ = EvaluationBuilder::new("", empty()).default_store();
     /// ```
-    pub fn with_default_store(mut self) -> Self {
+    pub fn default_store(mut self) -> Self {
         self.store = Some(LmbStore::default());
         self
     }
@@ -97,23 +97,10 @@ where
     /// ```rust
     /// # use std::io::empty;
     /// use lmb::*;
-    /// let _ = EvaluationBuilder::new("", empty()).with_name("script");
+    /// let _ = EvaluationBuilder::new("", empty()).name("script");
     /// ```
-    pub fn with_name<S: AsRef<str>>(mut self, name: S) -> Self {
+    pub fn name<S: AsRef<str>>(mut self, name: S) -> Self {
         self.name = Some(name.as_ref().to_string());
-        self
-    }
-
-    /// Set or unset execution timeout.
-    ///
-    /// ```rust
-    /// # use std::{io::empty, time::Duration};
-    /// use lmb::*;
-    /// let timeout = Duration::from_secs(30);
-    /// let _ = EvaluationBuilder::new("", empty()).with_timeout(Some(timeout));
-    /// ```
-    pub fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
-        self.timeout = timeout;
         self
     }
 
@@ -123,10 +110,23 @@ where
     /// # use std::io::empty;
     /// use lmb::*;
     /// let store = LmbStore::default();
-    /// let _ = EvaluationBuilder::new("", empty()).with_store(store);
+    /// let _ = EvaluationBuilder::new("", empty()).store(store);
     /// ```
-    pub fn with_store(mut self, store: LmbStore) -> Self {
+    pub fn store(mut self, store: LmbStore) -> Self {
         self.store = Some(store);
+        self
+    }
+
+    /// Set or unset execution timeout.
+    ///
+    /// ```rust
+    /// # use std::{io::empty, time::Duration};
+    /// use lmb::*;
+    /// let timeout = Duration::from_secs(30);
+    /// let _ = EvaluationBuilder::new("", empty()).timeout(Some(timeout));
+    /// ```
+    pub fn timeout(mut self, timeout: Option<Duration>) -> Self {
+        self.timeout = timeout;
         self
     }
 
@@ -374,7 +374,7 @@ mod tests {
     fn evaluate_examples(filename: &str, input: &'static str, expected: Value) {
         let script = fs::read_to_string(format!("./lua-examples/{filename}")).unwrap();
         let e = EvaluationBuilder::new(&script, input.as_bytes())
-            .with_default_store()
+            .default_store()
             .build();
         let res = e.evaluate().unwrap();
         assert_eq!(expected, res.payload);
@@ -386,7 +386,7 @@ mod tests {
         let timeout = Duration::from_millis(100);
 
         let e = EvaluationBuilder::new(r#"while true do end"#, empty())
-            .with_timeout(Some(timeout))
+            .timeout(Some(timeout))
             .build();
         let res = e.evaluate();
         assert!(res.is_err());
@@ -451,7 +451,7 @@ mod tests {
     #[test]
     fn with_bufreader() {
         let input = Arc::new(Mutex::new(BufReader::new(empty())));
-        let e = EvaluationBuilder::new_with_reader("return nil", input.clone()).build();
+        let e = EvaluationBuilder::with_reader("return nil", input.clone()).build();
         let res = e.evaluate().unwrap();
         assert_eq!(json!(null), res.payload);
         let _input = input;

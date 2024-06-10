@@ -340,9 +340,7 @@ mod tests {
         for _ in 0..=1000 {
             let store = store.clone();
             threads.push(thread::spawn(move || {
-                let e = EvaluationBuilder::new(script, empty())
-                    .with_store(store)
-                    .build();
+                let e = EvaluationBuilder::new(script, empty()).store(store).build();
                 e.evaluate().unwrap();
             }));
         }
@@ -366,7 +364,7 @@ mod tests {
         store.put("a", &1.23.into()).unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
-            .with_store(store.clone())
+            .store(store.clone())
             .build();
 
         let res = e.evaluate().unwrap();
@@ -415,7 +413,7 @@ mod tests {
         store.put("a", &1.into()).unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
-            .with_store(store.clone())
+            .store(store.clone())
             .build();
 
         {
@@ -443,7 +441,7 @@ mod tests {
         store.put("a", &1.into()).unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
-            .with_store(store.clone())
+            .store(store.clone())
             .build();
 
         let res = e.evaluate().unwrap();
@@ -467,7 +465,7 @@ mod tests {
         store.put("a", &1.into()).unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
-            .with_store(store.clone())
+            .store(store.clone())
             .build();
 
         let res = e.evaluate().unwrap();

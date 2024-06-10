@@ -41,7 +41,7 @@ fn lmb_no_store(bencher: &mut Bencher) {
 
 fn lmb_default_store(bencher: &mut Bencher) {
     let e = EvaluationBuilder::new(SCRIPT, empty())
-        .with_default_store()
+        .default_store()
         .build();
     bencher.iter(|| e.evaluate().unwrap());
 }
@@ -53,7 +53,7 @@ fn lmb_update(bencher: &mut Bencher) {
     end, 0)
     "#;
     let e = EvaluationBuilder::new(script, empty())
-        .with_default_store()
+        .default_store()
         .build();
     bencher.iter(|| e.evaluate().unwrap());
 }

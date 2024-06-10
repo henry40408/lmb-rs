@@ -51,9 +51,9 @@ where
     S: AsRef<str>,
 {
     let e = EvaluationBuilder::new(state.script, Cursor::new(body))
-        .with_name(state.name)
-        .with_timeout(state.timeout)
-        .with_store(state.store.clone())
+        .name(state.name)
+        .timeout(state.timeout)
+        .store(state.store.clone())
         .build();
 
     let mut headers_map: Map<_, Value> = Map::new();

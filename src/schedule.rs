@@ -30,9 +30,9 @@ pub fn schedule_script(opts: ScheduleOptions) {
     let input = Arc::new(Mutex::new(BufReader::new(stdin())));
     let name = &opts.name;
     let run_task = || {
-        let e = EvaluationBuilder::new_with_reader(&opts.script, input.clone())
-            .with_name(name)
-            .with_store(opts.store.clone())
+        let e = EvaluationBuilder::with_reader(&opts.script, input.clone())
+            .name(name)
+            .store(opts.store.clone())
             .build();
         e.evaluate().expect("failed to evaludate the function");
     };

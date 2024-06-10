@@ -264,9 +264,9 @@ async fn try_main() -> anyhow::Result<()> {
             }
             let store = prepare_store(&store_options)?;
             let e = EvaluationBuilder::new(&script, io::stdin())
-                .with_name(&name)
-                .with_store(store)
-                .with_timeout(Some(Duration::from_secs(timeout)))
+                .name(&name)
+                .store(store)
+                .timeout(Some(Duration::from_secs(timeout)))
                 .build();
             let mut buf = String::new();
             match e.evaluate() {
@@ -300,8 +300,8 @@ async fn try_main() -> anyhow::Result<()> {
             let script = found.script.trim();
             let store = prepare_store(&store_options)?;
             let e = EvaluationBuilder::new(script, io::stdin())
-                .with_name(name.as_str())
-                .with_store(store)
+                .name(name.as_str())
+                .store(store)
                 .build();
             let mut buf = String::new();
             match e.evaluate() {
