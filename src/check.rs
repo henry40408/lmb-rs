@@ -2,17 +2,17 @@ use std::io::{Error as IoError, Write};
 
 use ariadne::{CharSet, ColorGenerator, Config, Label, Report, ReportKind, Source};
 
-/// Container for script to be checked.
+/// Container of the script for syntax checking.
 #[derive(Debug)]
 pub struct LuaCheck {
     /// Name.
     pub name: String,
-    /// Script source.
+    /// Script.
     pub script: String,
 }
 
 impl LuaCheck {
-    /// Create a new container
+    /// Create a new container.
     pub fn new<S>(name: S, script: S) -> Self
     where
         S: AsRef<str>,
@@ -23,7 +23,7 @@ impl LuaCheck {
         }
     }
 
-    /// Check syntax of script
+    /// Check syntax of script.
     pub fn check(&self) -> Result<full_moon::ast::Ast, full_moon::Error> {
         full_moon::parse(self.script.as_ref())
     }

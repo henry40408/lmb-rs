@@ -6,16 +6,17 @@ use toml::{Table, Value};
 /// Lua example.
 #[derive(Default)]
 pub struct Example {
-    /// Name
+    /// Name.
     pub name: String,
-    /// Description, which is extracted from the first multi-line comment as TOML
+    /// Description, which is extracted from the first multi-line comment as TOML.
     pub description: String,
-    /// Script
+    /// Script.
     pub script: String,
     done: bool,
 }
 
 impl Visitor for Example {
+    /// Extract the description from the first multi-line comment of a Lua script.
     fn visit_multi_line_comment(&mut self, token: &full_moon::tokenizer::Token) {
         if self.done {
             return;

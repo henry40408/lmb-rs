@@ -38,7 +38,7 @@ static MIGRATIONS: Lazy<Migrations<'static>> = Lazy::new(|| {
 /// Function input.
 pub type Input<R> = Arc<Mutex<BufReader<R>>>;
 
-/// Generic result type of Lmb.
+/// Generic result type of the function runner.
 pub type Result<T> = StdResult<T, Error>;
 
 /// State key.
@@ -66,9 +66,9 @@ pub type State = DashMap<StateKey, serde_json::Value>;
 
 /// Options to print script.
 pub struct PrintOptions {
-    /// No colors <https://no-color.org/>
+    /// No colors <https://no-color.org/>.
     pub no_color: bool,
-    /// Theme
+    /// Theme.
     pub theme: Option<String>,
 }
 

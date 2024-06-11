@@ -13,15 +13,15 @@ use crate::{EvaluationBuilder, Store};
 
 /// Schedule options.
 pub struct ScheduleOptions {
-    /// Initial run
+    /// Run the script immediately after startup.
     pub initial_run: bool,
-    /// Name
+    /// Name.
     pub name: String,
-    /// Schedule
+    /// Schedule.
     pub schedule: Schedule,
-    /// Script
+    /// Script.
     pub script: String,
-    /// Store
+    /// Store.
     pub store: Store,
 }
 

@@ -18,9 +18,9 @@ mod stmt;
 /// Store options for command line.
 #[derive(Default)]
 pub struct StoreOptions {
-    /// Store path
+    /// Store path.
     pub store_path: Option<PathBuf>,
-    /// Run migrations
+    /// Run migrations.
     pub run_migrations: bool,
 }
 
@@ -289,17 +289,17 @@ impl Store {
     }
 }
 
-/// Value meatadata. Value itself is not included intentionally.
+/// Value metadata. The value itself is intentionally not included.
 pub struct StoreValueMetadata {
-    /// Name
+    /// Name.
     pub name: String,
-    /// Size
+    /// Size in bytes.
     pub size: usize,
-    /// Type
+    /// Type.
     pub type_hint: String,
-    /// Created at
+    /// Timestamp indicating when the value was created in UTC timezone.
     pub created_at: DateTime<Utc>,
-    /// Updated at
+    /// Timestamp indicating when the value was updated in UTC timezone.
     pub updated_at: DateTime<Utc>,
 }
 
