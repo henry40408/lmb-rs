@@ -4,7 +4,7 @@ use once_cell::sync::Lazy;
 use toml::{Table, Value};
 
 /// Lua example.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Example {
     /// Name.
     pub name: String,

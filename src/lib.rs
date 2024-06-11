@@ -42,7 +42,7 @@ pub type Input<R> = Arc<Mutex<BufReader<R>>>;
 pub type Result<T> = StdResult<T, Error>;
 
 /// State key.
-#[derive(Hash, PartialEq, Eq)]
+#[derive(Debug, Eq, Hash, PartialEq)]
 pub enum StateKey {
     /// HTTP request object
     Request,
@@ -65,7 +65,7 @@ where
 pub type State = DashMap<StateKey, serde_json::Value>;
 
 /// Options to print script.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct PrintOptions {
     /// No colors <https://no-color.org/>.
     pub no_color: bool,

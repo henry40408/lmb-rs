@@ -21,6 +21,7 @@ mod read;
 const K_LOADED: &str = "_LOADED";
 
 /// Interface between Lua and Rust.
+#[derive(Debug)]
 pub struct LuaBinding<R>
 where
     R: Read,

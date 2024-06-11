@@ -12,6 +12,7 @@ use tracing::debug;
 use crate::{EvaluationBuilder, Store};
 
 /// Schedule options.
+#[derive(Debug)]
 pub struct ScheduleOptions {
     /// Run the script immediately after startup.
     pub initial_run: bool,

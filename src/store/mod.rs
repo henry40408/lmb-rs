@@ -16,7 +16,7 @@ use crate::{Result, MIGRATIONS};
 mod stmt;
 
 /// Store options for command line.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct StoreOptions {
     /// Store path.
     pub store_path: Option<PathBuf>,
@@ -25,7 +25,7 @@ pub struct StoreOptions {
 }
 
 /// Store that persists data across executions.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Store {
     conn: Arc<Mutex<Connection>>,
 }
@@ -342,6 +342,7 @@ impl Store {
 }
 
 /// Value metadata. The value itself is intentionally not included.
+#[derive(Debug)]
 pub struct StoreValueMetadata {
     /// Name.
     pub name: String,
@@ -356,7 +357,7 @@ pub struct StoreValueMetadata {
 }
 
 impl Default for Store {
-    /// Open and initialize a SQLite database in memory.
+    /// Open and initialize a ``SQLite`` database in memory.
     fn default() -> Self {
         debug!("open store in memory");
         let conn = Connection::open_in_memory().expect("failed to open SQLite database in memory");

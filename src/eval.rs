@@ -22,6 +22,7 @@ use tracing::{debug, trace_span};
 use crate::{Input, LuaBinding, PrintOptions, Result, State, Store, DEFAULT_TIMEOUT};
 
 /// Evaluation builder.
+#[derive(Debug)]
 pub struct EvaluationBuilder<R>
 where
     R: Read,
@@ -173,6 +174,7 @@ where
 }
 
 /// Solution obtained by the function.
+#[derive(Debug)]
 pub struct Solution<R>
 where
     for<'lua> R: 'lua + Read,
@@ -209,6 +211,7 @@ where
 }
 
 /// Container holdingthe compiled function and input for evaluation.
+#[derive(Debug)]
 pub struct Evaluation<R>
 where
     for<'lua> R: 'lua + Read,
