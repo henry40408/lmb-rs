@@ -4,8 +4,8 @@ use clio::*;
 use comfy_table::{presets, Table};
 use cron::Schedule;
 use lmb::{
-    check_syntax, render_fullmoon_result, schedule_script, EvaluationBuilder, LmbError, LmbStore,
-    PrintOptions, ScheduleOptions, StoreOptions, DEFAULT_TIMEOUT, EXAMPLES,
+    schedule_script, EvaluationBuilder, LmbError, LmbStore, LuaCheck, PrintOptions,
+    ScheduleOptions, StoreOptions, DEFAULT_TIMEOUT, EXAMPLES,
 };
 use mlua::prelude::*;
 use serde_json::json;
@@ -186,12 +186,11 @@ enum StoreCommands {
 }
 
 fn do_check_syntax<S: AsRef<str>>(no_color: bool, name: S, script: S) -> anyhow::Result<()> {
-    let res = check_syntax(script.as_ref());
-    if let Err(e) = res {
-        if let Some(message) = render_fullmoon_result(no_color, name, script, &e) {
-            bail!(message);
-        }
-        bail!(e);
+    let check = LuaCheck::new(name, script);
+    if let Err(err) = check.check() {
+        let mut buf = Vec::new();
+        check.render_error(&mut buf, err, no_color)?;
+        bail!(String::from_utf8_lossy(&buf).trim().to_string());
     }
     Ok(())
 }

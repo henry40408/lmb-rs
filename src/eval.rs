@@ -135,7 +135,7 @@ where
     ///
     /// <div class="warning">However, this function won't check syntax of Lua script.</div>
     ///
-    /// The syntax of Lua script could be checked with [`crate::check_syntax`].
+    /// The syntax of Lua script could be checked with [`crate::LuaCheck`].
     ///
     /// ```rust
     /// # use std::io::empty;
