@@ -1,4 +1,4 @@
-use std::{fmt::Write, io::Read};
+use std::io::{Read, Write};
 
 use ariadne::{CharSet, ColorGenerator, Label, Report, ReportKind, Source};
 use fancy_regex::Regex;
@@ -79,7 +79,6 @@ impl LmbError {
             return Ok(write!(f, "{}", first_line)?);
         };
 
-        let mut buf = Vec::new();
         let mut colors = ColorGenerator::new();
 
         let source = Source::from(&e.script);
@@ -104,9 +103,8 @@ impl LmbError {
             )
             .with_message(message)
             .finish()
-            .write((name, source), &mut buf)?;
-
-        Ok(write!(f, "{}", String::from_utf8_lossy(&buf))?)
+            .write((name, source), &mut f)?;
+        Ok(())
     }
 }
 
@@ -123,8 +121,9 @@ mod tests {
         let Err(err) = e.evaluate() else {
             panic!("expect error");
         };
-        let mut buf = String::new();
+        let mut buf = Vec::new();
         err.write_lua_error(&mut buf, &e, true).unwrap();
-        assert!(buf.contains("attempt to perform arithmetic (add) on nil and number"));
+        assert!(String::from_utf8_lossy(&buf)
+            .contains("attempt to perform arithmetic (add) on nil and number"));
     }
 }
