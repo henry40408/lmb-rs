@@ -112,7 +112,7 @@ mod tests {
     use crate::EvaluationBuilder;
 
     #[test]
-    fn render_error() {
+    fn write_error() {
         let script = "return nil+1";
         let e = EvaluationBuilder::new(script, empty()).build();
         let Err(err) = e.evaluate() else {

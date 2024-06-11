@@ -188,7 +188,7 @@ where
     for<'lua> R: 'lua + Read,
 {
     /// Render the solution.
-    pub fn render<W>(&self, mut f: W, json: bool) -> Result<()>
+    pub fn write<W>(&self, mut f: W, json: bool) -> Result<()>
     where
         W: Write,
     {
@@ -418,16 +418,6 @@ mod tests {
     }
 
     #[test]
-    fn render_solution() {
-        let script = "return 1+1";
-        let e = EvaluationBuilder::new(script, empty()).build();
-        let solution = e.evaluate().unwrap();
-        let mut buf = String::new();
-        solution.render(&mut buf, false).unwrap();
-        assert_eq!("2", buf);
-    }
-
-    #[test]
     fn replace_input() {
         let script = "return io.read('*a')";
         let e = EvaluationBuilder::new(script, &b"0"[..]).build();
@@ -471,5 +461,15 @@ mod tests {
             let res = e.evaluate_with_state(state.clone()).unwrap();
             assert_eq!(json!(2), res.payload);
         }
+    }
+
+    #[test]
+    fn write_solution() {
+        let script = "return 1+1";
+        let e = EvaluationBuilder::new(script, empty()).build();
+        let solution = e.evaluate().unwrap();
+        let mut buf = String::new();
+        solution.write(&mut buf, false).unwrap();
+        assert_eq!("2", buf);
     }
 }

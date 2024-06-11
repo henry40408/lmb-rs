@@ -29,7 +29,7 @@ impl LuaCheck {
     }
 
     /// Render error from [`full_moon`].
-    pub fn render_error<W>(
+    pub fn write_error<W>(
         &self,
         mut f: W,
         err: full_moon::Error,
@@ -105,6 +105,6 @@ mod tests {
         let check = LuaCheck::new("", script);
         let err = check.check().unwrap_err();
         let mut buf = Vec::new();
-        check.render_error(&mut buf, err, true).unwrap();
+        check.write_error(&mut buf, err, true).unwrap();
     }
 }

@@ -189,7 +189,7 @@ fn do_check_syntax<S: AsRef<str>>(no_color: bool, name: S, script: S) -> anyhow:
     let check = LuaCheck::new(name, script);
     if let Err(err) = check.check() {
         let mut buf = Vec::new();
-        check.render_error(&mut buf, err, no_color)?;
+        check.write_error(&mut buf, err, no_color)?;
         bail!(String::from_utf8_lossy(&buf).trim().to_string());
     }
     Ok(())
@@ -270,7 +270,7 @@ async fn try_main() -> anyhow::Result<()> {
             let mut buf = String::new();
             match e.evaluate() {
                 Ok(s) => {
-                    s.render(&mut buf, cli.json)?;
+                    s.write(&mut buf, cli.json)?;
                     print!("{buf}");
                     Ok(())
                 }
@@ -305,7 +305,7 @@ async fn try_main() -> anyhow::Result<()> {
             let mut buf = String::new();
             match e.evaluate() {
                 Ok(s) => {
-                    s.render(&mut buf, cli.json)?;
+                    s.write(&mut buf, cli.json)?;
                     print!("{buf}");
                     Ok(())
                 }
