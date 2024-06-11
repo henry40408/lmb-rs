@@ -11,22 +11,22 @@ use std::{
 use stmt::*;
 use tracing::{debug, trace, trace_span};
 
-use crate::{LmbResult, MIGRATIONS};
+use crate::{Result, MIGRATIONS};
 
 mod stmt;
 
 /// Store options for command line.
 #[derive(Default)]
 pub struct StoreOptions {
-    /// Store path
+    /// Store path.
     pub store_path: Option<PathBuf>,
-    /// Run migrations
+    /// Run migrations.
     pub run_migrations: bool,
 }
 
 /// Store that persists data across executions.
 #[derive(Clone)]
-pub struct LmbStore {
+pub struct Store {
     conn: Arc<Mutex<Connection>>,
 }
 
@@ -41,16 +41,16 @@ fn type_hint(v: &Value) -> &'static str {
     }
 }
 
-impl LmbStore {
+impl Store {
     /// Create a new store with path on the filesystem.
     ///
     /// ```rust
     /// # use assert_fs::NamedTempFile;
     /// use lmb::*;
     /// let store_file = NamedTempFile::new("db.sqlite3").unwrap();
-    /// let _ = LmbStore::new(store_file.path());
+    /// let _ = Store::new(store_file.path());
     /// ```
-    pub fn new(path: &Path) -> LmbResult<Self> {
+    pub fn new(path: &Path) -> Result<Self> {
         debug!(?path, "open store");
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "busy_timeout", 5000)?;
@@ -69,10 +69,10 @@ impl LmbStore {
     /// # use assert_fs::NamedTempFile;
     /// use lmb::*;
     /// let store_file = NamedTempFile::new("db.sqlite3").unwrap();
-    /// let store = LmbStore::new(store_file.path()).unwrap();
+    /// let store = Store::new(store_file.path()).unwrap();
     /// store.migrate(None).unwrap();
     /// ```
-    pub fn migrate(&self, version: Option<usize>) -> LmbResult<()> {
+    pub fn migrate(&self, version: Option<usize>) -> Result<()> {
         let mut conn = self.conn.lock();
         if let Some(version) = version {
             let _s = trace_span!("migrate_to_version", version).entered();
@@ -85,14 +85,14 @@ impl LmbStore {
     }
 
     /// Return current version of migrations.
-    pub fn current_version(&self) -> LmbResult<SchemaVersion> {
+    pub fn current_version(&self) -> Result<SchemaVersion> {
         let conn = self.conn.lock();
         let version = MIGRATIONS.current_version(&conn)?;
         Ok(version)
     }
 
     /// Delete value by name.
-    pub fn delete<S>(&self, name: S) -> LmbResult<usize>
+    pub fn delete<S>(&self, name: S) -> Result<usize>
     where
         S: AsRef<str>,
     {
@@ -107,12 +107,12 @@ impl LmbStore {
     /// ```rust
     /// # use serde_json::json;
     /// use lmb::*;
-    /// let store = LmbStore::default();
+    /// let store = Store::default();
     /// assert_eq!(json!(null), store.get("a").unwrap());
     /// store.put("a", &true.into());
     /// assert_eq!(json!(true), store.get("a").unwrap());
     /// ```
-    pub fn get<S: AsRef<str>>(&self, name: S) -> LmbResult<Value> {
+    pub fn get<S: AsRef<str>>(&self, name: S) -> Result<Value> {
         let conn = self.conn.lock();
 
         let name = name.as_ref();
@@ -140,7 +140,7 @@ impl LmbStore {
     }
 
     /// List values.
-    pub fn list(&self) -> LmbResult<Vec<LmbValueMetadata>> {
+    pub fn list(&self) -> Result<Vec<StoreValueMetadata>> {
         let conn = self.conn.lock();
         let mut cached_stmt = conn.prepare_cached(SQL_GET_ALL_VALUES)?;
         let mut rows = cached_stmt.query([])?;
@@ -151,7 +151,7 @@ impl LmbStore {
             let size: usize = row.get_unwrap("size");
             let created_at: DateTime<Utc> = row.get_unwrap("created_at");
             let updated_at: DateTime<Utc> = row.get_unwrap("updated_at");
-            res.push(LmbValueMetadata {
+            res.push(StoreValueMetadata {
                 name,
                 size,
                 type_hint,
@@ -164,13 +164,13 @@ impl LmbStore {
 
     /// Put (insert or update) the value into the store.
     ///
-    /// The key distinction between this function and [`LmbStore::update`] is
+    /// The key distinction between this function and [`Store::update`] is
     /// that this function unconditionally puts with the provided value.
     ///
     /// ```rust
     /// # use serde_json::json;
     /// use lmb::*;
-    /// let store = LmbStore::default();
+    /// let store = Store::default();
     /// store.put("a", &true.into());
     /// assert_eq!(json!(true), store.get("a").unwrap());
     /// store.put("b", &1.into());
@@ -178,7 +178,7 @@ impl LmbStore {
     /// store.put("c", &"hello".into());
     /// assert_eq!(json!("hello"), store.get("c").unwrap());
     /// ```
-    pub fn put<S: AsRef<str>>(&self, name: S, value: &Value) -> LmbResult<usize> {
+    pub fn put<S: AsRef<str>>(&self, name: S, value: &Value) -> Result<usize> {
         let conn = self.conn.lock();
 
         let name = name.as_ref();
@@ -195,7 +195,7 @@ impl LmbStore {
 
     /// Insert or update the value into the store.
     ///
-    /// Unlike [`LmbStore::put`], this function accepts a closure and only mutates the value in the store
+    /// Unlike [`Store::put`], this function accepts a closure and only mutates the value in the store
     /// when the closure returns a new value. If the closure results in an error,
     /// the value in the store remains unchanged.
     ///
@@ -206,7 +206,7 @@ impl LmbStore {
     /// ```rust
     /// # use serde_json::{json, Value};
     /// use lmb::*;
-    /// let store = LmbStore::default();
+    /// let store = Store::default();
     /// let x = store.update("b", |old| {
     ///     if let Value::Number(_) = old {
     ///         let n = old.as_i64().unwrap();
@@ -223,7 +223,7 @@ impl LmbStore {
     /// ```rust
     /// # use serde_json::{json, Value};
     /// use lmb::*;
-    /// let store = LmbStore::default();
+    /// let store = Store::default();
     /// store.put("a", &1.into());
     /// let x = store.update("a", |old| {
     ///     if let Value::Number(_) = old {
@@ -243,7 +243,7 @@ impl LmbStore {
         name: S,
         f: impl FnOnce(&mut Value) -> mlua::Result<()>,
         default_v: Option<Value>,
-    ) -> LmbResult<Value> {
+    ) -> Result<Value> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
 
@@ -289,21 +289,21 @@ impl LmbStore {
     }
 }
 
-/// Value meatadata. Value itself is not included intentionally.
-pub struct LmbValueMetadata {
-    /// Name
+/// Value metadata. The value itself is intentionally not included.
+pub struct StoreValueMetadata {
+    /// Name.
     pub name: String,
-    /// Size
+    /// Size in bytes.
     pub size: usize,
-    /// Type
+    /// Type.
     pub type_hint: String,
-    /// Created at
+    /// Timestamp indicating when the value was created in UTC timezone.
     pub created_at: DateTime<Utc>,
-    /// Updated at
+    /// Timestamp indicating when the value was updated in UTC timezone.
     pub updated_at: DateTime<Utc>,
 }
 
-impl Default for LmbStore {
+impl Default for Store {
     fn default() -> Self {
         debug!("open store in memory");
         let conn = Connection::open_in_memory().expect("failed to open SQLite database in memory");
@@ -324,7 +324,7 @@ mod tests {
     use std::{io::empty, thread};
     use test_case::test_case;
 
-    use crate::{EvaluationBuilder, LmbStore};
+    use crate::{EvaluationBuilder, Store};
 
     #[test]
     fn concurrency() {
@@ -334,15 +334,13 @@ mod tests {
         end, 0)
         "#;
 
-        let store = LmbStore::default();
+        let store = Store::default();
 
         let mut threads = vec![];
         for _ in 0..=1000 {
             let store = store.clone();
             threads.push(thread::spawn(move || {
-                let e = EvaluationBuilder::new(script, empty())
-                    .with_store(store)
-                    .build();
+                let e = EvaluationBuilder::new(script, empty()).store(store).build();
                 e.evaluate().unwrap();
             }));
         }
@@ -362,11 +360,11 @@ mod tests {
         return a
         "#;
 
-        let store = LmbStore::default();
+        let store = Store::default();
         store.put("a", &1.23.into()).unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
-            .with_store(store.clone())
+            .store(store.clone())
             .build();
 
         let res = e.evaluate().unwrap();
@@ -377,7 +375,7 @@ mod tests {
 
     #[test]
     fn migrate() {
-        let store = LmbStore::default();
+        let store = Store::default();
         store.migrate(None).unwrap(); // duplicated
         store.current_version().unwrap();
         store.migrate(Some(0)).unwrap();
@@ -386,7 +384,7 @@ mod tests {
     #[test]
     fn new_store() {
         let store_file = NamedTempFile::new("db.sqlite3").unwrap();
-        let store = LmbStore::new(store_file.path()).unwrap();
+        let store = Store::new(store_file.path()).unwrap();
         store.migrate(None).unwrap();
     }
 
@@ -397,7 +395,7 @@ mod tests {
     #[test_case("nf", json!(1.23))]
     #[test_case("s", json!("hello"))]
     fn primitive_types(key: &'static str, value: Value) {
-        let store = LmbStore::default();
+        let store = Store::default();
         store.put(key, &value).unwrap();
         assert_eq!(value, store.get(key).unwrap());
     }
@@ -411,11 +409,11 @@ mod tests {
         return a
         "#;
 
-        let store = LmbStore::default();
+        let store = Store::default();
         store.put("a", &1.into()).unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
-            .with_store(store.clone())
+            .store(store.clone())
             .build();
 
         {
@@ -439,11 +437,11 @@ mod tests {
         end)
         "#;
 
-        let store = LmbStore::default();
+        let store = Store::default();
         store.put("a", &1.into()).unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
-            .with_store(store.clone())
+            .store(store.clone())
             .build();
 
         let res = e.evaluate().unwrap();
@@ -463,11 +461,11 @@ mod tests {
         end, 0)
         "#;
 
-        let store = LmbStore::default();
+        let store = Store::default();
         store.put("a", &1.into()).unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
-            .with_store(store.clone())
+            .store(store.clone())
             .build();
 
         let res = e.evaluate().unwrap();

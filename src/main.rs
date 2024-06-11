@@ -4,9 +4,8 @@ use clio::*;
 use comfy_table::{presets, Table};
 use cron::Schedule;
 use lmb::{
-    check_syntax, render_fullmoon_result, render_script, render_solution, schedule_script,
-    EvaluationBuilder, LmbError, LmbStore, PrintOptions, ScheduleOptions, StoreOptions,
-    DEFAULT_TIMEOUT, EXAMPLES,
+    schedule_script, Error, EvaluationBuilder, LuaCheck, PrintOptions, ScheduleOptions, Store,
+    StoreOptions, DEFAULT_TIMEOUT, EXAMPLES,
 };
 use mlua::prelude::*;
 use serde_json::json;
@@ -187,32 +186,31 @@ enum StoreCommands {
 }
 
 fn do_check_syntax<S: AsRef<str>>(no_color: bool, name: S, script: S) -> anyhow::Result<()> {
-    let res = check_syntax(script.as_ref());
-    if let Err(e) = res {
-        if let Some(message) = render_fullmoon_result(no_color, name, script, &e) {
-            bail!(message);
-        }
-        bail!(e);
+    let check = LuaCheck::new(name, script);
+    if let Err(err) = check.check() {
+        let mut buf = Vec::new();
+        check.render_error(&mut buf, err, no_color)?;
+        bail!(String::from_utf8_lossy(&buf).trim().to_string());
     }
     Ok(())
 }
 
 fn read_script(input: &mut Input) -> anyhow::Result<(String, String)> {
-    let name = input.path().to_string();
+    let name = input.path().to_string_lossy().to_string();
     let mut script = String::new();
     input.read_to_string(&mut script)?;
     Ok((name, script))
 }
 
-fn prepare_store(options: &StoreOptions) -> anyhow::Result<LmbStore> {
+fn prepare_store(options: &StoreOptions) -> anyhow::Result<Store> {
     let store = if let Some(store_path) = &options.store_path {
-        let store = LmbStore::new(store_path)?;
+        let store = Store::new(store_path)?;
         if options.run_migrations {
             store.migrate(None)?;
         }
         store
     } else {
-        LmbStore::default()
+        Store::default()
     };
     Ok(store)
 }
@@ -246,10 +244,8 @@ async fn try_main() -> anyhow::Result<()> {
         .init();
 
     let print_options = PrintOptions {
-        json: cli.json,
         no_color: cli.no_color,
         theme: cli.theme,
-        ..Default::default()
     };
     let store_options = StoreOptions {
         store_path: cli.store_path,
@@ -267,20 +263,21 @@ async fn try_main() -> anyhow::Result<()> {
             }
             let store = prepare_store(&store_options)?;
             let e = EvaluationBuilder::new(&script, io::stdin())
-                .with_name(&name)
-                .with_store(store)
-                .with_timeout(Some(Duration::from_secs(timeout)))
+                .name(&name)
+                .store(store)
+                .timeout(Some(Duration::from_secs(timeout)))
                 .build();
-            let res = e.evaluate();
             let mut buf = String::new();
-            match render_solution(&mut buf, name, script, res, &print_options) {
-                Ok(_) => {
+            match e.evaluate() {
+                Ok(s) => {
+                    s.render(&mut buf, cli.json)?;
                     print!("{buf}");
                     Ok(())
                 }
-                Err(e) => {
+                Err(err) => {
+                    err.write_lua_error(&mut buf, &e, cli.no_color)?;
                     eprint!("{buf}");
-                    Err(e.into())
+                    Err(err.into())
                 }
             }
         }
@@ -290,7 +287,8 @@ async fn try_main() -> anyhow::Result<()> {
             };
             let script = &found.script.trim();
             let mut buf = String::new();
-            render_script(&mut buf, script, &print_options)?;
+            let e = EvaluationBuilder::new(script, io::stdin()).build();
+            e.write_script(&mut buf, &print_options)?;
             println!("{buf}");
             Ok(())
         }
@@ -301,19 +299,20 @@ async fn try_main() -> anyhow::Result<()> {
             let script = found.script.trim();
             let store = prepare_store(&store_options)?;
             let e = EvaluationBuilder::new(script, io::stdin())
-                .with_name(name.as_str())
-                .with_store(store)
+                .name(name.as_str())
+                .store(store)
                 .build();
-            let res = e.evaluate();
             let mut buf = String::new();
-            match render_solution(&mut buf, name, script.to_string(), res, &print_options) {
-                Ok(_) => {
+            match e.evaluate() {
+                Ok(s) => {
+                    s.render(&mut buf, cli.json)?;
                     print!("{buf}");
                     Ok(())
                 }
-                Err(e) => {
+                Err(err) => {
+                    err.write_lua_error(&mut buf, &e, cli.no_color)?;
                     eprint!("{buf}");
-                    Err(e.into())
+                    Err(err.into())
                 }
             }
         }
@@ -401,7 +400,7 @@ async fn try_main() -> anyhow::Result<()> {
             let Some(store_path) = &store_options.store_path else {
                 bail!("store_path is required");
             };
-            let store = LmbStore::new(store_path)?;
+            let store = Store::new(store_path)?;
             if store_options.run_migrations {
                 store.migrate(None)?;
             }
@@ -467,9 +466,9 @@ async fn try_main() -> anyhow::Result<()> {
 #[tokio::main]
 async fn main() -> ExitCode {
     if let Err(e) = try_main().await {
-        match e.downcast_ref::<LmbError>() {
+        match e.downcast_ref::<Error>() {
             // the following errors are handled, do nothing
-            Some(&LmbError::Lua(LuaError::RuntimeError(_) | LuaError::SyntaxError { .. })) => {}
+            Some(&Error::Lua(LuaError::RuntimeError(_) | LuaError::SyntaxError { .. })) => {}
             _ => eprintln!("{e}"),
         }
         return ExitCode::FAILURE;

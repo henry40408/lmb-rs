@@ -2,9 +2,9 @@ use mlua::prelude::*;
 use serde_json::Value;
 
 /// JSON module
-pub struct LuaLmbJSON {}
+pub struct LuaModJSON {}
 
-impl LuaUserData for LuaLmbJSON {
+impl LuaUserData for LuaModJSON {
     fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method("decode", |vm, _, value: String| {
             vm.to_value(&serde_json::from_str::<Value>(&value).into_lua_err()?)

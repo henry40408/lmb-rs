@@ -1,34 +1,125 @@
+use std::{fmt::Write, io::Read};
+
+use ariadne::{CharSet, ColorGenerator, Label, Report, ReportKind, Source};
+use fancy_regex::Regex;
 use mlua::prelude::*;
+use once_cell::sync::Lazy;
 use thiserror::Error;
 
-/// Lmb error.
+use crate::{Evaluation, Result};
+
+static LUA_ERROR_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\[[^\]]+\]:(\d+):(.+)")
+        .expect("failed to compile regular expression for Lua error message")
+});
+
+/// Error type.
 #[derive(Debug, Error)]
-pub enum LmbError {
-    /// Error from [`bat`].
+pub enum Error {
+    /// Error from [`bat`]
     #[error("bat error: {0}")]
     Bat(#[from] bat::error::Error),
-    /// Error from database.
+    /// Error from database
     #[error("sqlite error: {0}")]
     Database(#[from] rusqlite::Error),
-    /// Error from database migration.
+    /// Error from database migration
     #[error("migration error: {0}")]
     DatabaseMigration(#[from] rusqlite_migration::Error),
-    /// Format error.
+    /// Format error
     #[error("format error: {0}")]
     Format(#[from] std::fmt::Error),
     /// Invalid key length for HMAC
     #[error("invalid length: {0}")]
     InvalidLength(#[from] crypto_common::InvalidLength),
-    /// Error from Lua engine.
+    /// IO error
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    /// Error from Lua engine
     #[error("lua error: {0}")]
     Lua(#[from] LuaError),
-    /// Error when decoding store value from message pack.
+    /// Error when decoding store value from message pack
     #[error("RMP decode error: {0}")]
     RMPDecode(#[from] rmp_serde::decode::Error),
-    /// Error when encoding store value to message pack.
+    /// Error when encoding store value to message pack
     #[error("RMP encode error: {0}")]
     RMPEncode(#[from] rmp_serde::encode::Error),
-    /// Error from [`serde_json`].
+    /// Error from [`serde_json`]
     #[error("serde JSON error: {0}")]
     SerdeJSONError(#[from] serde_json::Error),
+}
+
+impl Error {
+    /// Render Lua runtime or syntax error
+    pub fn write_lua_error<R, W>(&self, mut f: W, e: &Evaluation<R>, no_color: bool) -> Result<()>
+    where
+        for<'lua> R: 'lua + Read,
+        W: Write,
+    {
+        let message = match self {
+            Self::Lua(LuaError::RuntimeError(message) | LuaError::SyntaxError { message, .. }) => {
+                message
+            }
+            _ => return Ok(()),
+        };
+
+        let first_line = message.lines().next().unwrap_or_default();
+        let Ok(Some(captures)) = LUA_ERROR_REGEX.captures(first_line) else {
+            return Ok(write!(f, "{}", first_line)?);
+        };
+
+        let Some(line_number) = captures
+            .get(1)
+            .and_then(|n| n.as_str().parse::<usize>().ok())
+        else {
+            return Ok(write!(f, "{}", first_line)?);
+        };
+
+        let mut colors = ColorGenerator::new();
+
+        let source = Source::from(&e.script);
+        let line = source
+            .line(line_number - 1) // index, not line number
+            .expect("cannot find line in source");
+        let span = line.span();
+
+        let name = &e.name;
+        let message = captures.get(2).map_or(first_line, |s| s.as_str().trim());
+        let mut buf = Vec::new();
+        Report::build(ReportKind::Error, name, span.start)
+            .with_config(
+                ariadne::Config::default()
+                    .with_char_set(CharSet::Ascii)
+                    .with_compact(true)
+                    .with_color(!no_color),
+            )
+            .with_label(
+                Label::new((name, span))
+                    .with_color(colors.next())
+                    .with_message(message),
+            )
+            .with_message(message)
+            .finish()
+            .write((name, source), &mut buf)?;
+        write!(f, "{}", String::from_utf8_lossy(&buf))?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::empty;
+
+    use crate::EvaluationBuilder;
+
+    #[test]
+    fn render_error() {
+        let script = "return nil+1";
+        let e = EvaluationBuilder::new(script, empty()).build();
+        let Err(err) = e.evaluate() else {
+            panic!("expect error");
+        };
+        let mut buf = String::new();
+        err.write_lua_error(&mut buf, &e, true).unwrap();
+        assert!(buf.contains("attempt to perform arithmetic (add) on nil and number"));
+    }
 }

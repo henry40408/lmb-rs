@@ -11,7 +11,7 @@ fn check_stdin_syntax_error() {
     cmd.args(["--no-color", "check", "--file", "-"]);
     cmd.assert().failure().stderr(
         r#"Error: leftover token
-   ,-["-":1:1]
+   ,-[-:1:1]
  1 |ret true
    | `-- leftover token
 "#,
@@ -25,7 +25,7 @@ fn check_stdin_tokenizer_error() {
     cmd.args(["--no-color", "check", "--file", "-"]);
     cmd.assert().failure().stderr(
         r#"Error: unexpected character !
-   ,-["-":1:8]
+   ,-[-:1:8]
  1 |return !true
    |       `- unexpected character !
 "#,

@@ -1,7 +1,15 @@
+use bat::{
+    assets::HighlightingAssets,
+    controller::Controller,
+    input::Input as BatInput,
+    style::{StyleComponent, StyleComponents},
+};
+use console::Term;
 use mlua::{prelude::*, Compiler};
 use parking_lot::Mutex;
 use serde_json::Value;
 use std::{
+    fmt::Write,
     io::{BufReader, Read},
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -11,7 +19,7 @@ use std::{
 };
 use tracing::{debug, trace_span};
 
-use crate::{LmbInput, LmbResult, LmbState, LmbStore, LuaBinding, DEFAULT_TIMEOUT};
+use crate::{Input, LuaBinding, PrintOptions, Result, State, Store, DEFAULT_TIMEOUT};
 
 /// Evaluation builder.
 pub struct EvaluationBuilder<R>
@@ -25,7 +33,7 @@ where
     /// Lua script in plain text.
     pub script: String,
     /// Store that persists data across each execution.
-    pub store: Option<LmbStore>,
+    pub store: Option<Store>,
     /// Execution timeout.
     pub timeout: Option<Duration>,
 }
@@ -59,9 +67,9 @@ where
     /// # use parking_lot::Mutex;
     /// use lmb::*;
     /// let input = Arc::new(Mutex::new(BufReader::new(empty())));
-    /// let _ = EvaluationBuilder::new_with_reader("", input);
+    /// let _ = EvaluationBuilder::with_reader("", input);
     /// ```
-    pub fn new_with_reader<S: AsRef<str>>(script: S, input: Arc<Mutex<BufReader<R>>>) -> Self {
+    pub fn with_reader<S: AsRef<str>>(script: S, input: Arc<Mutex<BufReader<R>>>) -> Self {
         Self {
             input,
             name: None,
@@ -77,10 +85,10 @@ where
     /// ```rust
     /// # use std::io::empty;
     /// use lmb::*;
-    /// let _ = EvaluationBuilder::new("", empty()).with_default_store();
+    /// let _ = EvaluationBuilder::new("", empty()).default_store();
     /// ```
-    pub fn with_default_store(mut self) -> Self {
-        self.store = Some(LmbStore::default());
+    pub fn default_store(mut self) -> Self {
+        self.store = Some(Store::default());
         self
     }
 
@@ -89,10 +97,23 @@ where
     /// ```rust
     /// # use std::io::empty;
     /// use lmb::*;
-    /// let _ = EvaluationBuilder::new("", empty()).with_name("script");
+    /// let _ = EvaluationBuilder::new("", empty()).name("script");
     /// ```
-    pub fn with_name<S: AsRef<str>>(mut self, name: S) -> Self {
+    pub fn name<S: AsRef<str>>(mut self, name: S) -> Self {
         self.name = Some(name.as_ref().to_string());
+        self
+    }
+
+    /// Attach a store to the function.
+    ///
+    /// ```rust
+    /// # use std::io::empty;
+    /// use lmb::*;
+    /// let store = Store::default();
+    /// let _ = EvaluationBuilder::new("", empty()).store(store);
+    /// ```
+    pub fn store(mut self, store: Store) -> Self {
+        self.store = Some(store);
         self
     }
 
@@ -102,23 +123,10 @@ where
     /// # use std::{io::empty, time::Duration};
     /// use lmb::*;
     /// let timeout = Duration::from_secs(30);
-    /// let _ = EvaluationBuilder::new("", empty()).with_timeout(Some(timeout));
+    /// let _ = EvaluationBuilder::new("", empty()).timeout(Some(timeout));
     /// ```
-    pub fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
+    pub fn timeout(mut self, timeout: Option<Duration>) -> Self {
         self.timeout = timeout;
-        self
-    }
-
-    /// Attach a store to the function.
-    ///
-    /// ```rust
-    /// # use std::io::empty;
-    /// use lmb::*;
-    /// let store = LmbStore::default();
-    /// let _ = EvaluationBuilder::new("", empty()).with_store(store);
-    /// ```
-    pub fn with_store(mut self, store: LmbStore) -> Self {
-        self.store = Some(store);
         self
     }
 
@@ -127,7 +135,7 @@ where
     ///
     /// <div class="warning">However, this function won't check syntax of Lua script.</div>
     ///
-    /// The syntax of Lua script could be checked with [`crate::check_syntax`].
+    /// The syntax of Lua script could be checked with [`crate::LuaCheck`].
     ///
     /// ```rust
     /// # use std::io::empty;
@@ -152,6 +160,7 @@ where
             compiled,
             input: self.input,
             name: self.name.unwrap_or_default(),
+            script: self.script,
             store: self.store,
             timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
             vm,
@@ -174,15 +183,39 @@ where
     pub payload: Value,
 }
 
+impl<R> Solution<R>
+where
+    for<'lua> R: 'lua + Read,
+{
+    /// Render the solution.
+    pub fn render<W>(&self, mut f: W, json: bool) -> Result<()>
+    where
+        W: Write,
+    {
+        if json {
+            let res = serde_json::to_string(&self.payload)?;
+            Ok(write!(f, "{}", res)?)
+        } else {
+            match &self.payload {
+                Value::String(s) => Ok(write!(f, "{}", s)?),
+                _ => Ok(write!(f, "{}", self.payload)?),
+            }
+        }
+    }
+}
+
 /// A container that holds the compiled function and input for evaluation.
 pub struct Evaluation<R>
 where
     for<'lua> R: 'lua + Read,
 {
+    /// Source code of script.
+    pub script: String,
+    /// Name.
+    pub name: String,
     compiled: Vec<u8>,
-    input: LmbInput<R>,
-    name: String,
-    store: Option<LmbStore>,
+    input: Input<R>,
+    store: Option<Store>,
     timeout: Duration,
     vm: Lua,
 }
@@ -201,7 +234,7 @@ where
     /// let res = e.evaluate().unwrap();
     /// assert_eq!(json!(2), res.payload);
     /// ```
-    pub fn evaluate(self: &Arc<Self>) -> LmbResult<Solution<R>> {
+    pub fn evaluate(self: &Arc<Self>) -> Result<Solution<R>> {
         self.do_evaluate(None)
     }
 
@@ -212,13 +245,39 @@ where
     /// # use serde_json::json;
     /// use lmb::*;
     /// let e = EvaluationBuilder::new("return 1+1", empty()).build();
-    /// let state = Arc::new(LmbState::new());
-    /// state.insert(LmbStateKey::from("bool"), true.into());
+    /// let state = Arc::new(State::new());
+    /// state.insert(StateKey::from("bool"), true.into());
     /// let res = e.evaluate_with_state(state).unwrap();
     /// assert_eq!(json!(2), res.payload);
     /// ```
-    pub fn evaluate_with_state(self: &Arc<Self>, state: Arc<LmbState>) -> LmbResult<Solution<R>> {
+    pub fn evaluate_with_state(self: &Arc<Self>, state: Arc<State>) -> Result<Solution<R>> {
         self.do_evaluate(Some(state))
+    }
+
+    /// Render the script.
+    pub fn write_script<W>(&self, mut f: W, options: &PrintOptions) -> Result<bool>
+    where
+        W: Write,
+    {
+        let components = &[StyleComponent::Grid, StyleComponent::LineNumbers];
+        let style_components = StyleComponents::new(components);
+        let mut config = bat::config::Config {
+            colored_output: !options.no_color,
+            language: Some("lua"),
+            style_components,
+            true_color: true,
+            // required to print line numbers
+            term_width: Term::stdout().size().1 as usize,
+            ..Default::default()
+        };
+        if let Some(theme) = &options.theme {
+            config.theme.clone_from(theme);
+        }
+        let assets = HighlightingAssets::from_binary();
+        let reader = Box::new(self.script.as_bytes());
+        let inputs = vec![BatInput::from_reader(reader)];
+        let controller = Controller::new(&config, &assets);
+        Ok(controller.run(inputs, Some(&mut f))?)
     }
 
     /// Replace the function input after the container is built.
@@ -243,7 +302,7 @@ where
         *self.input.lock() = BufReader::new(input);
     }
 
-    fn do_evaluate(self: &Arc<Self>, state: Option<Arc<LmbState>>) -> LmbResult<Solution<R>> {
+    fn do_evaluate(self: &Arc<Self>, state: Option<Arc<State>>) -> Result<Solution<R>> {
         let vm = &self.vm;
         if state.is_some() {
             LuaBinding::register(vm, self.input.clone(), self.store.clone(), state)?;
@@ -296,7 +355,7 @@ mod tests {
     };
     use test_case::test_case;
 
-    use crate::{EvaluationBuilder, LmbState, LmbStateKey};
+    use crate::{EvaluationBuilder, State, StateKey};
 
     #[test_case("./lua-examples/error.lua")]
     fn error_in_script(path: &str) {
@@ -315,7 +374,7 @@ mod tests {
     fn evaluate_examples(filename: &str, input: &'static str, expected: Value) {
         let script = fs::read_to_string(format!("./lua-examples/{filename}")).unwrap();
         let e = EvaluationBuilder::new(&script, input.as_bytes())
-            .with_default_store()
+            .default_store()
             .build();
         let res = e.evaluate().unwrap();
         assert_eq!(expected, res.payload);
@@ -327,7 +386,7 @@ mod tests {
         let timeout = Duration::from_millis(100);
 
         let e = EvaluationBuilder::new(r#"while true do end"#, empty())
-            .with_timeout(Some(timeout))
+            .timeout(Some(timeout))
             .build();
         let res = e.evaluate();
         assert!(res.is_err());
@@ -359,6 +418,16 @@ mod tests {
     }
 
     #[test]
+    fn render_solution() {
+        let script = "return 1+1";
+        let e = EvaluationBuilder::new(script, empty()).build();
+        let solution = e.evaluate().unwrap();
+        let mut buf = String::new();
+        solution.render(&mut buf, false).unwrap();
+        assert_eq!("2", buf);
+    }
+
+    #[test]
     fn replace_input() {
         let script = "return io.read('*a')";
         let e = EvaluationBuilder::new(script, &b"0"[..]).build();
@@ -382,7 +451,7 @@ mod tests {
     #[test]
     fn with_bufreader() {
         let input = Arc::new(Mutex::new(BufReader::new(empty())));
-        let e = EvaluationBuilder::new_with_reader("return nil", input.clone()).build();
+        let e = EvaluationBuilder::with_reader("return nil", input.clone()).build();
         let res = e.evaluate().unwrap();
         assert_eq!(json!(null), res.payload);
         let _input = input;
@@ -391,13 +460,13 @@ mod tests {
     #[test]
     fn with_state() {
         let e = EvaluationBuilder::new(r#"return require("@lmb").request"#, empty()).build();
-        let state = Arc::new(LmbState::new());
-        state.insert(LmbStateKey::Request, 1.into());
+        let state = Arc::new(State::new());
+        state.insert(StateKey::Request, 1.into());
         {
             let res = e.evaluate_with_state(state.clone()).unwrap();
             assert_eq!(json!(1), res.payload);
         }
-        state.insert(LmbStateKey::Request, 2.into());
+        state.insert(StateKey::Request, 2.into());
         {
             let res = e.evaluate_with_state(state.clone()).unwrap();
             assert_eq!(json!(2), res.payload);

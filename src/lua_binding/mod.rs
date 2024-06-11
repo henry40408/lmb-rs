@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::{LmbInput, LmbResult, LmbState, LmbStateKey, LmbStore};
+use crate::{Input, Result, State, StateKey, Store};
 
 use crypto::*;
 use http::*;
@@ -20,21 +20,21 @@ mod read;
 // ref: https://www.lua.org/pil/8.1.html
 const K_LOADED: &str = "_LOADED";
 
-/// Interface of Lmb between Lua and Rust.
+/// Interface between Lua and Rust.
 pub struct LuaBinding<R>
 where
     R: Read,
 {
-    input: LmbInput<R>,
-    state: Option<Arc<LmbState>>,
-    store: Option<LmbStore>,
+    input: Input<R>,
+    state: Option<Arc<State>>,
+    store: Option<Store>,
 }
 
 impl<R> LuaBinding<R>
 where
     for<'lua> R: 'lua + Read + Send,
 {
-    /// Create a new instance of interface with input [`LmbInput`] and store [`LmbStore`].
+    /// Create a new instance of interface with input [`Input`] and store [`Store`].
     ///
     /// <div class="warning">Export for benchmarking, but end-user should not directly use it.</div>
     ///
@@ -43,10 +43,10 @@ where
     /// # use parking_lot::Mutex;
     /// use lmb::*;
     /// let input = Arc::new(Mutex::new(BufReader::new(Cursor::new("0"))));
-    /// let store = LmbStore::default();
+    /// let store = Store::default();
     /// let _ = LuaBinding::new(input, Some(store), None);
     /// ```
-    pub fn new(input: LmbInput<R>, store: Option<LmbStore>, state: Option<Arc<LmbState>>) -> Self {
+    pub fn new(input: Input<R>, store: Option<Store>, state: Option<Arc<State>>) -> Self {
         Self {
             input,
             state,
@@ -63,15 +63,15 @@ where
     /// use lmb::*;
     /// let vm = Lua::new();
     /// let input = Arc::new(Mutex::new(BufReader::new(Cursor::new("0"))));
-    /// let store = LmbStore::default();
+    /// let store = Store::default();
     /// let _ = LuaBinding::register(&vm, input, Some(store), None);
     /// ```
     pub fn register(
         vm: &Lua,
-        input: LmbInput<R>,
-        store: Option<LmbStore>,
-        state: Option<Arc<LmbState>>,
-    ) -> LmbResult<()> {
+        input: Input<R>,
+        store: Option<Store>,
+        state: Option<Arc<State>>,
+    ) -> Result<()> {
         let io_table = vm.create_table()?;
 
         let read_fn = vm.create_function({
@@ -96,9 +96,9 @@ where
 
         let loaded = vm.named_registry_value::<LuaTable<'_>>(K_LOADED)?;
         loaded.set("@lmb", Self::new(input, store, state))?;
-        loaded.set("@lmb/crypto", LuaLmbCrypto {})?;
-        loaded.set("@lmb/http", LuaLmbHTTP {})?;
-        loaded.set("@lmb/json", LuaLmbJSON {})?;
+        loaded.set("@lmb/crypto", LuaModCrypto {})?;
+        loaded.set("@lmb/http", LuaModHTTP {})?;
+        loaded.set("@lmb/json", LuaModJSON {})?;
         vm.set_named_registry_value(K_LOADED, loaded)?;
 
         Ok(())
@@ -189,28 +189,20 @@ where
     fn add_fields<'lua, F: LuaUserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field("_VERSION", env!("APP_VERSION"));
         fields.add_field_method_get("request", |vm, this| {
-            let Some(v) = this
-                .state
-                .as_ref()
-                .and_then(|m| m.get(&LmbStateKey::Request))
-            else {
+            let Some(v) = this.state.as_ref().and_then(|m| m.get(&StateKey::Request)) else {
                 return Ok(LuaNil);
             };
             vm.to_value(&*v)
         });
         fields.add_field_method_get("response", |vm, this| {
-            let Some(v) = this
-                .state
-                .as_ref()
-                .and_then(|m| m.get(&LmbStateKey::Response))
-            else {
+            let Some(v) = this.state.as_ref().and_then(|m| m.get(&StateKey::Response)) else {
                 return Ok(LuaNil);
             };
             vm.to_value(&*v)
         });
         fields.add_field_method_set("response", |vm, this, value: LuaValue<'lua>| {
             if let Some(v) = this.state.as_ref() {
-                v.insert(LmbStateKey::Response, vm.from_value(value)?);
+                v.insert(StateKey::Response, vm.from_value(value)?);
             }
             Ok(())
         });
