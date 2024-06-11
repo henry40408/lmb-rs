@@ -1,4 +1,4 @@
-#![deny(missing_docs)]
+#![deny(missing_debug_implementations, missing_docs)]
 
 //! A Lua function runner.
 
@@ -28,20 +28,22 @@ mod store;
 /// Default timeout for evaluation in seconds.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Directory containing migration files.
 static MIGRATIONS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/migrations");
 
+/// Migrations for the `SQLite` database.
 static MIGRATIONS: Lazy<Migrations<'static>> = Lazy::new(|| {
     Migrations::from_directory(&MIGRATIONS_DIR)
         .expect("failed to load migrations from the directory")
 });
 
-/// Function input.
+/// Function input, wrapped in an Arc and Mutex for thread safety.
 pub type Input<R> = Arc<Mutex<BufReader<R>>>;
 
-/// Generic result type of the function runner.
+/// Generic result type for the function runner.
 pub type Result<T> = StdResult<T, Error>;
 
-/// State key.
+/// Enum representing different state keys.
 #[derive(Debug, Eq, Hash, PartialEq)]
 pub enum StateKey {
     /// HTTP request object
@@ -56,25 +58,26 @@ impl<S> From<S> for StateKey
 where
     S: AsRef<str>,
 {
+    /// Converts a type that can be referenced as a string into a [`StateKey`].
     fn from(value: S) -> Self {
         Self::String(value.as_ref().to_string())
     }
 }
 
-/// State of each evaluation.
+/// State of each evaluation, using a [`dashmap::DashMap`].
 pub type State = DashMap<StateKey, serde_json::Value>;
 
-/// Options to print script.
+/// Options for printing scripts.
 #[derive(Debug, Default)]
 pub struct PrintOptions {
-    /// No colors <https://no-color.org/>.
+    /// No colors (see <https://no-color.org/>).
     pub no_color: bool,
-    /// Theme.
+    /// Theme for printing.
     pub theme: Option<String>,
 }
 
 impl PrintOptions {
-    /// Disable colored output.
+    /// Creates a [`PrintOptions`] instance with colored output disabled.
     pub fn no_color() -> Self {
         Self {
             no_color: true,
@@ -85,26 +88,24 @@ impl PrintOptions {
 
 #[cfg(test)]
 mod tests {
+    use crate::{EvaluationBuilder, StateKey, Store, MIGRATIONS};
+    use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
+    use serde_json::json;
     use std::io::empty;
 
-    use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag, TagEnd};
-    use serde_json::json;
-
-    use crate::{EvaluationBuilder, StateKey, Store, MIGRATIONS};
-
     #[test]
-    fn lua_doc() {
-        let value = include_str!("../docs/lua.md");
-        let parser = Parser::new(value);
-
+    fn test_evaluation() {
+        let markdown = include_str!("../docs/lua.md");
         let blocks = {
-            let mut blocks = vec![];
-            let mut text = String::new();
+            let mut blocks = Vec::new();
+            let parser = Parser::new_ext(markdown, Options::all());
             let mut is_code = false;
+            let mut text = String::new();
+
             for event in parser {
                 match event {
-                    Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(l))) => {
-                        if l.to_string() == "lua" {
+                    Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(ref lang))) => {
+                        if lang.to_string() == "lua" {
                             is_code = true;
                         }
                     }

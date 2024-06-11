@@ -1,18 +1,17 @@
+use ariadne::{CharSet, ColorGenerator, Config, Label, Report, ReportKind, Source};
 use std::io::{Error as IoError, Write};
 
-use ariadne::{CharSet, ColorGenerator, Config, Label, Report, ReportKind, Source};
-
-/// Container of the script for syntax checking.
+/// Container for the script used for syntax checking.
 #[derive(Debug)]
 pub struct LuaCheck {
-    /// Name.
+    /// Name of the script.
     pub name: String,
-    /// Script.
+    /// The script content.
     pub script: String,
 }
 
 impl LuaCheck {
-    /// Create a new container.
+    /// Create a new [`LuaCheck`] container.
     pub fn new<S>(name: S, script: S) -> Self
     where
         S: AsRef<str>,
@@ -23,12 +22,27 @@ impl LuaCheck {
         }
     }
 
-    /// Check syntax of script.
+    /// Check the syntax of the script.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the script contains syntax errors.
+    ///
+    /// ```rust
+    /// use lmb::LuaCheck;
+    ///
+    /// let check = LuaCheck::new("", "ret true");
+    /// assert!(check.check().is_err());
+    /// ```
     pub fn check(&self) -> Result<full_moon::ast::Ast, full_moon::Error> {
         full_moon::parse(self.script.as_ref())
     }
 
-    /// Render error from [`full_moon`].
+    /// Render an error from [`full_moon`] to a writer.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an [`std::io::Error`] if there is an issue writing the error to the provided writer.
     pub fn write_error<W>(
         &self,
         mut f: W,

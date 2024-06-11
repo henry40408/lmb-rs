@@ -357,7 +357,7 @@ pub struct StoreValueMetadata {
 }
 
 impl Default for Store {
-    /// Open and initialize a ``SQLite`` database in memory.
+    /// Open and initialize a `SQLite` database in memory.
     fn default() -> Self {
         debug!("open store in memory");
         let conn = Connection::open_in_memory().expect("failed to open SQLite database in memory");
