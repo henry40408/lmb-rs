@@ -7,7 +7,7 @@ use include_dir::{include_dir, Dir};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use rusqlite_migration::Migrations;
-use std::{io::BufReader, sync::Arc, time::Duration};
+use std::{io::BufReader, result::Result as StdResult, sync::Arc, time::Duration};
 
 pub use check::*;
 pub use error::*;
@@ -36,14 +36,14 @@ static MIGRATIONS: Lazy<Migrations<'static>> = Lazy::new(|| {
 });
 
 /// Function input.
-pub type LmbInput<R> = Arc<Mutex<BufReader<R>>>;
+pub type Input<R> = Arc<Mutex<BufReader<R>>>;
 
 /// Generic result type of Lmb.
-pub type LmbResult<T> = Result<T, LmbError>;
+pub type Result<T> = StdResult<T, Error>;
 
 /// State key.
 #[derive(Hash, PartialEq, Eq)]
-pub enum LmbStateKey {
+pub enum StateKey {
     /// HTTP request object
     Request,
     /// HTTP response object
@@ -52,7 +52,7 @@ pub enum LmbStateKey {
     String(String),
 }
 
-impl<S> From<S> for LmbStateKey
+impl<S> From<S> for StateKey
 where
     S: AsRef<str>,
 {
@@ -62,7 +62,7 @@ where
 }
 
 /// State of each evaluation.
-pub type LmbState = DashMap<LmbStateKey, serde_json::Value>;
+pub type State = DashMap<StateKey, serde_json::Value>;
 
 /// Options to print script.
 pub struct PrintOptions {
@@ -79,7 +79,7 @@ mod tests {
     use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag, TagEnd};
     use serde_json::json;
 
-    use crate::{EvaluationBuilder, LmbStateKey, LmbStore, MIGRATIONS};
+    use crate::{EvaluationBuilder, StateKey, Store, MIGRATIONS};
 
     #[test]
     fn lua_doc() {
@@ -141,7 +141,7 @@ mod tests {
 
         for block in blocks {
             let block = block.replace("https://httpbin.org", &server.url());
-            let store = LmbStore::default();
+            let store = Store::default();
             let e = EvaluationBuilder::new(&block, empty()).store(store).build();
             e.evaluate().unwrap();
         }
@@ -157,6 +157,6 @@ mod tests {
 
     #[test]
     fn state_key_from_str() {
-        let _ = LmbStateKey::from("key");
+        let _ = StateKey::from("key");
     }
 }

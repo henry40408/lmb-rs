@@ -13,21 +13,21 @@ use ureq::Request;
 use url::Url;
 
 use super::{lua_lmb_read, lua_lmb_read_unicode};
-use crate::LmbInput;
+use crate::Input;
 
 /// HTTP module
-pub struct LuaLmbHTTP {}
+pub struct LuaModHTTP {}
 
 /// HTTP response
-pub struct LuaLmbHTTPResponse {
+pub struct LuaModHTTPResponse {
     charset: String,
     content_type: String,
     headers: HashMap<String, Vec<String>>,
-    reader: LmbInput<Box<dyn Read + Send + Sync + 'static>>,
+    reader: Input<Box<dyn Read + Send + Sync + 'static>>,
     status_code: StatusCode,
 }
 
-impl LuaUserData for LuaLmbHTTPResponse {
+impl LuaUserData for LuaModHTTPResponse {
     fn add_fields<'lua, F: LuaUserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_method_get("charset", |_, this| Ok(this.charset.clone()));
         fields.add_field_method_get("content_type", |_, this| Ok(this.content_type.clone()));
@@ -72,9 +72,9 @@ fn set_headers(req: Request, headers: &Value) -> Request {
 
 fn lua_lmb_fetch(
     vm: &Lua,
-    _: &LuaLmbHTTP,
+    _: &LuaModHTTP,
     (uri, options): (String, Option<LuaTable<'_>>),
-) -> LuaResult<LuaLmbHTTPResponse> {
+) -> LuaResult<LuaModHTTPResponse> {
     let options = options.as_ref();
     let url: Url = uri.parse().into_lua_err()?;
     let method: String = options
@@ -119,7 +119,7 @@ fn lua_lmb_fetch(
     let status_code = StatusCode::from_u16(res.status()).into_lua_err()?;
     trace!(%status_code, charset, content_type, "response");
     let reader = Arc::new(Mutex::new(BufReader::new(res.into_reader())));
-    Ok(LuaLmbHTTPResponse {
+    Ok(LuaModHTTPResponse {
         charset,
         content_type,
         headers,
@@ -128,7 +128,7 @@ fn lua_lmb_fetch(
     })
 }
 
-impl LuaUserData for LuaLmbHTTP {
+impl LuaUserData for LuaModHTTP {
     fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method("fetch", lua_lmb_fetch);
     }

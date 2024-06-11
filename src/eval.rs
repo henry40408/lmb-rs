@@ -1,7 +1,7 @@
 use bat::{
     assets::HighlightingAssets,
     controller::Controller,
-    input::Input,
+    input::Input as BatInput,
     style::{StyleComponent, StyleComponents},
 };
 use console::Term;
@@ -19,7 +19,7 @@ use std::{
 };
 use tracing::{debug, trace_span};
 
-use crate::{LmbInput, LmbResult, LmbState, LmbStore, LuaBinding, PrintOptions, DEFAULT_TIMEOUT};
+use crate::{Input, LuaBinding, PrintOptions, Result, State, Store, DEFAULT_TIMEOUT};
 
 /// Evaluation builder.
 pub struct EvaluationBuilder<R>
@@ -33,7 +33,7 @@ where
     /// Lua script in plain text.
     pub script: String,
     /// Store that persists data across each execution.
-    pub store: Option<LmbStore>,
+    pub store: Option<Store>,
     /// Execution timeout.
     pub timeout: Option<Duration>,
 }
@@ -88,7 +88,7 @@ where
     /// let _ = EvaluationBuilder::new("", empty()).default_store();
     /// ```
     pub fn default_store(mut self) -> Self {
-        self.store = Some(LmbStore::default());
+        self.store = Some(Store::default());
         self
     }
 
@@ -109,10 +109,10 @@ where
     /// ```rust
     /// # use std::io::empty;
     /// use lmb::*;
-    /// let store = LmbStore::default();
+    /// let store = Store::default();
     /// let _ = EvaluationBuilder::new("", empty()).store(store);
     /// ```
-    pub fn store(mut self, store: LmbStore) -> Self {
+    pub fn store(mut self, store: Store) -> Self {
         self.store = Some(store);
         self
     }
@@ -188,7 +188,7 @@ where
     for<'lua> R: 'lua + Read,
 {
     /// Render the solution.
-    pub fn render<W>(&self, mut f: W, json: bool) -> LmbResult<()>
+    pub fn render<W>(&self, mut f: W, json: bool) -> Result<()>
     where
         W: Write,
     {
@@ -214,8 +214,8 @@ where
     /// Name.
     pub name: String,
     compiled: Vec<u8>,
-    input: LmbInput<R>,
-    store: Option<LmbStore>,
+    input: Input<R>,
+    store: Option<Store>,
     timeout: Duration,
     vm: Lua,
 }
@@ -234,7 +234,7 @@ where
     /// let res = e.evaluate().unwrap();
     /// assert_eq!(json!(2), res.payload);
     /// ```
-    pub fn evaluate(self: &Arc<Self>) -> LmbResult<Solution<R>> {
+    pub fn evaluate(self: &Arc<Self>) -> Result<Solution<R>> {
         self.do_evaluate(None)
     }
 
@@ -245,17 +245,17 @@ where
     /// # use serde_json::json;
     /// use lmb::*;
     /// let e = EvaluationBuilder::new("return 1+1", empty()).build();
-    /// let state = Arc::new(LmbState::new());
-    /// state.insert(LmbStateKey::from("bool"), true.into());
+    /// let state = Arc::new(State::new());
+    /// state.insert(StateKey::from("bool"), true.into());
     /// let res = e.evaluate_with_state(state).unwrap();
     /// assert_eq!(json!(2), res.payload);
     /// ```
-    pub fn evaluate_with_state(self: &Arc<Self>, state: Arc<LmbState>) -> LmbResult<Solution<R>> {
+    pub fn evaluate_with_state(self: &Arc<Self>, state: Arc<State>) -> Result<Solution<R>> {
         self.do_evaluate(Some(state))
     }
 
     /// Render the script.
-    pub fn write_script<W>(&self, mut f: W, options: &PrintOptions) -> LmbResult<bool>
+    pub fn write_script<W>(&self, mut f: W, options: &PrintOptions) -> Result<bool>
     where
         W: Write,
     {
@@ -275,7 +275,7 @@ where
         }
         let assets = HighlightingAssets::from_binary();
         let reader = Box::new(self.script.as_bytes());
-        let inputs = vec![Input::from_reader(reader)];
+        let inputs = vec![BatInput::from_reader(reader)];
         let controller = Controller::new(&config, &assets);
         Ok(controller.run(inputs, Some(&mut f))?)
     }
@@ -302,7 +302,7 @@ where
         *self.input.lock() = BufReader::new(input);
     }
 
-    fn do_evaluate(self: &Arc<Self>, state: Option<Arc<LmbState>>) -> LmbResult<Solution<R>> {
+    fn do_evaluate(self: &Arc<Self>, state: Option<Arc<State>>) -> Result<Solution<R>> {
         let vm = &self.vm;
         if state.is_some() {
             LuaBinding::register(vm, self.input.clone(), self.store.clone(), state)?;
@@ -355,7 +355,7 @@ mod tests {
     };
     use test_case::test_case;
 
-    use crate::{EvaluationBuilder, LmbState, LmbStateKey};
+    use crate::{EvaluationBuilder, State, StateKey};
 
     #[test_case("./lua-examples/error.lua")]
     fn error_in_script(path: &str) {
@@ -460,13 +460,13 @@ mod tests {
     #[test]
     fn with_state() {
         let e = EvaluationBuilder::new(r#"return require("@lmb").request"#, empty()).build();
-        let state = Arc::new(LmbState::new());
-        state.insert(LmbStateKey::Request, 1.into());
+        let state = Arc::new(State::new());
+        state.insert(StateKey::Request, 1.into());
         {
             let res = e.evaluate_with_state(state.clone()).unwrap();
             assert_eq!(json!(1), res.payload);
         }
-        state.insert(LmbStateKey::Request, 2.into());
+        state.insert(StateKey::Request, 2.into());
         {
             let res = e.evaluate_with_state(state.clone()).unwrap();
             assert_eq!(json!(2), res.payload);

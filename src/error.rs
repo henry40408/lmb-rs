@@ -6,16 +6,16 @@ use mlua::prelude::*;
 use once_cell::sync::Lazy;
 use thiserror::Error;
 
-use crate::{Evaluation, LmbResult};
+use crate::{Evaluation, Result};
 
 static LUA_ERROR_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"\[[^\]]+\]:(\d+):(.+)")
         .expect("failed to compile regular expression for Lua error message")
 });
 
-/// Lmb error.
+/// Error type.
 #[derive(Debug, Error)]
-pub enum LmbError {
+pub enum Error {
     /// Error from [`bat`].
     #[error("bat error: {0}")]
     Bat(#[from] bat::error::Error),
@@ -28,7 +28,7 @@ pub enum LmbError {
     /// Format error.
     #[error("format error: {0}")]
     Format(#[from] std::fmt::Error),
-    /// Invalid key length for HMAC
+    /// Invalid key length for HMAC.
     #[error("invalid length: {0}")]
     InvalidLength(#[from] crypto_common::InvalidLength),
     /// IO error.
@@ -48,14 +48,9 @@ pub enum LmbError {
     SerdeJSONError(#[from] serde_json::Error),
 }
 
-impl LmbError {
+impl Error {
     /// Render Lua runtime or syntax error
-    pub fn write_lua_error<R, W>(
-        &self,
-        mut f: W,
-        e: &Evaluation<R>,
-        no_color: bool,
-    ) -> LmbResult<()>
+    pub fn write_lua_error<R, W>(&self, mut f: W, e: &Evaluation<R>, no_color: bool) -> Result<()>
     where
         for<'lua> R: 'lua + Read,
         W: Write,

@@ -6,7 +6,7 @@ use std::fmt::Write as _;
 type HmacSha256 = Hmac<Sha256>;
 
 /// Cryptography module
-pub struct LuaLmbCrypto {}
+pub struct LuaModCrypto {}
 
 fn hash_to_string(bytes: &[u8]) -> String {
     bytes.iter().fold(String::new(), |mut output, b| {
@@ -15,7 +15,7 @@ fn hash_to_string(bytes: &[u8]) -> String {
     })
 }
 
-impl LuaUserData for LuaLmbCrypto {
+impl LuaUserData for LuaModCrypto {
     fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method("sha256", |_, _, payload: String| {
             let mut hasher = Sha256::default();

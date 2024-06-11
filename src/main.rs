@@ -4,8 +4,8 @@ use clio::*;
 use comfy_table::{presets, Table};
 use cron::Schedule;
 use lmb::{
-    schedule_script, EvaluationBuilder, LmbError, LmbStore, LuaCheck, PrintOptions,
-    ScheduleOptions, StoreOptions, DEFAULT_TIMEOUT, EXAMPLES,
+    schedule_script, Error, EvaluationBuilder, LuaCheck, PrintOptions, ScheduleOptions, Store,
+    StoreOptions, DEFAULT_TIMEOUT, EXAMPLES,
 };
 use mlua::prelude::*;
 use serde_json::json;
@@ -202,15 +202,15 @@ fn read_script(input: &mut Input) -> anyhow::Result<(String, String)> {
     Ok((name, script))
 }
 
-fn prepare_store(options: &StoreOptions) -> anyhow::Result<LmbStore> {
+fn prepare_store(options: &StoreOptions) -> anyhow::Result<Store> {
     let store = if let Some(store_path) = &options.store_path {
-        let store = LmbStore::new(store_path)?;
+        let store = Store::new(store_path)?;
         if options.run_migrations {
             store.migrate(None)?;
         }
         store
     } else {
-        LmbStore::default()
+        Store::default()
     };
     Ok(store)
 }
@@ -400,7 +400,7 @@ async fn try_main() -> anyhow::Result<()> {
             let Some(store_path) = &store_options.store_path else {
                 bail!("store_path is required");
             };
-            let store = LmbStore::new(store_path)?;
+            let store = Store::new(store_path)?;
             if store_options.run_migrations {
                 store.migrate(None)?;
             }
@@ -466,9 +466,9 @@ async fn try_main() -> anyhow::Result<()> {
 #[tokio::main]
 async fn main() -> ExitCode {
     if let Err(e) = try_main().await {
-        match e.downcast_ref::<LmbError>() {
+        match e.downcast_ref::<Error>() {
             // the following errors are handled, do nothing
-            Some(&LmbError::Lua(LuaError::RuntimeError(_) | LuaError::SyntaxError { .. })) => {}
+            Some(&Error::Lua(LuaError::RuntimeError(_) | LuaError::SyntaxError { .. })) => {}
             _ => eprintln!("{e}"),
         }
         return ExitCode::FAILURE;

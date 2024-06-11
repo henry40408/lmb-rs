@@ -1,14 +1,14 @@
 use crate::StoreOptions;
 use axum::{
     body::Bytes,
-    extract::{Path, State},
+    extract::{Path, State as AxumState},
     http::{HeaderMap, Method, StatusCode},
     response::IntoResponse,
     routing::any,
     Router,
 };
 use http::{HeaderName, HeaderValue};
-use lmb::{EvaluationBuilder, LmbState, LmbStateKey, LmbStore};
+use lmb::{EvaluationBuilder, State, StateKey, Store};
 use serde_json::{Map, Value};
 use std::{
     collections::HashMap, fmt::Display, io::Cursor, str::FromStr as _, sync::Arc, time::Duration,
@@ -22,7 +22,7 @@ struct AppState {
     json: bool,
     name: String,
     script: String,
-    store: LmbStore,
+    store: Store,
     timeout: Option<Duration>,
 }
 
@@ -69,8 +69,8 @@ where
     request_map.insert("path".into(), path.as_ref().into());
     request_map.insert("headers".into(), headers_map.into());
 
-    let eval_state = Arc::new(LmbState::new());
-    eval_state.insert(LmbStateKey::Request, request_map.into());
+    let eval_state = Arc::new(State::new());
+    eval_state.insert(StateKey::Request, request_map.into());
 
     let res = e.evaluate_with_state(eval_state.clone());
     match res {
@@ -98,11 +98,11 @@ where
 
 fn build_response(
     json: bool,
-    state: Arc<LmbState>,
+    state: Arc<State>,
     value: Value,
 ) -> anyhow::Result<(StatusCode, HeaderMap, String)> {
     let (status_code, headers) = state
-        .view(&LmbStateKey::Response, |_k, res| {
+        .view(&StateKey::Response, |_k, res| {
             let status_code = res
                 .get("status_code")
                 .and_then(|s| s.as_u64())
@@ -140,7 +140,7 @@ fn build_response(
 }
 
 async fn index_route(
-    State(state): State<AppState>,
+    AxumState(state): AxumState<AppState>,
     method: Method,
     headers: HeaderMap,
     body: Bytes,
@@ -149,7 +149,7 @@ async fn index_route(
 }
 
 async fn match_all_route(
-    State(state): State<AppState>,
+    AxumState(state): AxumState<AppState>,
     method: Method,
     Path(path): Path<String>,
     headers: HeaderMap,
@@ -165,14 +165,14 @@ where
     T: Display + ToSocketAddrs,
 {
     let store = if let Some(path) = &opts.store_options.store_path {
-        let store = LmbStore::new(path.as_path())?;
+        let store = Store::new(path.as_path())?;
         if opts.store_options.run_migrations {
             store.migrate(None)?;
         }
         info!(?path, "open store");
         store
     } else {
-        let store = LmbStore::default();
+        let store = Store::default();
         warn!("no store path is specified, an in-memory store will be used and values will be lost when process ends");
         store
     };
