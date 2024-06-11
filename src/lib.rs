@@ -65,11 +65,22 @@ where
 pub type State = DashMap<StateKey, serde_json::Value>;
 
 /// Options to print script.
+#[derive(Default)]
 pub struct PrintOptions {
     /// No colors <https://no-color.org/>.
     pub no_color: bool,
     /// Theme.
     pub theme: Option<String>,
+}
+
+impl PrintOptions {
+    /// Disable colored output.
+    pub fn no_color() -> Self {
+        Self {
+            no_color: true,
+            ..Default::default()
+        }
+    }
 }
 
 #[cfg(test)]

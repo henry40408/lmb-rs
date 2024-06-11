@@ -141,9 +141,13 @@ where
     /// # use std::io::empty;
     /// # use serde_json::json;
     /// use lmb::*;
+    ///
+    /// # fn main() -> Result<()> {
     /// let e = EvaluationBuilder::new("return true", empty()).build();
-    /// let res = e.evaluate().unwrap();
+    /// let res = e.evaluate()?;
     /// assert_eq!(json!(true), res.payload);
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn build(self) -> Arc<Evaluation<R>> {
         let vm = Lua::new();
@@ -204,7 +208,7 @@ where
     }
 }
 
-/// A container that holds the compiled function and input for evaluation.
+/// Container holdingthe compiled function and input for evaluation.
 pub struct Evaluation<R>
 where
     for<'lua> R: 'lua + Read,
@@ -230,9 +234,13 @@ where
     /// # use std::io::empty;
     /// # use serde_json::json;
     /// use lmb::*;
+    ///
+    /// # fn main() -> Result<()> {
     /// let e = EvaluationBuilder::new("return 1+1", empty()).build();
-    /// let res = e.evaluate().unwrap();
+    /// let res = e.evaluate()?;
     /// assert_eq!(json!(2), res.payload);
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn evaluate(self: &Arc<Self>) -> Result<Solution<R>> {
         self.do_evaluate(None)
@@ -244,17 +252,61 @@ where
     /// # use std::{io::empty, sync::Arc};
     /// # use serde_json::json;
     /// use lmb::*;
+    ///
+    /// # fn main() -> Result<()> {
     /// let e = EvaluationBuilder::new("return 1+1", empty()).build();
     /// let state = Arc::new(State::new());
     /// state.insert(StateKey::from("bool"), true.into());
-    /// let res = e.evaluate_with_state(state).unwrap();
+    /// let res = e.evaluate_with_state(state)?;
     /// assert_eq!(json!(2), res.payload);
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn evaluate_with_state(self: &Arc<Self>, state: Arc<State>) -> Result<Solution<R>> {
         self.do_evaluate(Some(state))
     }
 
+    /// Replace the function input after the container is built.
+    ///
+    /// ```rust
+    /// # use std::io::{BufReader, Cursor, empty};
+    /// # use serde_json::json;
+    /// use lmb::*;
+    ///
+    /// # fn main() -> Result<()> {
+    /// let script = "return io.read('*a')";
+    /// let mut e = EvaluationBuilder::new(script, Cursor::new("1")).build();
+    ///
+    /// let r = e.evaluate()?;
+    /// assert_eq!(json!("1"), r.payload);
+    ///
+    /// e.set_input(Cursor::new("2"));
+    ///
+    /// let r = e.evaluate()?;
+    /// assert_eq!(json!("2"), r.payload);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn set_input(self: &Arc<Self>, input: R) {
+        *self.input.lock() = BufReader::new(input);
+    }
+
     /// Render the script.
+    ///
+    /// ```rust
+    /// # use std::io::empty;
+    /// use lmb::*;
+    ///
+    /// # fn main() -> Result<()> {
+    /// let script = "return 1";
+    /// let e = EvaluationBuilder::new(script, empty()).build();
+    ///
+    /// let mut buf = String::new();
+    /// e.write_script(&mut buf, &PrintOptions::no_color())?;
+    /// assert!(buf.contains("return 1"));
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn write_script<W>(&self, mut f: W, options: &PrintOptions) -> Result<bool>
     where
         W: Write,
@@ -278,28 +330,6 @@ where
         let inputs = vec![BatInput::from_reader(reader)];
         let controller = Controller::new(&config, &assets);
         Ok(controller.run(inputs, Some(&mut f))?)
-    }
-
-    /// Replace the function input after the container is built.
-    ///
-    /// ```rust
-    /// # use std::io::{BufReader, Cursor, empty};
-    /// # use serde_json::json;
-    /// use lmb::*;
-    ///
-    /// let script = "return io.read('*a')";
-    /// let mut e = EvaluationBuilder::new(script, Cursor::new("1")).build();
-    ///
-    /// let r = e.evaluate().unwrap();
-    /// assert_eq!(json!("1"), r.payload);
-    ///
-    /// e.set_input(Cursor::new("2"));
-    ///
-    /// let r = e.evaluate().unwrap();
-    /// assert_eq!(json!("2"), r.payload);
-    /// ```
-    pub fn set_input(self: &Arc<Self>, input: R) {
-        *self.input.lock() = BufReader::new(input);
     }
 
     fn do_evaluate(self: &Arc<Self>, state: Option<Arc<State>>) -> Result<Solution<R>> {

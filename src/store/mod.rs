@@ -47,8 +47,12 @@ impl Store {
     /// ```rust
     /// # use assert_fs::NamedTempFile;
     /// use lmb::*;
-    /// let store_file = NamedTempFile::new("db.sqlite3").unwrap();
-    /// let _ = Store::new(store_file.path());
+    ///
+    /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    /// let store_file = NamedTempFile::new("db.sqlite3")?;
+    /// Store::new(store_file.path())?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn new(path: &Path) -> Result<Self> {
         debug!(?path, "open store");
@@ -68,9 +72,13 @@ impl Store {
     /// ```rust
     /// # use assert_fs::NamedTempFile;
     /// use lmb::*;
-    /// let store_file = NamedTempFile::new("db.sqlite3").unwrap();
-    /// let store = Store::new(store_file.path()).unwrap();
-    /// store.migrate(None).unwrap();
+    ///
+    /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    /// let store_file = NamedTempFile::new("db.sqlite3")?;
+    /// let store = Store::new(store_file.path())?;
+    /// store.migrate(None)?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn migrate(&self, version: Option<usize>) -> Result<()> {
         let mut conn = self.conn.lock();
@@ -92,6 +100,21 @@ impl Store {
     }
 
     /// Delete value by name.
+    ///
+    /// ```rust
+    /// # use serde_json::json;
+    /// use lmb::*;
+    ///
+    /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    /// let store = Store::default();
+    /// assert_eq!(json!(null), store.get("a")?);
+    /// store.put("a", &true.into());
+    /// assert_eq!(json!(true), store.get("a")?);
+    /// store.delete("a");
+    /// assert_eq!(json!(null), store.get("a")?);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn delete<S>(&self, name: S) -> Result<usize>
     where
         S: AsRef<str>,
@@ -107,10 +130,14 @@ impl Store {
     /// ```rust
     /// # use serde_json::json;
     /// use lmb::*;
+    ///
+    /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     /// let store = Store::default();
-    /// assert_eq!(json!(null), store.get("a").unwrap());
+    /// assert_eq!(json!(null), store.get("a")?);
     /// store.put("a", &true.into());
-    /// assert_eq!(json!(true), store.get("a").unwrap());
+    /// assert_eq!(json!(true), store.get("a")?);
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn get<S: AsRef<str>>(&self, name: S) -> Result<Value> {
         let conn = self.conn.lock();
@@ -140,6 +167,19 @@ impl Store {
     }
 
     /// List values.
+    ///
+    /// ```rust
+    /// # use serde_json::json;
+    /// use lmb::*;
+    ///
+    /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    /// let store = Store::default();
+    /// store.put("a", &true.into())?;
+    /// let values = store.list()?;
+    /// assert_eq!(1, values.len());
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn list(&self) -> Result<Vec<StoreValueMetadata>> {
         let conn = self.conn.lock();
         let mut cached_stmt = conn.prepare_cached(SQL_GET_ALL_VALUES)?;
@@ -170,13 +210,17 @@ impl Store {
     /// ```rust
     /// # use serde_json::json;
     /// use lmb::*;
+    ///
+    /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     /// let store = Store::default();
     /// store.put("a", &true.into());
-    /// assert_eq!(json!(true), store.get("a").unwrap());
+    /// assert_eq!(json!(true), store.get("a")?);
     /// store.put("b", &1.into());
-    /// assert_eq!(json!(1), store.get("b").unwrap());
+    /// assert_eq!(json!(1), store.get("b")?);
     /// store.put("c", &"hello".into());
-    /// assert_eq!(json!("hello"), store.get("c").unwrap());
+    /// assert_eq!(json!("hello"), store.get("c")?);
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn put<S: AsRef<str>>(&self, name: S, value: &Value) -> Result<usize> {
         let conn = self.conn.lock();
@@ -206,16 +250,20 @@ impl Store {
     /// ```rust
     /// # use serde_json::{json, Value};
     /// use lmb::*;
+    ///
+    /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     /// let store = Store::default();
-    /// let x = store.update("b", |old| {
+    /// let updated = store.update("b", |old| {
     ///     if let Value::Number(_) = old {
-    ///         let n = old.as_i64().unwrap();
+    ///         let n = old.as_i64().ok_or(mlua::Error::runtime("n is required"))?;
     ///         *old = json!(n + 1);
     ///     }
     ///     Ok(())
     /// }, Some(1.into()));
-    /// assert_eq!(json!(2), x.unwrap());
-    /// assert_eq!(json!(2), store.get("b").unwrap());
+    /// assert_eq!(json!(2), updated?);
+    /// assert_eq!(json!(2), store.get("b")?);
+    /// # Ok(())
+    /// # }
     /// ```
     ///
     /// # Do nothing when an error is returned
@@ -223,11 +271,13 @@ impl Store {
     /// ```rust
     /// # use serde_json::{json, Value};
     /// use lmb::*;
+    ///
+    /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     /// let store = Store::default();
     /// store.put("a", &1.into());
-    /// let x = store.update("a", |old| {
+    /// let updated = store.update("a", |old| {
     ///     if let Value::Number(_) = old {
-    ///        let n = old.as_i64().unwrap();
+    ///        let n = old.as_i64().ok_or(mlua::Error::runtime("n is required"))?;
     ///        if n == 1 {
     ///            return Err(mlua::Error::runtime("something went wrong"));
     ///        }
@@ -235,8 +285,10 @@ impl Store {
     ///     }
     ///     Ok(())
     /// }, Some(1.into()));
-    /// assert_eq!(json!(1), x.unwrap());
-    /// assert_eq!(json!(1), store.get("a").unwrap());
+    /// assert_eq!(json!(1), updated?);
+    /// assert_eq!(json!(1), store.get("a")?);
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn update<S: AsRef<str>>(
         &self,
@@ -304,6 +356,7 @@ pub struct StoreValueMetadata {
 }
 
 impl Default for Store {
+    /// Open and initialize a SQLite database in memory.
     fn default() -> Self {
         debug!("open store in memory");
         let conn = Connection::open_in_memory().expect("failed to open SQLite database in memory");
