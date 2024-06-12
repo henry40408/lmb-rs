@@ -29,8 +29,8 @@ mod tests {
         "#;
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        let expected: Value = json!({ "bool": true, "num": 2, "str": "hello" });
-        assert_eq!(expected, res.payload);
+        let expected = &json!({ "bool": true, "num": 2, "str": "hello" });
+        assert_eq!(expected, res.payload());
     }
 
     #[test]
@@ -41,7 +41,7 @@ mod tests {
         "#;
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        let actual: Value = serde_json::from_str(res.payload.as_str().unwrap()).unwrap();
+        let actual: Value = serde_json::from_str(res.payload().as_str().unwrap()).unwrap();
         assert_eq!(json!({"bool":true,"num":2,"str":"hello"}), actual);
     }
 
@@ -54,7 +54,7 @@ mod tests {
         "#;
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        let actual: Value = serde_json::from_str(res.payload.as_str().unwrap()).unwrap();
+        let actual: Value = serde_json::from_str(res.payload().as_str().unwrap()).unwrap();
         assert_eq!(json!({"a":[{}]}), actual);
     }
 }

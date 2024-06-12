@@ -240,7 +240,7 @@ mod tests {
         "#;
         let e = EvaluationBuilder::new(script, input).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(json!([1, 2, 3]), res.payload);
+        assert_eq!(&json!([1, 2, 3]), res.payload());
     }
 
     #[test_case("assert(not io.read())")]
@@ -263,7 +263,7 @@ mod tests {
         let script = "return io.read('*n')";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(expected, res.payload);
+        assert_eq!(&expected, res.payload());
     }
 
     #[test_case("return io.read()", "foo".into())]
@@ -275,7 +275,7 @@ mod tests {
         let input = "foo\nbar";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(expected, res.payload);
+        assert_eq!(&expected, res.payload());
     }
 
     #[test_case(1, "你")]
@@ -286,7 +286,7 @@ mod tests {
         let input = "你好";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(json!(expected), res.payload);
+        assert_eq!(&json!(expected), res.payload());
     }
 
     #[test]
@@ -297,13 +297,13 @@ mod tests {
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(json!("你"), res.payload);
+        assert_eq!(&json!("你"), res.payload());
 
         let res = e.evaluate().unwrap();
-        assert_eq!(json!("好"), res.payload);
+        assert_eq!(&json!("好"), res.payload());
 
         let res = e.evaluate().unwrap();
-        assert_eq!(json!(null), res.payload);
+        assert_eq!(&json!(null), res.payload());
     }
 
     #[test_case("你好\n世界", "*a", "你好\n世界")]
@@ -313,7 +313,7 @@ mod tests {
         let script = format!(r#"return require('@lmb'):read_unicode('{f}')"#);
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(json!(expected.to_string()), res.payload);
+        assert_eq!(&json!(expected.to_string()), res.payload());
     }
 
     #[test]
@@ -323,7 +323,7 @@ mod tests {
         let script = "return require('@lmb'):read_unicode(1)";
         let e = EvaluationBuilder::new(script, input).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(json!(null), res.payload);
+        assert_eq!(&json!(null), res.payload());
     }
 
     #[test]
@@ -333,7 +333,7 @@ mod tests {
         let script = "return require('@lmb'):read_unicode(12)";
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(json!(input), res.payload);
+        assert_eq!(&json!(input), res.payload());
     }
 
     #[test_case(1, "a")]
@@ -344,7 +344,7 @@ mod tests {
         let script = format!("return require('@lmb'):read_unicode({n})");
         let e = EvaluationBuilder::new(script, input.as_bytes()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(json!(expected), res.payload);
+        assert_eq!(&json!(expected), res.payload());
     }
 
     #[test]
@@ -352,11 +352,11 @@ mod tests {
         let script = "io.write('l', 'a', 'm'); return nil";
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(json!(null), res.payload);
+        assert_eq!(&json!(null), res.payload());
 
         let script = "io.stderr:write('err', 'or'); return nil";
         let e = EvaluationBuilder::new(script, empty()).build();
         let res = e.evaluate().unwrap();
-        assert_eq!(json!(null), res.payload);
+        assert_eq!(&json!(null), res.payload());
     }
 }

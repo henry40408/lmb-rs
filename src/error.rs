@@ -52,7 +52,7 @@ impl Error {
     /// Render a Lua runtime or syntax error.
     pub fn write_lua_error<R, W>(&self, mut f: W, e: &Evaluation<R>, no_color: bool) -> Result<()>
     where
-        for<'lua> R: 'lua + Read,
+        for<'lua> R: 'lua + Read + Send,
         W: Write,
     {
         let message = match self {
@@ -76,16 +76,15 @@ impl Error {
 
         let mut colors = ColorGenerator::new();
 
-        let source = Source::from(&e.script);
+        let source = Source::from(e.script());
         let line = source
             .line(line_number - 1) // index, not line number
             .expect("cannot find line in source");
         let span = line.span();
 
-        let name = &e.name;
         let message = captures.get(2).map_or(first_line, |s| s.as_str().trim());
         let mut buf = Vec::new();
-        Report::build(ReportKind::Error, name, span.start)
+        Report::build(ReportKind::Error, e.name(), span.start)
             .with_config(
                 ariadne::Config::default()
                     .with_char_set(CharSet::Ascii)
@@ -93,13 +92,13 @@ impl Error {
                     .with_color(!no_color),
             )
             .with_label(
-                Label::new((name, span))
+                Label::new((e.name(), span))
                     .with_color(colors.next())
                     .with_message(message),
             )
             .with_message(message)
             .finish()
-            .write((name, source), &mut buf)?;
+            .write((e.name(), source), &mut buf)?;
         write!(f, "{}", String::from_utf8_lossy(&buf))?;
         Ok(())
     }

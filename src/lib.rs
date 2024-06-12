@@ -7,7 +7,7 @@ use include_dir::{include_dir, Dir};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use rusqlite_migration::Migrations;
-use std::{io::BufReader, result::Result as StdResult, sync::Arc, time::Duration};
+use std::{fmt::Display, io::BufReader, result::Result as StdResult, sync::Arc, time::Duration};
 
 pub use check::*;
 pub use error::*;
@@ -56,11 +56,11 @@ pub enum StateKey {
 
 impl<S> From<S> for StateKey
 where
-    S: AsRef<str>,
+    S: Display,
 {
     /// Converts a type that can be referenced as a string into a [`StateKey`].
     fn from(value: S) -> Self {
-        Self::String(value.as_ref().to_string())
+        Self::String(value.to_string())
     }
 }
 
@@ -70,10 +70,8 @@ pub type State = DashMap<StateKey, serde_json::Value>;
 /// Options for printing scripts.
 #[derive(Debug, Default)]
 pub struct PrintOptions {
-    /// No colors (see <https://no-color.org/>).
-    pub no_color: bool,
-    /// Theme for printing.
-    pub theme: Option<String>,
+    no_color: bool,
+    theme: Option<String>,
 }
 
 impl PrintOptions {
@@ -83,6 +81,18 @@ impl PrintOptions {
             no_color: true,
             ..Default::default()
         }
+    }
+
+    /// Set or unset "no color".
+    pub fn set_no_color(&mut self, yes: bool) -> &mut Self {
+        self.no_color = yes;
+        self
+    }
+
+    /// Set or unset theme.
+    pub fn set_theme(&mut self, theme: Option<String>) -> &mut Self {
+        self.theme = theme;
+        self
     }
 }
 

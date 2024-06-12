@@ -1,24 +1,25 @@
 use ariadne::{CharSet, ColorGenerator, Config, Label, Report, ReportKind, Source};
-use std::io::{Error as IoError, Write};
+use std::{
+    fmt::Display,
+    io::{Error as IoError, Write},
+};
 
 /// Container for the script used for syntax checking.
 #[derive(Debug)]
 pub struct LuaCheck {
-    /// Name of the script.
-    pub name: String,
-    /// The script content.
-    pub script: String,
+    name: String,
+    script: String,
 }
 
 impl LuaCheck {
     /// Create a new [`LuaCheck`] container.
     pub fn new<S>(name: S, script: S) -> Self
     where
-        S: AsRef<str>,
+        S: Display,
     {
         Self {
-            name: name.as_ref().to_string(),
-            script: script.as_ref().to_string(),
+            name: name.to_string(),
+            script: script.to_string(),
         }
     }
 

@@ -26,18 +26,47 @@ struct AppState {
     timeout: Option<Duration>,
 }
 
-#[derive(Default)]
 pub struct ServeOptions<S, T>
 where
-    S: AsRef<str>,
+    S: Display,
     T: Display + ToSocketAddrs,
 {
-    pub json: bool,
-    pub bind: T,
-    pub name: S,
-    pub script: S,
-    pub timeout: Option<Duration>,
-    pub store_options: StoreOptions,
+    bind: T,
+    json: bool,
+    name: S,
+    script: S,
+    store_options: StoreOptions,
+    timeout: Option<Duration>,
+}
+
+impl<S, T> ServeOptions<S, T>
+where
+    S: Display,
+    T: Display + ToSocketAddrs,
+{
+    /// Create a new instance of serve options.
+    pub fn new(name: S, script: S, bind: T, store_options: StoreOptions) -> Self {
+        Self {
+            bind,
+            json: false,
+            name,
+            script,
+            store_options,
+            timeout: None,
+        }
+    }
+
+    /// Set JSON mode.
+    pub fn set_json(&mut self, yes: bool) -> &mut Self {
+        self.json = yes;
+        self
+    }
+
+    /// Set or unset timeout.
+    pub fn set_timeout(&mut self, timeout: Option<Duration>) -> &mut Self {
+        self.timeout = timeout;
+        self
+    }
 }
 
 fn do_handle_request<S>(
@@ -74,7 +103,7 @@ where
 
     let res = e.evaluate_with_state(eval_state.clone());
     match res {
-        Ok(res) => match build_response(state.json, eval_state, res.payload) {
+        Ok(res) => match build_response(state.json, eval_state, res.payload()) {
             Ok(t) => t,
             Err(err) => {
                 error!(?err, "failed to build response");
@@ -99,7 +128,7 @@ where
 fn build_response(
     json: bool,
     state: Arc<State>,
-    value: Value,
+    value: &Value,
 ) -> anyhow::Result<(StatusCode, HeaderMap, String)> {
     let (status_code, headers) = state
         .view(&StateKey::Response, |_k, res| {
@@ -132,7 +161,7 @@ fn build_response(
         serde_json::to_string(&value)?
     } else {
         match value {
-            Value::String(s) => s,
+            Value::String(s) => s.to_string(),
             _ => value.to_string(),
         }
     };
@@ -161,12 +190,12 @@ async fn match_all_route(
 
 pub fn init_route<S, T>(opts: &ServeOptions<S, T>) -> anyhow::Result<Router>
 where
-    S: AsRef<str>,
+    S: Display,
     T: Display + ToSocketAddrs,
 {
-    let store = if let Some(path) = &opts.store_options.store_path {
+    let store = if let Some(path) = &opts.store_options.store_path() {
         let store = Store::new(path.as_path())?;
-        if opts.store_options.run_migrations {
+        if opts.store_options.run_migrations() {
             store.migrate(None)?;
         }
         info!(?path, "open store");
@@ -178,8 +207,8 @@ where
     };
     let app_state = AppState {
         json: opts.json,
-        name: opts.name.as_ref().to_string(),
-        script: opts.script.as_ref().to_string(),
+        name: opts.name.to_string(),
+        script: opts.script.to_string(),
         store,
         timeout: opts.timeout,
     };
@@ -197,7 +226,7 @@ where
 
 pub async fn serve_file<'a, S, T>(opts: &ServeOptions<S, T>) -> anyhow::Result<()>
 where
-    S: AsRef<str>,
+    S: Display,
     T: Display + ToSocketAddrs,
 {
     let bind = &opts.bind;
@@ -224,17 +253,10 @@ mod tests {
         local m = require('@lmb')
         return { request = m.request, body = io.read('*a') }
         "#;
-        let store_options = StoreOptions {
-            store_path: None,
-            run_migrations: true,
-        };
-        let opts = ServeOptions {
-            bind: "",
-            json: cli.json,
-            script,
-            store_options,
-            ..Default::default()
-        };
+        let store_options = StoreOptions::default();
+        let mut opts = ServeOptions::new("", script, "", store_options);
+        opts.set_json(cli.json);
+
         let router = init_route(&opts).unwrap();
         let server = TestServer::new(router.into_make_service()).unwrap();
         let res = server.post("/foo/bar/baz").json(&json!({"a":1})).await;
@@ -267,17 +289,9 @@ mod tests {
         print(m.response)
         return "I'm a teapot."
         "#;
-        let store_options = StoreOptions {
-            store_path: None,
-            run_migrations: true,
-        };
-        let opts = ServeOptions {
-            bind: "",
-            json: cli.json,
-            script,
-            store_options,
-            ..Default::default()
-        };
+        let store_options = StoreOptions::default();
+        let mut opts = ServeOptions::new("", script, "", store_options);
+        opts.set_json(cli.json);
         let router = init_route(&opts).unwrap();
         let server = TestServer::new(router.into_make_service()).unwrap();
         let res = server.post("/").await;
@@ -293,17 +307,9 @@ mod tests {
     async fn headers_status_code_bad_script() {
         let cli = Cli::parse_from(["lmb", "serve", "--file", "-"]);
         let script = "ret 'hello'";
-        let store_options = StoreOptions {
-            store_path: None,
-            run_migrations: true,
-        };
-        let opts = ServeOptions {
-            bind: "",
-            json: cli.json,
-            script,
-            store_options,
-            ..Default::default()
-        };
+        let store_options = StoreOptions::default();
+        let mut opts = ServeOptions::new("", script, "", store_options);
+        opts.set_json(cli.json);
         let router = init_route(&opts).unwrap();
         let server = TestServer::new(router.into_make_service()).unwrap();
         let res = server.post("/").await;
@@ -321,17 +327,9 @@ mod tests {
         m.response = res
         return "hello"
         "#;
-        let store_options = StoreOptions {
-            store_path: None,
-            run_migrations: true,
-        };
-        let opts = ServeOptions {
-            bind: "",
-            json: cli.json,
-            script,
-            store_options,
-            ..Default::default()
-        };
+        let store_options = StoreOptions::default();
+        let mut opts = ServeOptions::new("", script, "", store_options);
+        opts.set_json(cli.json);
         let router = init_route(&opts).unwrap();
         let server = TestServer::new(router.into_make_service()).unwrap();
         let res = server.post("/").await;
@@ -343,17 +341,9 @@ mod tests {
     async fn json_string() {
         let cli = Cli::parse_from(["lmb", "--json", "serve", "--file", "-"]);
         let script = "return 'hello'";
-        let store_options = StoreOptions {
-            store_path: None,
-            run_migrations: true,
-        };
-        let opts = ServeOptions {
-            bind: "",
-            json: cli.json,
-            script,
-            store_options,
-            ..Default::default()
-        };
+        let store_options = StoreOptions::default();
+        let mut opts = ServeOptions::new("", script, "", store_options);
+        opts.set_json(cli.json);
         let router = init_route(&opts).unwrap();
         let server = TestServer::new(router.into_make_service()).unwrap();
         let res = server.post("/").await;
@@ -365,17 +355,9 @@ mod tests {
     async fn number() {
         let cli = Cli::parse_from(["lmb", "serve", "--file", "-"]);
         let script = r#"return 1"#;
-        let store_options = StoreOptions {
-            store_path: None,
-            run_migrations: true,
-        };
-        let opts = ServeOptions {
-            bind: "",
-            json: cli.json,
-            script,
-            store_options,
-            ..Default::default()
-        };
+        let store_options = StoreOptions::default();
+        let mut opts = ServeOptions::new("", script, "", store_options);
+        opts.set_json(cli.json);
         let router = init_route(&opts).unwrap();
         let server = TestServer::new(router.into_make_service()).unwrap();
         let res = server.post("/").await;
@@ -387,17 +369,9 @@ mod tests {
     async fn raw_string() {
         let cli = Cli::parse_from(["lmb", "serve", "--file", "-"]);
         let script = "return 'hello'";
-        let store_options = StoreOptions {
-            store_path: None,
-            run_migrations: true,
-        };
-        let opts = ServeOptions {
-            bind: "",
-            json: cli.json,
-            script,
-            store_options,
-            ..Default::default()
-        };
+        let store_options = StoreOptions::default();
+        let mut opts = ServeOptions::new("", script, "", store_options);
+        opts.set_json(cli.json);
         let router = init_route(&opts).unwrap();
         let server = TestServer::new(router.into_make_service()).unwrap();
         let res = server.post("/").await;
@@ -409,17 +383,9 @@ mod tests {
     async fn serve() {
         let cli = Cli::parse_from(["lmb", "--json", "serve", "--file", "-"]);
         let script = "return 1";
-        let store_options = StoreOptions {
-            store_path: None,
-            run_migrations: true,
-        };
-        let opts = ServeOptions {
-            bind: "",
-            json: cli.json,
-            script,
-            store_options,
-            ..Default::default()
-        };
+        let store_options = StoreOptions::default();
+        let mut opts = ServeOptions::new("", script, "", store_options);
+        opts.set_json(cli.json);
         let router = init_route(&opts).unwrap();
         let server = TestServer::new(router.into_make_service()).unwrap();
         let res = server.post("/").await;

@@ -9,7 +9,7 @@ use mlua::{prelude::*, Compiler};
 use parking_lot::Mutex;
 use serde_json::Value;
 use std::{
-    fmt::Write,
+    fmt::{Display, Write},
     io::{BufReader, Read},
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -27,16 +27,11 @@ pub struct EvaluationBuilder<R>
 where
     R: Read,
 {
-    /// Function input, such as anything that implements [`std::io::Read`].
-    pub input: Arc<Mutex<BufReader<R>>>,
-    /// Function name. Might be `-` when script comes from standard input or file name.
-    pub name: Option<String>,
-    /// Lua script in plain text.
-    pub script: String,
-    /// Store that persists data across each execution.
-    pub store: Option<Store>,
-    /// Execution timeout.
-    pub timeout: Option<Duration>,
+    input: Arc<Mutex<BufReader<R>>>,
+    name: Option<String>,
+    script: String,
+    store: Option<Store>,
+    timeout: Option<Duration>,
 }
 
 impl<R> EvaluationBuilder<R>
@@ -50,12 +45,15 @@ where
     /// use lmb::*;
     /// let _ = EvaluationBuilder::new("", empty());
     /// ```
-    pub fn new<S: AsRef<str>>(script: S, input: R) -> Self {
+    pub fn new<S>(script: S, input: R) -> Self
+    where
+        S: Display,
+    {
         let input = Arc::new(Mutex::new(BufReader::new(input)));
         Self {
             input,
             name: None,
-            script: script.as_ref().to_string(),
+            script: script.to_string(),
             store: None,
             timeout: None,
         }
@@ -70,11 +68,14 @@ where
     /// let input = Arc::new(Mutex::new(BufReader::new(empty())));
     /// let _ = EvaluationBuilder::with_reader("", input);
     /// ```
-    pub fn with_reader<S: AsRef<str>>(script: S, input: Arc<Mutex<BufReader<R>>>) -> Self {
+    pub fn with_reader<S>(script: S, input: Arc<Mutex<BufReader<R>>>) -> Self
+    where
+        S: Display,
+    {
         Self {
             input,
             name: None,
-            script: script.as_ref().to_string(),
+            script: script.to_string(),
             store: None,
             timeout: None,
         }
@@ -88,7 +89,7 @@ where
     /// use lmb::*;
     /// let _ = EvaluationBuilder::new("", empty()).default_store();
     /// ```
-    pub fn default_store(mut self) -> Self {
+    pub fn default_store(&mut self) -> &mut Self {
         self.store = Some(Store::default());
         self
     }
@@ -100,8 +101,11 @@ where
     /// use lmb::*;
     /// let _ = EvaluationBuilder::new("", empty()).name("script");
     /// ```
-    pub fn name<S: AsRef<str>>(mut self, name: S) -> Self {
-        self.name = Some(name.as_ref().to_string());
+    pub fn name<S>(&mut self, name: S) -> &mut Self
+    where
+        S: Display,
+    {
+        self.name = Some(name.to_string());
         self
     }
 
@@ -113,7 +117,7 @@ where
     /// let store = Store::default();
     /// let _ = EvaluationBuilder::new("", empty()).store(store);
     /// ```
-    pub fn store(mut self, store: Store) -> Self {
+    pub fn store(&mut self, store: Store) -> &mut Self {
         self.store = Some(store);
         self
     }
@@ -126,7 +130,7 @@ where
     /// let timeout = Duration::from_secs(30);
     /// let _ = EvaluationBuilder::new("", empty()).timeout(Some(timeout));
     /// ```
-    pub fn timeout(mut self, timeout: Option<Duration>) -> Self {
+    pub fn timeout(&mut self, timeout: Option<Duration>) -> &mut Self {
         self.timeout = timeout;
         self
     }
@@ -146,11 +150,11 @@ where
     /// # fn main() -> Result<()> {
     /// let e = EvaluationBuilder::new("return true", empty()).build();
     /// let res = e.evaluate()?;
-    /// assert_eq!(json!(true), res.payload);
+    /// assert_eq!(&json!(true), res.payload());
     /// # Ok(())
     /// # }
     /// ```
-    pub fn build(self) -> Arc<Evaluation<R>> {
+    pub fn build(&self) -> Arc<Evaluation<R>> {
         let vm = Lua::new();
         vm.sandbox(true).expect("failed to enable sandbox");
 
@@ -163,10 +167,10 @@ where
             .expect("failed to initalize the binding");
         Arc::new(Evaluation {
             compiled,
-            input: self.input,
-            name: self.name.unwrap_or_default(),
-            script: self.script,
-            store: self.store,
+            input: self.input.clone(),
+            name: self.name.clone().unwrap_or_default(),
+            script: self.script.clone(),
+            store: self.store.clone(),
             timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
             vm,
         })
@@ -179,20 +183,36 @@ pub struct Solution<R>
 where
     for<'lua> R: 'lua + Read,
 {
-    /// Execution duration.
-    pub duration: Duration,
-    /// Container of function that obtained the solution.
-    pub evaluation: Arc<Evaluation<R>>,
-    /// Max memory usage in bytes.
-    pub max_memory: usize,
-    /// Result returned by the function.
-    pub payload: Value,
+    duration: Duration,
+    evaluation: Arc<Evaluation<R>>,
+    max_memory_usage: usize,
+    payload: Value,
 }
 
 impl<R> Solution<R>
 where
     for<'lua> R: 'lua + Read,
 {
+    /// Get duration.
+    pub fn duration(&self) -> Duration {
+        self.duration
+    }
+
+    /// Get evaluation.
+    pub fn evaluation(&self) -> &Evaluation<R> {
+        self.evaluation.as_ref()
+    }
+
+    /// Get max memory usage in bytes.
+    pub fn max_memory_usage(&self) -> usize {
+        self.max_memory_usage
+    }
+
+    /// Get evaluated payload.
+    pub fn payload(&self) -> &Value {
+        &self.payload
+    }
+
     /// Render the solution.
     pub fn write<W>(&self, mut f: W, json: bool) -> Result<()>
     where
@@ -216,12 +236,10 @@ pub struct Evaluation<R>
 where
     for<'lua> R: 'lua + Read,
 {
-    /// Source code of script.
-    pub script: String,
-    /// Name.
-    pub name: String,
     compiled: Vec<u8>,
     input: Input<R>,
+    name: String,
+    script: String,
     store: Option<Store>,
     timeout: Duration,
     vm: Lua,
@@ -241,7 +259,7 @@ where
     /// # fn main() -> Result<()> {
     /// let e = EvaluationBuilder::new("return 1+1", empty()).build();
     /// let res = e.evaluate()?;
-    /// assert_eq!(json!(2), res.payload);
+    /// assert_eq!(&json!(2), res.payload());
     /// # Ok(())
     /// # }
     /// ```
@@ -261,12 +279,22 @@ where
     /// let state = Arc::new(State::new());
     /// state.insert(StateKey::from("bool"), true.into());
     /// let res = e.evaluate_with_state(state)?;
-    /// assert_eq!(json!(2), res.payload);
+    /// assert_eq!(&json!(2), res.payload());
     /// # Ok(())
     /// # }
     /// ```
     pub fn evaluate_with_state(self: &Arc<Self>, state: Arc<State>) -> Result<Solution<R>> {
         self.do_evaluate(Some(state))
+    }
+
+    /// Get name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Get script.
+    pub fn script(&self) -> &str {
+        &self.script
     }
 
     /// Replace the function input after the container is built.
@@ -281,12 +309,12 @@ where
     /// let mut e = EvaluationBuilder::new(script, Cursor::new("1")).build();
     ///
     /// let r = e.evaluate()?;
-    /// assert_eq!(json!("1"), r.payload);
+    /// assert_eq!(&json!("1"), r.payload());
     ///
     /// e.set_input(Cursor::new("2"));
     ///
     /// let r = e.evaluate()?;
-    /// assert_eq!(json!("2"), r.payload);
+    /// assert_eq!(&json!("2"), r.payload());
     /// # Ok(())
     /// # }
     /// ```
@@ -370,7 +398,7 @@ where
         Ok(Solution {
             duration,
             evaluation: self.clone(),
-            max_memory,
+            max_memory_usage: max_memory,
             payload: result,
         })
     }

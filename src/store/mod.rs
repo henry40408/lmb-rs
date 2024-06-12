@@ -18,10 +18,28 @@ mod stmt;
 /// Store options for command line.
 #[derive(Debug, Default)]
 pub struct StoreOptions {
-    /// Store path.
-    pub store_path: Option<PathBuf>,
-    /// Run migrations.
-    pub run_migrations: bool,
+    store_path: Option<PathBuf>,
+    run_migrations: bool,
+}
+
+impl StoreOptions {
+    /// Create a new instance of store options.
+    pub fn new(store_path: Option<PathBuf>, run_migrations: bool) -> Self {
+        Self {
+            store_path,
+            run_migrations,
+        }
+    }
+
+    /// Get store path.
+    pub fn store_path(&self) -> &Option<PathBuf> {
+        &self.store_path
+    }
+
+    /// Get the option indicating whether migrations should be run.
+    pub fn run_migrations(&self) -> bool {
+        self.run_migrations
+    }
 }
 
 /// Store that persists data across executions.
@@ -115,10 +133,7 @@ impl Store {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn delete<S>(&self, name: S) -> Result<usize>
-    where
-        S: AsRef<str>,
-    {
+    pub fn delete<S: AsRef<str>>(&self, name: S) -> Result<usize> {
         let conn = self.conn.lock();
         let affected = conn.execute(SQL_DELETE_VALUE_BY_NAME, (name.as_ref(),))?;
         Ok(affected)
@@ -344,16 +359,38 @@ impl Store {
 /// Value metadata. The value itself is intentionally not included.
 #[derive(Debug)]
 pub struct StoreValueMetadata {
-    /// Name.
-    pub name: String,
-    /// Size in bytes.
-    pub size: usize,
-    /// Type.
-    pub type_hint: String,
-    /// Timestamp indicating when the value was created in UTC timezone.
-    pub created_at: DateTime<Utc>,
-    /// Timestamp indicating when the value was updated in UTC timezone.
-    pub updated_at: DateTime<Utc>,
+    name: String,
+    size: usize,
+    type_hint: String,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+
+impl StoreValueMetadata {
+    /// Get the timestamp that the value is created.
+    pub fn created_at(&self) -> &DateTime<Utc> {
+        &self.created_at
+    }
+
+    /// Get name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Get size in bytes.
+    pub fn size(&self) -> usize {
+        self.size
+    }
+
+    /// Get type hint.
+    pub fn type_hint(&self) -> &str {
+        &self.type_hint
+    }
+
+    /// Get the timestamp that the value is updated.
+    pub fn updated_at(&self) -> &DateTime<Utc> {
+        &self.updated_at
+    }
 }
 
 impl Default for Store {
@@ -422,7 +459,7 @@ mod tests {
             .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(json!(1.23), res.payload);
+        assert_eq!(&json!(1.23), res.payload());
         assert_eq!(json!(4.56), store.get("a").unwrap());
         assert_eq!(json!(null), store.get("b").unwrap());
     }
@@ -472,13 +509,13 @@ mod tests {
 
         {
             let res = e.evaluate().unwrap();
-            assert_eq!(json!(1), res.payload);
+            assert_eq!(&json!(1), res.payload());
             assert_eq!(json!(2), store.get("a").unwrap());
         }
 
         {
             let res = e.evaluate().unwrap();
-            assert_eq!(json!(2), res.payload);
+            assert_eq!(&json!(2), res.payload());
             assert_eq!(json!(3), store.get("a").unwrap());
         }
     }
@@ -499,7 +536,7 @@ mod tests {
             .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(json!(2), res.payload);
+        assert_eq!(&json!(2), res.payload());
         assert_eq!(json!(2), store.get("a").unwrap());
     }
 
@@ -523,7 +560,7 @@ mod tests {
             .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(json!(1), res.payload);
+        assert_eq!(&json!(1), res.payload());
         assert_eq!(json!(1), store.get("a").unwrap());
     }
 }

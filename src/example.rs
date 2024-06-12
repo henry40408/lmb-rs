@@ -6,13 +6,27 @@ use toml::{Table, Value};
 /// Lua example.
 #[derive(Debug, Default)]
 pub struct Example {
-    /// Name.
-    pub name: String,
-    /// Description, which is extracted from the first multi-line comment as TOML.
-    pub description: String,
-    /// Script.
-    pub script: String,
+    description: String,
     done: bool,
+    name: String,
+    script: String,
+}
+
+impl Example {
+    /// Get description.
+    pub fn description(&self) -> &str {
+        &self.description
+    }
+
+    /// Get name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Get script.
+    pub fn script(&self) -> &str {
+        &self.script
+    }
 }
 
 impl Visitor for Example {
