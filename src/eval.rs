@@ -1,3 +1,4 @@
+use atty::Stream;
 use bat::{
     assets::HighlightingAssets,
     controller::Controller,
@@ -342,10 +343,14 @@ where
     where
         W: Write,
     {
-        let components = &[StyleComponent::Grid, StyleComponent::LineNumbers];
-        let style_components = StyleComponents::new(components);
+        let (style_components, colored_output) = if atty::is(Stream::Stdout) {
+            let components = &[StyleComponent::Grid, StyleComponent::LineNumbers];
+            (StyleComponents::new(components), !options.no_color)
+        } else {
+            (StyleComponents::new(&[]), false)
+        };
         let mut config = bat::config::Config {
-            colored_output: !options.no_color,
+            colored_output,
             language: Some("lua"),
             style_components,
             true_color: true,
