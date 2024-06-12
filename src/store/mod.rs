@@ -1,10 +1,10 @@
 use chrono::{DateTime, Utc};
-use get_size::GetSize as _;
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use rusqlite_migration::SchemaVersion;
 use serde_json::Value;
 use std::{
+    mem::size_of,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -46,17 +46,6 @@ impl StoreOptions {
 #[derive(Clone, Debug)]
 pub struct Store {
     conn: Arc<Mutex<Connection>>,
-}
-
-fn type_hint(v: &Value) -> &'static str {
-    match v {
-        Value::Null => "null",
-        Value::Bool(_) => "boolean",
-        Value::Number(_) => "number",
-        Value::String(_) => "string",
-        Value::Array(_) => "array",
-        Value::Object(_) => "object",
-    }
 }
 
 impl Store {
@@ -241,8 +230,8 @@ impl Store {
         let conn = self.conn.lock();
 
         let name = name.as_ref();
-        let size = value.get_size();
-        let type_hint = type_hint(value);
+        let size = Self::get_size(value);
+        let type_hint = Self::type_hint(value);
         let value = rmp_serde::to_vec(&value)?;
 
         let mut cached_stmt = conn.prepare_cached(SQL_UPSERT_STORE)?;
@@ -342,8 +331,8 @@ impl Store {
                 return Ok(value);
             };
         }
-        let size = (&value).get_size();
-        let type_hint = type_hint(&value);
+        let size = Self::get_size(&value);
+        let type_hint = Self::type_hint(&value);
         {
             let value = rmp_serde::to_vec(&value)?;
             let mut cached_stmt = tx.prepare_cached(SQL_UPSERT_STORE)?;
@@ -353,6 +342,35 @@ impl Store {
         trace!(type_hint, "updated");
 
         Ok(value)
+    }
+
+    fn get_size(v: &Value) -> usize {
+        match v {
+            Value::Null => size_of::<()>(),
+            Value::Bool(_) => size_of::<bool>(),
+            Value::Number(n) => match (n.as_u64(), n.as_i64(), n.as_f64()) {
+                (Some(_), _, _) => size_of::<u64>(),
+                (_, Some(_), _) => size_of::<i64>(),
+                (_, _, Some(_)) => size_of::<f64>(),
+                (_, _, _) => unreachable!(),
+            },
+            Value::String(s) => s.capacity(),
+            Value::Array(a) => a.iter().fold(0, |acc, e| acc + Self::get_size(e)),
+            Value::Object(m) => m
+                .iter()
+                .fold(0, |acc, (k, v)| acc + k.capacity() + Self::get_size(v)),
+        }
+    }
+
+    fn type_hint(v: &Value) -> &'static str {
+        match v {
+            Value::Null => "null",
+            Value::Bool(_) => "boolean",
+            Value::Number(_) => "number",
+            Value::String(_) => "string",
+            Value::Array(_) => "array",
+            Value::Object(_) => "object",
+        }
     }
 }
 
@@ -441,6 +459,18 @@ mod tests {
         assert_eq!(json!(1001), store.get("a").unwrap());
     }
 
+    #[test_case("a", json!([true, 1, 1.23, "hello"]), 1+8+8+5)]
+    #[test_case("o", json!({ "bool": true, "num": 1.23, "str": "hello" }), (4+1)+(3+8)+(3+5))]
+    fn collective_types(key: &'static str, value: Value, size: usize) {
+        let store = Store::default();
+        store.put(key, &value).unwrap();
+        assert_eq!(value, store.get(key).unwrap());
+
+        let values = store.list().unwrap();
+        let value = values.first().unwrap();
+        assert_eq!(size, value.size());
+    }
+
     #[test]
     fn get_put() {
         let script = r#"
@@ -479,16 +509,20 @@ mod tests {
         store.migrate(None).unwrap();
     }
 
-    #[test_case("nil", json!(null))]
-    #[test_case("bt", json!(true))]
-    #[test_case("bf", json!(false))]
-    #[test_case("ni", json!(1))]
-    #[test_case("nf", json!(1.23))]
-    #[test_case("s", json!("hello"))]
-    fn primitive_types(key: &'static str, value: Value) {
+    #[test_case("nil", json!(null), 0)]
+    #[test_case("bt", json!(true), 1)]
+    #[test_case("bf", json!(false), 1)]
+    #[test_case("ni", json!(1), 8)]
+    #[test_case("nf", json!(1.23), 8)]
+    #[test_case("s", json!("hello"), 5)]
+    fn primitive_types(key: &'static str, value: Value, size: usize) {
         let store = Store::default();
         store.put(key, &value).unwrap();
         assert_eq!(value, store.get(key).unwrap());
+
+        let values = store.list().unwrap();
+        let value = values.first().unwrap();
+        assert_eq!(size, value.size());
     }
 
     #[test]
