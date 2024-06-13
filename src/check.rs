@@ -1,35 +1,50 @@
-use std::io::{Error as IoError, Write};
-
 use ariadne::{CharSet, ColorGenerator, Config, Label, Report, ReportKind, Source};
+use std::{
+    fmt::Display,
+    io::{Error as IoError, Write},
+};
 
-/// Container of the script for syntax checking.
+/// Container for the script used for syntax checking.
 #[derive(Debug)]
 pub struct LuaCheck {
-    /// Name.
-    pub name: String,
-    /// Script.
-    pub script: String,
+    name: String,
+    script: String,
 }
 
 impl LuaCheck {
-    /// Create a new container.
+    /// Create a new [`LuaCheck`] container.
     pub fn new<S>(name: S, script: S) -> Self
     where
-        S: AsRef<str>,
+        S: Display,
     {
         Self {
-            name: name.as_ref().to_string(),
-            script: script.as_ref().to_string(),
+            name: name.to_string(),
+            script: script.to_string(),
         }
     }
 
-    /// Check syntax of script.
+    /// Check the syntax of the script.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the script contains syntax errors.
+    ///
+    /// ```rust
+    /// use lmb::LuaCheck;
+    ///
+    /// let check = LuaCheck::new("", "ret true");
+    /// assert!(check.check().is_err());
+    /// ```
     pub fn check(&self) -> Result<full_moon::ast::Ast, full_moon::Error> {
         full_moon::parse(self.script.as_ref())
     }
 
-    /// Render error from [`full_moon`].
-    pub fn render_error<W>(
+    /// Render an error from [`full_moon`] to a writer.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an [`std::io::Error`] if there is an issue writing the error to the provided writer.
+    pub fn write_error<W>(
         &self,
         mut f: W,
         err: full_moon::Error,
@@ -105,6 +120,6 @@ mod tests {
         let check = LuaCheck::new("", script);
         let err = check.check().unwrap_err();
         let mut buf = Vec::new();
-        check.render_error(&mut buf, err, true).unwrap();
+        check.write_error(&mut buf, err, true).unwrap();
     }
 }

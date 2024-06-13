@@ -1,41 +1,42 @@
+use atty::Stream;
 use bat::{
     assets::HighlightingAssets,
     controller::Controller,
     input::Input as BatInput,
     style::{StyleComponent, StyleComponents},
 };
+use chrono::Utc;
 use console::Term;
 use mlua::{prelude::*, Compiler};
 use parking_lot::Mutex;
 use serde_json::Value;
 use std::{
-    fmt::Write,
+    fmt::{Display, Write},
     io::{BufReader, Read},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
+    thread,
     time::{Duration, Instant},
 };
-use tracing::{debug, trace_span};
+use tracing::{debug, error, trace_span, warn};
 
-use crate::{Input, LuaBinding, PrintOptions, Result, State, Store, DEFAULT_TIMEOUT};
+use crate::{
+    Input, LuaBinding, PrintOptions, Result, ScheduleOptions, State, Store, DEFAULT_TIMEOUT,
+};
 
 /// Evaluation builder.
+#[derive(Debug)]
 pub struct EvaluationBuilder<R>
 where
     R: Read,
 {
-    /// Function input, such as anything that implements [`std::io::Read`].
-    pub input: Arc<Mutex<BufReader<R>>>,
-    /// Function name. Might be `-` when script comes from standard input or file name.
-    pub name: Option<String>,
-    /// Lua script in plain text.
-    pub script: String,
-    /// Store that persists data across each execution.
-    pub store: Option<Store>,
-    /// Execution timeout.
-    pub timeout: Option<Duration>,
+    input: Arc<Mutex<BufReader<R>>>,
+    name: Option<String>,
+    script: String,
+    store: Option<Store>,
+    timeout: Option<Duration>,
 }
 
 impl<R> EvaluationBuilder<R>
@@ -49,12 +50,15 @@ where
     /// use lmb::*;
     /// let _ = EvaluationBuilder::new("", empty());
     /// ```
-    pub fn new<S: AsRef<str>>(script: S, input: R) -> Self {
+    pub fn new<S>(script: S, input: R) -> Self
+    where
+        S: Display,
+    {
         let input = Arc::new(Mutex::new(BufReader::new(input)));
         Self {
             input,
             name: None,
-            script: script.as_ref().to_string(),
+            script: script.to_string(),
             store: None,
             timeout: None,
         }
@@ -69,11 +73,14 @@ where
     /// let input = Arc::new(Mutex::new(BufReader::new(empty())));
     /// let _ = EvaluationBuilder::with_reader("", input);
     /// ```
-    pub fn with_reader<S: AsRef<str>>(script: S, input: Arc<Mutex<BufReader<R>>>) -> Self {
+    pub fn with_reader<S>(script: S, input: Arc<Mutex<BufReader<R>>>) -> Self
+    where
+        S: Display,
+    {
         Self {
             input,
             name: None,
-            script: script.as_ref().to_string(),
+            script: script.to_string(),
             store: None,
             timeout: None,
         }
@@ -87,7 +94,7 @@ where
     /// use lmb::*;
     /// let _ = EvaluationBuilder::new("", empty()).default_store();
     /// ```
-    pub fn default_store(mut self) -> Self {
+    pub fn default_store(&mut self) -> &mut Self {
         self.store = Some(Store::default());
         self
     }
@@ -99,8 +106,11 @@ where
     /// use lmb::*;
     /// let _ = EvaluationBuilder::new("", empty()).name("script");
     /// ```
-    pub fn name<S: AsRef<str>>(mut self, name: S) -> Self {
-        self.name = Some(name.as_ref().to_string());
+    pub fn name<S>(&mut self, name: S) -> &mut Self
+    where
+        S: Display,
+    {
+        self.name = Some(name.to_string());
         self
     }
 
@@ -112,7 +122,7 @@ where
     /// let store = Store::default();
     /// let _ = EvaluationBuilder::new("", empty()).store(store);
     /// ```
-    pub fn store(mut self, store: Store) -> Self {
+    pub fn store(&mut self, store: Store) -> &mut Self {
         self.store = Some(store);
         self
     }
@@ -125,7 +135,7 @@ where
     /// let timeout = Duration::from_secs(30);
     /// let _ = EvaluationBuilder::new("", empty()).timeout(Some(timeout));
     /// ```
-    pub fn timeout(mut self, timeout: Option<Duration>) -> Self {
+    pub fn timeout(&mut self, timeout: Option<Duration>) -> &mut Self {
         self.timeout = timeout;
         self
     }
@@ -141,11 +151,15 @@ where
     /// # use std::io::empty;
     /// # use serde_json::json;
     /// use lmb::*;
+    ///
+    /// # fn main() -> Result<()> {
     /// let e = EvaluationBuilder::new("return true", empty()).build();
-    /// let res = e.evaluate().unwrap();
-    /// assert_eq!(json!(true), res.payload);
+    /// let res = e.evaluate()?;
+    /// assert_eq!(&json!(true), res.payload());
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn build(self) -> Arc<Evaluation<R>> {
+    pub fn build(&self) -> Arc<Evaluation<R>> {
         let vm = Lua::new();
         vm.sandbox(true).expect("failed to enable sandbox");
 
@@ -158,10 +172,10 @@ where
             .expect("failed to initalize the binding");
         Arc::new(Evaluation {
             compiled,
-            input: self.input,
-            name: self.name.unwrap_or_default(),
-            script: self.script,
-            store: self.store,
+            input: self.input.clone(),
+            name: self.name.clone().unwrap_or_default(),
+            script: self.script.clone(),
+            store: self.store.clone(),
             timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
             vm,
         })
@@ -169,26 +183,43 @@ where
 }
 
 /// Solution obtained by the function.
+#[derive(Debug)]
 pub struct Solution<R>
 where
     for<'lua> R: 'lua + Read,
 {
-    /// Execution duration.
-    pub duration: Duration,
-    /// Container of function that obtained the solution.
-    pub evaluation: Arc<Evaluation<R>>,
-    /// Max memory usage in bytes.
-    pub max_memory: usize,
-    /// Result returned by the function.
-    pub payload: Value,
+    duration: Duration,
+    evaluation: Arc<Evaluation<R>>,
+    max_memory_usage: usize,
+    payload: Value,
 }
 
 impl<R> Solution<R>
 where
     for<'lua> R: 'lua + Read,
 {
+    /// Get duration.
+    pub fn duration(&self) -> Duration {
+        self.duration
+    }
+
+    /// Get evaluation.
+    pub fn evaluation(&self) -> &Evaluation<R> {
+        self.evaluation.as_ref()
+    }
+
+    /// Get max memory usage in bytes.
+    pub fn max_memory_usage(&self) -> usize {
+        self.max_memory_usage
+    }
+
+    /// Get evaluated payload.
+    pub fn payload(&self) -> &Value {
+        &self.payload
+    }
+
     /// Render the solution.
-    pub fn render<W>(&self, mut f: W, json: bool) -> Result<()>
+    pub fn write<W>(&self, mut f: W, json: bool) -> Result<()>
     where
         W: Write,
     {
@@ -204,17 +235,16 @@ where
     }
 }
 
-/// A container that holds the compiled function and input for evaluation.
+/// Container holdingthe compiled function and input for evaluation.
+#[derive(Debug)]
 pub struct Evaluation<R>
 where
     for<'lua> R: 'lua + Read,
 {
-    /// Source code of script.
-    pub script: String,
-    /// Name.
-    pub name: String,
     compiled: Vec<u8>,
     input: Input<R>,
+    name: String,
+    script: String,
     store: Option<Store>,
     timeout: Duration,
     vm: Lua,
@@ -230,9 +260,13 @@ where
     /// # use std::io::empty;
     /// # use serde_json::json;
     /// use lmb::*;
+    ///
+    /// # fn main() -> Result<()> {
     /// let e = EvaluationBuilder::new("return 1+1", empty()).build();
-    /// let res = e.evaluate().unwrap();
-    /// assert_eq!(json!(2), res.payload);
+    /// let res = e.evaluate()?;
+    /// assert_eq!(&json!(2), res.payload());
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn evaluate(self: &Arc<Self>) -> Result<Solution<R>> {
         self.do_evaluate(None)
@@ -244,25 +278,109 @@ where
     /// # use std::{io::empty, sync::Arc};
     /// # use serde_json::json;
     /// use lmb::*;
+    ///
+    /// # fn main() -> Result<()> {
     /// let e = EvaluationBuilder::new("return 1+1", empty()).build();
     /// let state = Arc::new(State::new());
     /// state.insert(StateKey::from("bool"), true.into());
-    /// let res = e.evaluate_with_state(state).unwrap();
-    /// assert_eq!(json!(2), res.payload);
+    /// let res = e.evaluate_with_state(state)?;
+    /// assert_eq!(&json!(2), res.payload());
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn evaluate_with_state(self: &Arc<Self>, state: Arc<State>) -> Result<Solution<R>> {
         self.do_evaluate(Some(state))
     }
 
+    /// Get name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Schedule the script.
+    pub fn schedule(self: Arc<Self>, options: &ScheduleOptions) {
+        let bail = options.bail();
+        debug!(bail, "script scheduled");
+        let mut error_count = 0usize;
+        loop {
+            let now = Utc::now();
+            if let Some(next) = options.schedule().upcoming(Utc).take(1).next() {
+                debug!(%next, "next run");
+                let elapsed = next - now;
+                thread::sleep(elapsed.to_std().expect("failed to fetch next schedule"));
+                if let Err(err) = self.evaluate() {
+                    warn!(?err, "failed to evaluate");
+                    if bail > 0 {
+                        debug!(bail, error_count, "check bail threshold");
+                        error_count += 1;
+                        if error_count == bail {
+                            error!("bail because threshold reached");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Get script.
+    pub fn script(&self) -> &str {
+        &self.script
+    }
+
+    /// Replace the function input after the container is built.
+    ///
+    /// ```rust
+    /// # use std::io::{BufReader, Cursor, empty};
+    /// # use serde_json::json;
+    /// use lmb::*;
+    ///
+    /// # fn main() -> Result<()> {
+    /// let script = "return io.read('*a')";
+    /// let mut e = EvaluationBuilder::new(script, Cursor::new("1")).build();
+    ///
+    /// let r = e.evaluate()?;
+    /// assert_eq!(&json!("1"), r.payload());
+    ///
+    /// e.set_input(Cursor::new("2"));
+    ///
+    /// let r = e.evaluate()?;
+    /// assert_eq!(&json!("2"), r.payload());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn set_input(self: &Arc<Self>, input: R) {
+        *self.input.lock() = BufReader::new(input);
+    }
+
     /// Render the script.
+    ///
+    /// ```rust
+    /// # use std::io::empty;
+    /// use lmb::*;
+    ///
+    /// # fn main() -> Result<()> {
+    /// let script = "return 1";
+    /// let e = EvaluationBuilder::new(script, empty()).build();
+    ///
+    /// let mut buf = String::new();
+    /// e.write_script(&mut buf, &PrintOptions::no_color())?;
+    /// assert!(buf.contains("return 1"));
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn write_script<W>(&self, mut f: W, options: &PrintOptions) -> Result<bool>
     where
         W: Write,
     {
-        let components = &[StyleComponent::Grid, StyleComponent::LineNumbers];
-        let style_components = StyleComponents::new(components);
+        let (style_components, colored_output) = if atty::is(Stream::Stdout) {
+            let components = &[StyleComponent::Grid, StyleComponent::LineNumbers];
+            (StyleComponents::new(components), !options.no_color)
+        } else {
+            (StyleComponents::new(&[]), false)
+        };
         let mut config = bat::config::Config {
-            colored_output: !options.no_color,
+            colored_output,
             language: Some("lua"),
             style_components,
             true_color: true,
@@ -278,28 +396,6 @@ where
         let inputs = vec![BatInput::from_reader(reader)];
         let controller = Controller::new(&config, &assets);
         Ok(controller.run(inputs, Some(&mut f))?)
-    }
-
-    /// Replace the function input after the container is built.
-    ///
-    /// ```rust
-    /// # use std::io::{BufReader, Cursor, empty};
-    /// # use serde_json::json;
-    /// use lmb::*;
-    ///
-    /// let script = "return io.read('*a')";
-    /// let mut e = EvaluationBuilder::new(script, Cursor::new("1")).build();
-    ///
-    /// let r = e.evaluate().unwrap();
-    /// assert_eq!(json!("1"), r.payload);
-    ///
-    /// e.set_input(Cursor::new("2"));
-    ///
-    /// let r = e.evaluate().unwrap();
-    /// assert_eq!(json!("2"), r.payload);
-    /// ```
-    pub fn set_input(self: &Arc<Self>, input: R) {
-        *self.input.lock() = BufReader::new(input);
     }
 
     fn do_evaluate(self: &Arc<Self>, state: Option<Arc<State>>) -> Result<Solution<R>> {
@@ -337,7 +433,7 @@ where
         Ok(Solution {
             duration,
             evaluation: self.clone(),
-            max_memory,
+            max_memory_usage: max_memory,
             payload: result,
         })
     }
@@ -418,16 +514,6 @@ mod tests {
     }
 
     #[test]
-    fn render_solution() {
-        let script = "return 1+1";
-        let e = EvaluationBuilder::new(script, empty()).build();
-        let solution = e.evaluate().unwrap();
-        let mut buf = String::new();
-        solution.render(&mut buf, false).unwrap();
-        assert_eq!("2", buf);
-    }
-
-    #[test]
     fn replace_input() {
         let script = "return io.read('*a')";
         let e = EvaluationBuilder::new(script, &b"0"[..]).build();
@@ -471,5 +557,15 @@ mod tests {
             let res = e.evaluate_with_state(state.clone()).unwrap();
             assert_eq!(json!(2), res.payload);
         }
+    }
+
+    #[test]
+    fn write_solution() {
+        let script = "return 1+1";
+        let e = EvaluationBuilder::new(script, empty()).build();
+        let solution = e.evaluate().unwrap();
+        let mut buf = String::new();
+        solution.write(&mut buf, false).unwrap();
+        assert_eq!("2", buf);
     }
 }

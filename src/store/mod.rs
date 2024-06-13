@@ -1,10 +1,10 @@
 use chrono::{DateTime, Utc};
-use get_size::GetSize as _;
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use rusqlite_migration::SchemaVersion;
 use serde_json::Value;
 use std::{
+    mem::size_of,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -16,29 +16,36 @@ use crate::{Result, MIGRATIONS};
 mod stmt;
 
 /// Store options for command line.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct StoreOptions {
-    /// Store path.
-    pub store_path: Option<PathBuf>,
-    /// Run migrations.
-    pub run_migrations: bool,
+    store_path: Option<PathBuf>,
+    run_migrations: bool,
+}
+
+impl StoreOptions {
+    /// Create a new instance of store options.
+    pub fn new(store_path: Option<PathBuf>, run_migrations: bool) -> Self {
+        Self {
+            store_path,
+            run_migrations,
+        }
+    }
+
+    /// Get store path.
+    pub fn store_path(&self) -> &Option<PathBuf> {
+        &self.store_path
+    }
+
+    /// Get the option indicating whether migrations should be run.
+    pub fn run_migrations(&self) -> bool {
+        self.run_migrations
+    }
 }
 
 /// Store that persists data across executions.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Store {
     conn: Arc<Mutex<Connection>>,
-}
-
-fn type_hint(v: &Value) -> &'static str {
-    match v {
-        Value::Null => "null",
-        Value::Bool(_) => "boolean",
-        Value::Number(_) => "number",
-        Value::String(_) => "string",
-        Value::Array(_) => "array",
-        Value::Object(_) => "object",
-    }
 }
 
 impl Store {
@@ -47,8 +54,12 @@ impl Store {
     /// ```rust
     /// # use assert_fs::NamedTempFile;
     /// use lmb::*;
-    /// let store_file = NamedTempFile::new("db.sqlite3").unwrap();
-    /// let _ = Store::new(store_file.path());
+    ///
+    /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    /// let store_file = NamedTempFile::new("db.sqlite3")?;
+    /// Store::new(store_file.path())?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn new(path: &Path) -> Result<Self> {
         debug!(?path, "open store");
@@ -68,9 +79,13 @@ impl Store {
     /// ```rust
     /// # use assert_fs::NamedTempFile;
     /// use lmb::*;
-    /// let store_file = NamedTempFile::new("db.sqlite3").unwrap();
-    /// let store = Store::new(store_file.path()).unwrap();
-    /// store.migrate(None).unwrap();
+    ///
+    /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    /// let store_file = NamedTempFile::new("db.sqlite3")?;
+    /// let store = Store::new(store_file.path())?;
+    /// store.migrate(None)?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn migrate(&self, version: Option<usize>) -> Result<()> {
         let mut conn = self.conn.lock();
@@ -92,10 +107,22 @@ impl Store {
     }
 
     /// Delete value by name.
-    pub fn delete<S>(&self, name: S) -> Result<usize>
-    where
-        S: AsRef<str>,
-    {
+    ///
+    /// ```rust
+    /// # use serde_json::json;
+    /// use lmb::*;
+    ///
+    /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    /// let store = Store::default();
+    /// assert_eq!(json!(null), store.get("a")?);
+    /// store.put("a", &true.into());
+    /// assert_eq!(json!(true), store.get("a")?);
+    /// store.delete("a");
+    /// assert_eq!(json!(null), store.get("a")?);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn delete<S: AsRef<str>>(&self, name: S) -> Result<usize> {
         let conn = self.conn.lock();
         let affected = conn.execute(SQL_DELETE_VALUE_BY_NAME, (name.as_ref(),))?;
         Ok(affected)
@@ -107,10 +134,14 @@ impl Store {
     /// ```rust
     /// # use serde_json::json;
     /// use lmb::*;
+    ///
+    /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     /// let store = Store::default();
-    /// assert_eq!(json!(null), store.get("a").unwrap());
+    /// assert_eq!(json!(null), store.get("a")?);
     /// store.put("a", &true.into());
-    /// assert_eq!(json!(true), store.get("a").unwrap());
+    /// assert_eq!(json!(true), store.get("a")?);
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn get<S: AsRef<str>>(&self, name: S) -> Result<Value> {
         let conn = self.conn.lock();
@@ -140,6 +171,19 @@ impl Store {
     }
 
     /// List values.
+    ///
+    /// ```rust
+    /// # use serde_json::json;
+    /// use lmb::*;
+    ///
+    /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    /// let store = Store::default();
+    /// store.put("a", &true.into())?;
+    /// let values = store.list()?;
+    /// assert_eq!(1, values.len());
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn list(&self) -> Result<Vec<StoreValueMetadata>> {
         let conn = self.conn.lock();
         let mut cached_stmt = conn.prepare_cached(SQL_GET_ALL_VALUES)?;
@@ -170,20 +214,24 @@ impl Store {
     /// ```rust
     /// # use serde_json::json;
     /// use lmb::*;
+    ///
+    /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     /// let store = Store::default();
     /// store.put("a", &true.into());
-    /// assert_eq!(json!(true), store.get("a").unwrap());
+    /// assert_eq!(json!(true), store.get("a")?);
     /// store.put("b", &1.into());
-    /// assert_eq!(json!(1), store.get("b").unwrap());
+    /// assert_eq!(json!(1), store.get("b")?);
     /// store.put("c", &"hello".into());
-    /// assert_eq!(json!("hello"), store.get("c").unwrap());
+    /// assert_eq!(json!("hello"), store.get("c")?);
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn put<S: AsRef<str>>(&self, name: S, value: &Value) -> Result<usize> {
         let conn = self.conn.lock();
 
         let name = name.as_ref();
-        let size = value.get_size();
-        let type_hint = type_hint(value);
+        let size = Self::get_size(value);
+        let type_hint = Self::type_hint(value);
         let value = rmp_serde::to_vec(&value)?;
 
         let mut cached_stmt = conn.prepare_cached(SQL_UPSERT_STORE)?;
@@ -206,16 +254,20 @@ impl Store {
     /// ```rust
     /// # use serde_json::{json, Value};
     /// use lmb::*;
+    ///
+    /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     /// let store = Store::default();
-    /// let x = store.update("b", |old| {
+    /// let updated = store.update("b", |old| {
     ///     if let Value::Number(_) = old {
-    ///         let n = old.as_i64().unwrap();
+    ///         let n = old.as_i64().ok_or(mlua::Error::runtime("n is required"))?;
     ///         *old = json!(n + 1);
     ///     }
     ///     Ok(())
     /// }, Some(1.into()));
-    /// assert_eq!(json!(2), x.unwrap());
-    /// assert_eq!(json!(2), store.get("b").unwrap());
+    /// assert_eq!(json!(2), updated?);
+    /// assert_eq!(json!(2), store.get("b")?);
+    /// # Ok(())
+    /// # }
     /// ```
     ///
     /// # Do nothing when an error is returned
@@ -223,11 +275,13 @@ impl Store {
     /// ```rust
     /// # use serde_json::{json, Value};
     /// use lmb::*;
+    ///
+    /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     /// let store = Store::default();
     /// store.put("a", &1.into());
-    /// let x = store.update("a", |old| {
+    /// let updated = store.update("a", |old| {
     ///     if let Value::Number(_) = old {
-    ///        let n = old.as_i64().unwrap();
+    ///        let n = old.as_i64().ok_or(mlua::Error::runtime("n is required"))?;
     ///        if n == 1 {
     ///            return Err(mlua::Error::runtime("something went wrong"));
     ///        }
@@ -235,8 +289,10 @@ impl Store {
     ///     }
     ///     Ok(())
     /// }, Some(1.into()));
-    /// assert_eq!(json!(1), x.unwrap());
-    /// assert_eq!(json!(1), store.get("a").unwrap());
+    /// assert_eq!(json!(1), updated?);
+    /// assert_eq!(json!(1), store.get("a")?);
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn update<S: AsRef<str>>(
         &self,
@@ -275,8 +331,8 @@ impl Store {
                 return Ok(value);
             };
         }
-        let size = (&value).get_size();
-        let type_hint = type_hint(&value);
+        let size = Self::get_size(&value);
+        let type_hint = Self::type_hint(&value);
         {
             let value = rmp_serde::to_vec(&value)?;
             let mut cached_stmt = tx.prepare_cached(SQL_UPSERT_STORE)?;
@@ -287,23 +343,76 @@ impl Store {
 
         Ok(value)
     }
+
+    fn get_size(v: &Value) -> usize {
+        match v {
+            Value::Null => size_of::<()>(),
+            Value::Bool(_) => size_of::<bool>(),
+            Value::Number(n) => match (n.as_u64(), n.as_i64(), n.as_f64()) {
+                (Some(_), _, _) => size_of::<u64>(),
+                (_, Some(_), _) => size_of::<i64>(),
+                (_, _, Some(_)) => size_of::<f64>(),
+                (_, _, _) => unreachable!(),
+            },
+            Value::String(s) => s.capacity(),
+            Value::Array(a) => a.iter().fold(0, |acc, e| acc + Self::get_size(e)),
+            Value::Object(m) => m
+                .iter()
+                .fold(0, |acc, (k, v)| acc + k.capacity() + Self::get_size(v)),
+        }
+    }
+
+    fn type_hint(v: &Value) -> &'static str {
+        match v {
+            Value::Null => "null",
+            Value::Bool(_) => "boolean",
+            Value::Number(_) => "number",
+            Value::String(_) => "string",
+            Value::Array(_) => "array",
+            Value::Object(_) => "object",
+        }
+    }
 }
 
 /// Value metadata. The value itself is intentionally not included.
+#[derive(Debug)]
 pub struct StoreValueMetadata {
-    /// Name.
-    pub name: String,
-    /// Size in bytes.
-    pub size: usize,
-    /// Type.
-    pub type_hint: String,
-    /// Timestamp indicating when the value was created in UTC timezone.
-    pub created_at: DateTime<Utc>,
-    /// Timestamp indicating when the value was updated in UTC timezone.
-    pub updated_at: DateTime<Utc>,
+    name: String,
+    size: usize,
+    type_hint: String,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+
+impl StoreValueMetadata {
+    /// Get the timestamp that the value is created.
+    pub fn created_at(&self) -> &DateTime<Utc> {
+        &self.created_at
+    }
+
+    /// Get name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Get size in bytes.
+    pub fn size(&self) -> usize {
+        self.size
+    }
+
+    /// Get type hint.
+    pub fn type_hint(&self) -> &str {
+        &self.type_hint
+    }
+
+    /// Get the timestamp that the value is updated.
+    pub fn updated_at(&self) -> &DateTime<Utc> {
+        &self.updated_at
+    }
 }
 
 impl Default for Store {
+    /// Open and initialize a `SQLite` database in memory.
     fn default() -> Self {
         debug!("open store in memory");
         let conn = Connection::open_in_memory().expect("failed to open SQLite database in memory");
@@ -350,6 +459,18 @@ mod tests {
         assert_eq!(json!(1001), store.get("a").unwrap());
     }
 
+    #[test_case("a", json!([true, 1, 1.23, "hello"]), 1+8+8+5)]
+    #[test_case("o", json!({ "bool": true, "num": 1.23, "str": "hello" }), (4+1)+(3+8)+(3+5))]
+    fn collective_types(key: &'static str, value: Value, size: usize) {
+        let store = Store::default();
+        store.put(key, &value).unwrap();
+        assert_eq!(value, store.get(key).unwrap());
+
+        let values = store.list().unwrap();
+        let value = values.first().unwrap();
+        assert_eq!(size, value.size());
+    }
+
     #[test]
     fn get_put() {
         let script = r#"
@@ -368,7 +489,7 @@ mod tests {
             .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(json!(1.23), res.payload);
+        assert_eq!(&json!(1.23), res.payload());
         assert_eq!(json!(4.56), store.get("a").unwrap());
         assert_eq!(json!(null), store.get("b").unwrap());
     }
@@ -388,16 +509,20 @@ mod tests {
         store.migrate(None).unwrap();
     }
 
-    #[test_case("nil", json!(null))]
-    #[test_case("bt", json!(true))]
-    #[test_case("bf", json!(false))]
-    #[test_case("ni", json!(1))]
-    #[test_case("nf", json!(1.23))]
-    #[test_case("s", json!("hello"))]
-    fn primitive_types(key: &'static str, value: Value) {
+    #[test_case("nil", json!(null), 0)]
+    #[test_case("bt", json!(true), 1)]
+    #[test_case("bf", json!(false), 1)]
+    #[test_case("ni", json!(1), 8)]
+    #[test_case("nf", json!(1.23), 8)]
+    #[test_case("s", json!("hello"), 5)]
+    fn primitive_types(key: &'static str, value: Value, size: usize) {
         let store = Store::default();
         store.put(key, &value).unwrap();
         assert_eq!(value, store.get(key).unwrap());
+
+        let values = store.list().unwrap();
+        let value = values.first().unwrap();
+        assert_eq!(size, value.size());
     }
 
     #[test]
@@ -418,13 +543,13 @@ mod tests {
 
         {
             let res = e.evaluate().unwrap();
-            assert_eq!(json!(1), res.payload);
+            assert_eq!(&json!(1), res.payload());
             assert_eq!(json!(2), store.get("a").unwrap());
         }
 
         {
             let res = e.evaluate().unwrap();
-            assert_eq!(json!(2), res.payload);
+            assert_eq!(&json!(2), res.payload());
             assert_eq!(json!(3), store.get("a").unwrap());
         }
     }
@@ -445,7 +570,7 @@ mod tests {
             .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(json!(2), res.payload);
+        assert_eq!(&json!(2), res.payload());
         assert_eq!(json!(2), store.get("a").unwrap());
     }
 
@@ -469,7 +594,7 @@ mod tests {
             .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(json!(1), res.payload);
+        assert_eq!(&json!(1), res.payload());
         assert_eq!(json!(1), store.get("a").unwrap());
     }
 }

@@ -4,15 +4,20 @@ use clio::*;
 use comfy_table::{presets, Table};
 use cron::Schedule;
 use lmb::{
-    schedule_script, Error, EvaluationBuilder, LuaCheck, PrintOptions, ScheduleOptions, Store,
-    StoreOptions, DEFAULT_TIMEOUT, EXAMPLES,
+    Error, EvaluationBuilder, LuaCheck, PrintOptions, ScheduleOptions, Store, StoreOptions,
+    DEFAULT_TIMEOUT, EXAMPLES,
 };
 use mlua::prelude::*;
 use serde_json::json;
 use serve::ServeOptions;
-use std::io::Read;
-use std::str::FromStr;
-use std::{io, path::PathBuf, process::ExitCode, time::Duration};
+use std::{
+    fmt::Display,
+    io::{self, Read},
+    path::PathBuf,
+    process::ExitCode,
+    str::FromStr,
+    time::Duration,
+};
 use tracing::Level;
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
 
@@ -88,6 +93,9 @@ enum Commands {
     ListThemes,
     /// Schedule the script as a cron job
     Schedule {
+        /// Exit immediately upon N number of errors. 0 to disable.
+        #[arg(long, default_value_t = 1)]
+        bail: usize,
         /// Cron
         #[arg(long)]
         cron: String,
@@ -185,11 +193,14 @@ enum StoreCommands {
     Version,
 }
 
-fn do_check_syntax<S: AsRef<str>>(no_color: bool, name: S, script: S) -> anyhow::Result<()> {
+fn do_check_syntax<S>(no_color: bool, name: S, script: S) -> anyhow::Result<()>
+where
+    S: Display,
+{
     let check = LuaCheck::new(name, script);
     if let Err(err) = check.check() {
         let mut buf = Vec::new();
-        check.render_error(&mut buf, err, no_color)?;
+        check.write_error(&mut buf, err, no_color)?;
         bail!(String::from_utf8_lossy(&buf).trim().to_string());
     }
     Ok(())
@@ -203,9 +214,9 @@ fn read_script(input: &mut Input) -> anyhow::Result<(String, String)> {
 }
 
 fn prepare_store(options: &StoreOptions) -> anyhow::Result<Store> {
-    let store = if let Some(store_path) = &options.store_path {
+    let store = if let Some(store_path) = options.store_path() {
         let store = Store::new(store_path)?;
-        if options.run_migrations {
+        if options.run_migrations() {
             store.migrate(None)?;
         }
         store
@@ -243,14 +254,11 @@ async fn try_main() -> anyhow::Result<()> {
         .compact()
         .init();
 
-    let print_options = PrintOptions {
-        no_color: cli.no_color,
-        theme: cli.theme,
-    };
-    let store_options = StoreOptions {
-        store_path: cli.store_path,
-        run_migrations: cli.run_migrations,
-    };
+    let mut print_options = PrintOptions::default();
+    print_options.set_no_color(cli.no_color);
+    print_options.set_theme(cli.theme);
+
+    let store_options = StoreOptions::new(cli.store_path, cli.run_migrations);
     match cli.command {
         Commands::Check { mut file } => {
             let (name, script) = read_script(&mut file)?;
@@ -270,7 +278,7 @@ async fn try_main() -> anyhow::Result<()> {
             let mut buf = String::new();
             match e.evaluate() {
                 Ok(s) => {
-                    s.render(&mut buf, cli.json)?;
+                    s.write(&mut buf, cli.json)?;
                     print!("{buf}");
                     Ok(())
                 }
@@ -282,10 +290,10 @@ async fn try_main() -> anyhow::Result<()> {
             }
         }
         Commands::Example(ExampleCommands::Cat { name }) => {
-            let Some(found) = EXAMPLES.iter().find(|e| e.name == name) else {
+            let Some(found) = EXAMPLES.iter().find(|e| e.name() == name) else {
                 bail!("example with {name} not found");
             };
-            let script = &found.script.trim();
+            let script = found.script().trim();
             let mut buf = String::new();
             let e = EvaluationBuilder::new(script, io::stdin()).build();
             e.write_script(&mut buf, &print_options)?;
@@ -293,10 +301,10 @@ async fn try_main() -> anyhow::Result<()> {
             Ok(())
         }
         Commands::Example(ExampleCommands::Evaluate { name }) => {
-            let Some(found) = EXAMPLES.iter().find(|e| e.name == name) else {
+            let Some(found) = EXAMPLES.iter().find(|e| e.name() == name) else {
                 bail!("example with {name} not found");
             };
-            let script = found.script.trim();
+            let script = found.script().trim();
             let store = prepare_store(&store_options)?;
             let e = EvaluationBuilder::new(script, io::stdin())
                 .name(name.as_str())
@@ -305,7 +313,7 @@ async fn try_main() -> anyhow::Result<()> {
             let mut buf = String::new();
             match e.evaluate() {
                 Ok(s) => {
-                    s.render(&mut buf, cli.json)?;
+                    s.write(&mut buf, cli.json)?;
                     print!("{buf}");
                     Ok(())
                 }
@@ -321,7 +329,7 @@ async fn try_main() -> anyhow::Result<()> {
             table.load_preset(presets::NOTHING);
             table.set_header(vec!["name", "description"]);
             for e in EXAMPLES.iter() {
-                table.add_row(vec![&e.name, &e.description]);
+                table.add_row(vec![e.name(), e.description()]);
             }
             println!("{table}");
             Ok(())
@@ -331,23 +339,17 @@ async fn try_main() -> anyhow::Result<()> {
             name,
             timeout,
         }) => {
-            let Some(found) = EXAMPLES.iter().find(|e| e.name == name) else {
+            let Some(found) = EXAMPLES.iter().find(|e| e.name() == name) else {
                 bail!("example with {name} not found");
             };
-            let script = &found.script;
             if cli.check_syntax {
-                do_check_syntax(cli.no_color, &name, script)?;
+                do_check_syntax(cli.no_color, name.as_str(), found.script())?;
             }
             let timeout = timeout.map(Duration::from_secs);
-            serve::serve_file(&ServeOptions {
-                json: cli.json,
-                bind,
-                name,
-                script: script.to_string(),
-                timeout,
-                store_options,
-            })
-            .await?;
+            let mut options = ServeOptions::new(name.as_str(), found.script(), bind, store_options);
+            options.set_json(cli.json);
+            options.set_timeout(timeout);
+            serve::serve_file(&options).await?;
             Ok(())
         }
         Commands::ListThemes => {
@@ -358,6 +360,7 @@ async fn try_main() -> anyhow::Result<()> {
             Ok(())
         }
         Commands::Schedule {
+            bail,
             cron,
             mut file,
             initial_run,
@@ -365,14 +368,16 @@ async fn try_main() -> anyhow::Result<()> {
             let (name, script) = read_script(&mut file)?;
             let schedule = Schedule::from_str(&cron)?;
             let store = prepare_store(&store_options)?;
-            let options = ScheduleOptions {
-                initial_run,
-                name,
-                schedule,
-                script,
-                store,
-            };
-            schedule_script(options);
+
+            let mut options = ScheduleOptions::new(schedule);
+            options.set_bail(bail);
+            options.set_initial_run(initial_run);
+
+            let e = EvaluationBuilder::new(script, io::stdin())
+                .name(name)
+                .store(store)
+                .build();
+            e.schedule(&options);
             Ok(())
         }
         Commands::Serve {
@@ -385,23 +390,17 @@ async fn try_main() -> anyhow::Result<()> {
                 do_check_syntax(cli.no_color, &name, &script)?;
             }
             let timeout = timeout.map(Duration::from_secs);
-            serve::serve_file(&ServeOptions {
-                json: cli.json,
-                bind,
-                name,
-                script,
-                timeout,
-                store_options,
-            })
-            .await?;
+            let mut options = ServeOptions::new(name, script, bind, store_options);
+            options.set_timeout(timeout);
+            serve::serve_file(&options).await?;
             Ok(())
         }
         Commands::Store(c) => {
-            let Some(store_path) = &store_options.store_path else {
+            let Some(store_path) = store_options.store_path() else {
                 bail!("store_path is required");
             };
             let store = Store::new(store_path)?;
-            if store_options.run_migrations {
+            if store_options.run_migrations() {
                 store.migrate(None)?;
             }
             match c {
@@ -423,11 +422,11 @@ async fn try_main() -> anyhow::Result<()> {
                     table.set_header(vec!["name", "type", "size", "created at", "updated at"]);
                     for m in metadata_rows.iter() {
                         table.add_row(vec![
-                            &m.name,
-                            &m.type_hint,
-                            &m.size.to_string(),
-                            &m.created_at.to_rfc3339(),
-                            &m.updated_at.to_rfc3339(),
+                            m.name(),
+                            m.type_hint(),
+                            &m.size().to_string(),
+                            &m.created_at().to_rfc3339(),
+                            &m.updated_at().to_rfc3339(),
                         ]);
                     }
                     println!("{table}");
