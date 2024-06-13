@@ -83,6 +83,22 @@ fn eval_stdin() {
 }
 
 #[test]
+fn eval_stdin_runtime_error() {
+    Command::new(cargo_bin("lmb"))
+        .stdin("print(1)\nprint(nil+1)\nprint(2)")
+        .args(["--no-color", "eval", "--file", "-"])
+        .assert()
+        .failure()
+        .stderr_eq(str![[r#"
+Error: attempt to perform arithmetic (add) on nil and number
+   ,-[-:2:1]
+ 2 |print(nil+1)
+   |      `------- attempt to perform arithmetic (add) on nil and number
+
+"#]]);
+}
+
+#[test]
 fn eval_stdin_syntax_error() {
     Command::new(cargo_bin("lmb"))
         .stdin("return !true")
