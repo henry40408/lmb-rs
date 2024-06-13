@@ -105,7 +105,7 @@ mod tests {
 
     #[test]
     fn test_evaluation() {
-        let markdown = include_str!("../docs/lua.md");
+        let markdown = include_str!("../guides/lua.md");
         let blocks = {
             let mut blocks = Vec::new();
             let parser = Parser::new_ext(markdown, Options::all());
