@@ -21,6 +21,7 @@ mod check;
 mod error;
 mod eval;
 mod example;
+mod guide;
 mod lua_binding;
 mod schedule;
 mod store;
