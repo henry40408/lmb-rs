@@ -1,17 +1,14 @@
 use std::{fmt::Write, io::Read};
 
 use ariadne::{CharSet, ColorGenerator, Label, Report, ReportKind, Source};
-use fancy_regex::Regex;
+use lazy_regex::{lazy_regex, Regex};
 use mlua::prelude::*;
 use once_cell::sync::Lazy;
 use thiserror::Error;
 
 use crate::{Evaluation, Result};
 
-static LUA_ERROR_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\[[^\]]+\]:(\d+):(.+)")
-        .expect("failed to compile regular expression for Lua error message")
-});
+static LUA_ERROR_REGEX: Lazy<Regex> = lazy_regex!(r"\[[^\]]+\]:(\d+):(.+)");
 
 /// Custom error type for handling various error scenarios.
 #[derive(Debug, Error)]
@@ -63,7 +60,7 @@ impl Error {
         };
 
         let first_line = message.lines().next().unwrap_or_default();
-        let Ok(Some(captures)) = LUA_ERROR_REGEX.captures(first_line) else {
+        let Some(captures) = LUA_ERROR_REGEX.captures(first_line) else {
             return Ok(write!(f, "{}", first_line)?);
         };
 
