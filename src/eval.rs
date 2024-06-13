@@ -5,6 +5,7 @@ use bat::{
     input::Input as BatInput,
     style::{StyleComponent, StyleComponents},
 };
+use chrono::Utc;
 use console::Term;
 use mlua::{prelude::*, Compiler};
 use parking_lot::Mutex;
@@ -16,11 +17,14 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
+    thread,
     time::{Duration, Instant},
 };
-use tracing::{debug, trace_span};
+use tracing::{debug, error, trace_span, warn};
 
-use crate::{Input, LuaBinding, PrintOptions, Result, State, Store, DEFAULT_TIMEOUT};
+use crate::{
+    Input, LuaBinding, PrintOptions, Result, ScheduleOptions, State, Store, DEFAULT_TIMEOUT,
+};
 
 /// Evaluation builder.
 #[derive(Debug)]
@@ -291,6 +295,32 @@ where
     /// Get name.
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Schedule the script.
+    pub fn schedule(self: Arc<Self>, options: &ScheduleOptions) {
+        let bail = options.bail();
+        debug!(bail, "script scheduled");
+        let mut error_count = 0usize;
+        loop {
+            let now = Utc::now();
+            if let Some(next) = options.schedule().upcoming(Utc).take(1).next() {
+                debug!(%next, "next run");
+                let elapsed = next - now;
+                thread::sleep(elapsed.to_std().expect("failed to fetch next schedule"));
+                if let Err(err) = self.evaluate() {
+                    warn!(?err, "failed to evaluate");
+                    if bail > 0 {
+                        debug!(bail, error_count, "check bail threshold");
+                        error_count += 1;
+                        if error_count == bail {
+                            error!("bail because threshold reached");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Get script.

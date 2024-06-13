@@ -4,8 +4,8 @@ use clio::*;
 use comfy_table::{presets, Table};
 use cron::Schedule;
 use lmb::{
-    schedule_script, Error, EvaluationBuilder, LuaCheck, PrintOptions, ScheduleOptions, Store,
-    StoreOptions, DEFAULT_TIMEOUT, EXAMPLES,
+    Error, EvaluationBuilder, LuaCheck, PrintOptions, ScheduleOptions, Store, StoreOptions,
+    DEFAULT_TIMEOUT, EXAMPLES,
 };
 use mlua::prelude::*;
 use serde_json::json;
@@ -93,6 +93,9 @@ enum Commands {
     ListThemes,
     /// Schedule the script as a cron job
     Schedule {
+        /// Exit immediately upon N number of errors. 0 to disable.
+        #[arg(long, default_value_t = 1)]
+        bail: usize,
         /// Cron
         #[arg(long)]
         cron: String,
@@ -357,6 +360,7 @@ async fn try_main() -> anyhow::Result<()> {
             Ok(())
         }
         Commands::Schedule {
+            bail,
             cron,
             mut file,
             initial_run,
@@ -365,11 +369,15 @@ async fn try_main() -> anyhow::Result<()> {
             let schedule = Schedule::from_str(&cron)?;
             let store = prepare_store(&store_options)?;
 
-            let mut options = ScheduleOptions::new(name, script, schedule);
+            let mut options = ScheduleOptions::new(schedule);
+            options.set_bail(bail);
             options.set_initial_run(initial_run);
-            options.set_store(Some(store));
 
-            schedule_script(options);
+            let e = EvaluationBuilder::new(script, io::stdin())
+                .name(name)
+                .store(store)
+                .build();
+            e.schedule(&options);
             Ok(())
         }
         Commands::Serve {
