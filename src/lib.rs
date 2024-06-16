@@ -13,6 +13,7 @@ pub use check::*;
 pub use error::*;
 pub use eval::*;
 pub use example::*;
+pub use guide::*;
 pub use lua_binding::*;
 pub use schedule::*;
 pub use store::*;
@@ -21,6 +22,7 @@ mod check;
 mod error;
 mod eval;
 mod example;
+mod guide;
 mod lua_binding;
 mod schedule;
 mod store;
@@ -105,7 +107,7 @@ mod tests {
 
     #[test]
     fn test_evaluation() {
-        let markdown = include_str!("../docs/lua.md");
+        let markdown = include_str!("../guides/lua.md");
         let blocks = {
             let mut blocks = Vec::new();
             let parser = Parser::new_ext(markdown, Options::all());

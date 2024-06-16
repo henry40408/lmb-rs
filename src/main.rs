@@ -5,7 +5,7 @@ use comfy_table::{presets, Table};
 use cron::Schedule;
 use lmb::{
     Error, EvaluationBuilder, LuaCheck, PrintOptions, ScheduleOptions, Store, StoreOptions,
-    DEFAULT_TIMEOUT, EXAMPLES,
+    DEFAULT_TIMEOUT, EXAMPLES, GUIDES,
 };
 use mlua::prelude::*;
 use serde_json::json;
@@ -18,6 +18,7 @@ use std::{
     str::FromStr,
     time::Duration,
 };
+use termimad::MadSkin;
 use tracing::Level;
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
 
@@ -89,6 +90,9 @@ enum Commands {
     /// Check out examples and evaluate or serve them
     #[command(subcommand)]
     Example(ExampleCommands),
+    /// Guide commands
+    #[command(subcommand)]
+    Guide(GuideCommands),
     /// List available themes
     ListThemes,
     /// Schedule the script as a cron job
@@ -152,6 +156,18 @@ enum ExampleCommands {
     },
     /// List examples
     #[command(alias = "ls")]
+    List,
+}
+
+#[derive(Parser)]
+enum GuideCommands {
+    /// Read a guide
+    Cat {
+        /// Name
+        #[arg(long)]
+        name: String,
+    },
+    /// List available guides
     List,
 }
 
@@ -327,9 +343,9 @@ async fn try_main() -> anyhow::Result<()> {
         Commands::Example(ExampleCommands::List) => {
             let mut table = Table::new();
             table.load_preset(presets::NOTHING);
-            table.set_header(vec!["name", "description"]);
+            table.set_header(["name", "description"]);
             for e in EXAMPLES.iter() {
-                table.add_row(vec![e.name(), e.description()]);
+                table.add_row([e.name(), e.description()]);
             }
             println!("{table}");
             Ok(())
@@ -350,6 +366,24 @@ async fn try_main() -> anyhow::Result<()> {
             options.set_json(cli.json);
             options.set_timeout(timeout);
             serve::serve_file(&options).await?;
+            Ok(())
+        }
+        Commands::Guide(GuideCommands::List) => {
+            let mut table = Table::new();
+            table.load_preset(presets::NOTHING);
+            table.set_header(["name", "title"]);
+            for guide in GUIDES.iter() {
+                table.add_row([guide.name(), guide.title()]);
+            }
+            print!("{table}");
+            Ok(())
+        }
+        Commands::Guide(GuideCommands::Cat { name }) => {
+            let Some(guide) = GUIDES.iter().find(|g| name == g.name()) else {
+                bail!("guide with {name} not found");
+            };
+            let skin = MadSkin::default();
+            println!("{}", skin.term_text(guide.content()));
             Ok(())
         }
         Commands::ListThemes => {
@@ -419,9 +453,9 @@ async fn try_main() -> anyhow::Result<()> {
                     let metadata_rows = store.list()?;
                     let mut table = Table::new();
                     table.load_preset(presets::NOTHING);
-                    table.set_header(vec!["name", "type", "size", "created at", "updated at"]);
+                    table.set_header(["name", "type", "size", "created at", "updated at"]);
                     for m in metadata_rows.iter() {
-                        table.add_row(vec![
+                        table.add_row([
                             m.name(),
                             m.type_hint(),
                             &m.size().to_string(),
