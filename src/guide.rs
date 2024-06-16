@@ -3,6 +3,7 @@ use once_cell::sync::Lazy;
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 /// Guide.
+#[derive(Debug)]
 pub struct Guide {
     content: String,
     name: String,
@@ -10,6 +11,11 @@ pub struct Guide {
 }
 
 impl Guide {
+    /// Get content.
+    pub fn content(&self) -> &str {
+        &self.content
+    }
+
     /// Get name.
     pub fn name(&self) -> &str {
         &self.name

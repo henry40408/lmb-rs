@@ -153,6 +153,18 @@ print("hello, world!")
 }
 
 #[test]
+fn example_cat_absent() {
+    Command::new(cargo_bin("lmb"))
+        .args(["--no-color", "example", "cat", "--name", "__absent__"])
+        .assert()
+        .failure()
+        .stderr_eq(str![[r#"
+example with __absent__ not found
+
+"#]]);
+}
+
+#[test]
 fn example_eval() {
     Command::new(cargo_bin("lmb"))
         .stdin("1949\n")
@@ -175,6 +187,7 @@ fn example_list() {
  name          description                                                            
  algebra       Return the square of number.                                           
  count-bytes   Count bytes from standard input.                                       
+ crypto        Hash data with HMAC-SHA256.                                            
  error         Demonstrate how the runner reacts when an error is thrown.             
  hello         Hello, world!                                                          
  http-echo     Echo headers and body from HTTP request.                               
@@ -245,6 +258,34 @@ gruvbox-light
 zenburn
 
 "#]]);
+}
+
+#[test]
+fn guide_cat() {
+    Command::new(cargo_bin("lmb"))
+        .args(["guide", "cat", "--name", "lua"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn guide_cat_absent() {
+    Command::new(cargo_bin("lmb"))
+        .args(["guide", "cat", "--name", "__absent__"])
+        .assert()
+        .failure()
+        .stderr_eq(str![[r#"
+guide with __absent__ not found
+
+"#]]);
+}
+
+#[test]
+fn guide_list() {
+    Command::new(cargo_bin("lmb"))
+        .args(["guide", "list"])
+        .assert()
+        .success();
 }
 
 #[test]

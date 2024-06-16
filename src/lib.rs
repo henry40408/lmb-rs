@@ -13,6 +13,7 @@ pub use check::*;
 pub use error::*;
 pub use eval::*;
 pub use example::*;
+pub use guide::*;
 pub use lua_binding::*;
 pub use schedule::*;
 pub use store::*;
