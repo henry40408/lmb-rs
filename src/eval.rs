@@ -1,4 +1,3 @@
-use atty::Stream;
 use bat::{
     assets::HighlightingAssets,
     controller::Controller,
@@ -12,7 +11,7 @@ use parking_lot::Mutex;
 use serde_json::Value;
 use std::{
     fmt::{Display, Write},
-    io::{BufReader, Read},
+    io::{stdout, BufReader, IsTerminal as _, Read},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -373,7 +372,7 @@ where
     where
         W: Write,
     {
-        let (style_components, colored_output) = if atty::is(Stream::Stdout) {
+        let (style_components, colored_output) = if stdout().is_terminal() {
             let components = &[StyleComponent::Grid, StyleComponent::LineNumbers];
             (StyleComponents::new(components), !options.no_color)
         } else {
