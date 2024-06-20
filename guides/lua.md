@@ -67,7 +67,7 @@ Lmb supports a key-value store backed by SQLite. The data can be read, written, 
 
 ```lua
 local m = require('@lmb')
-assert(not m:get('a'))
+assert(not next(m:get('a')))
 ```
 
 ### Put
@@ -80,7 +80,7 @@ Insert or update the value in the store.
 ```lua
 local m = require('@lmb')
 assert(1 == m:put('b', 1))
-assert(1 == m:get('b'))
+assert(1 == m:get({'b'})[1])
 ```
 
 ### Update
@@ -101,17 +101,17 @@ local function do_update()
   end, 1)
 end
 
-assert(not m:get('c'))
+assert(not next(m:get({'c'})))
 
 assert(1 == m:put('c', 1))
-assert(1 == m:get('c'))
+assert(1 == m:get({'c'})[1])
 assert(2 == do_update())
-assert(2 == m:get('c'))
+assert(2 == m:get({'c'})[1])
 
 assert('not_a_number' == m:put('c', 'not_a_number'))
-assert('not_a_number' == m:get('c'))
+assert('not_a_number' == m:get({'c'})[1])
 assert('not_a_number' == do_update()) -- no error will be thrown
-assert('not_a_number' == m:get('c'))
+assert('not_a_number' == m:get({'c'})[1])
 ```
 
 #### When Should `update` Be Used?

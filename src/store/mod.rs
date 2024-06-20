@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
+use mlua::ExternalResult;
 use parking_lot::Mutex;
-use rusqlite::Connection;
+use rusqlite::{params_from_iter, Connection};
 use rusqlite_migration::SchemaVersion;
 use serde_json::Value;
 use std::{
@@ -114,11 +115,11 @@ impl Store {
     ///
     /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     /// let store = Store::default();
-    /// assert_eq!(json!(null), store.get("a")?);
+    /// assert_eq!(json!([]), store.get(["a"])?);
     /// store.put("a", &true.into());
-    /// assert_eq!(json!(true), store.get("a")?);
+    /// assert_eq!(json!([true]), store.get(["a"])?);
     /// store.delete("a");
-    /// assert_eq!(json!(null), store.get("a")?);
+    /// assert_eq!(json!([]), store.get(["a"])?);
     /// # Ok(())
     /// # }
     /// ```
@@ -137,37 +138,41 @@ impl Store {
     ///
     /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     /// let store = Store::default();
-    /// assert_eq!(json!(null), store.get("a")?);
+    /// assert_eq!(json!([]), store.get(["a"])?);
     /// store.put("a", &true.into());
-    /// assert_eq!(json!(true), store.get("a")?);
+    /// assert_eq!(json!([true]), store.get(["a"])?);
     /// # Ok(())
     /// # }
     /// ```
-    pub fn get<S: AsRef<str>>(&self, name: S) -> Result<Value> {
+    pub fn get<S, T>(&self, names: T) -> Result<Value>
+    where
+        S: AsRef<str>,
+        T: AsRef<[S]>,
+    {
         let conn = self.conn.lock();
 
-        let name = name.as_ref();
+        let names = names
+            .as_ref()
+            .iter()
+            .map(|s| s.as_ref())
+            .collect::<Vec<_>>();
 
-        let mut cached_stmt = conn.prepare_cached(SQL_GET_VALUE_BY_NAME)?;
-        let _s = trace_span!("store_get", name).entered();
-        let res = cached_stmt.query_row((name,), |row| {
+        let mut cached_stmt = conn.prepare_cached(&build_sql_get_values_by_name(names.len()))?;
+        let _s = trace_span!("store_get", names = names.join(",")).entered();
+        let rows = cached_stmt.query_map(params_from_iter(names), |row| {
             let value: Vec<u8> = row.get_unwrap("value");
             let type_hint: String = row.get_unwrap("type_hint");
             Ok((value, type_hint))
         });
-        let value: Vec<u8> = match res {
-            Err(rusqlite::Error::QueryReturnedNoRows) => {
-                trace!("no_value");
-                return Ok(Value::Null);
-            }
-            Err(e) => return Err(e.into()),
-            Ok((v, type_hint)) => {
-                trace!(type_hint, "value");
-                v
-            }
-        };
 
-        Ok(rmp_serde::from_slice::<Value>(&value)?)
+        let mut values = vec![];
+        for row in rows.into_lua_err()? {
+            let (value, type_hint) = row.into_lua_err()?;
+            trace!(type_hint, "value");
+            values.push(rmp_serde::from_slice::<Value>(&value).into_lua_err()?);
+        }
+
+        Ok(Value::Array(values))
     }
 
     /// List values.
@@ -218,11 +223,11 @@ impl Store {
     /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     /// let store = Store::default();
     /// store.put("a", &true.into());
-    /// assert_eq!(json!(true), store.get("a")?);
+    /// assert_eq!(json!([true]), store.get(["a"])?);
     /// store.put("b", &1.into());
-    /// assert_eq!(json!(1), store.get("b")?);
+    /// assert_eq!(json!([1]), store.get(["b"])?);
     /// store.put("c", &"hello".into());
-    /// assert_eq!(json!("hello"), store.get("c")?);
+    /// assert_eq!(json!(["hello"]), store.get(["c"])?);
     /// # Ok(())
     /// # }
     /// ```
@@ -265,7 +270,7 @@ impl Store {
     ///     Ok(())
     /// }, Some(1.into()));
     /// assert_eq!(json!(2), updated?);
-    /// assert_eq!(json!(2), store.get("b")?);
+    /// assert_eq!(json!([2]), store.get(["b"])?);
     /// # Ok(())
     /// # }
     /// ```
@@ -290,7 +295,7 @@ impl Store {
     ///     Ok(())
     /// }, Some(1.into()));
     /// assert_eq!(json!(1), updated?);
-    /// assert_eq!(json!(1), store.get("a")?);
+    /// assert_eq!(json!([1]), store.get(["a"])?);
     /// # Ok(())
     /// # }
     /// ```
@@ -307,7 +312,7 @@ impl Store {
 
         let _s = trace_span!("store_update", name).entered();
         let value: Vec<u8> = {
-            let mut cached_stmt = tx.prepare_cached(SQL_GET_VALUE_BY_NAME)?;
+            let mut cached_stmt = tx.prepare_cached(SQL_GET_VALUES_BY_NAME)?;
             match cached_stmt.query_row((name,), |row| row.get(0)) {
                 Err(rusqlite::Error::QueryReturnedNoRows) => {
                     trace!("default_value");
@@ -456,7 +461,7 @@ mod tests {
         for t in threads {
             let _ = t.join();
         }
-        assert_eq!(json!(1001), store.get("a").unwrap());
+        assert_eq!(json!([1001]), store.get(["a"]).unwrap());
     }
 
     #[test_case("a", json!([true, 1, 1.23, "hello"]), 1+8+8+5)]
@@ -464,7 +469,7 @@ mod tests {
     fn collective_types(key: &'static str, value: Value, size: usize) {
         let store = Store::default();
         store.put(key, &value).unwrap();
-        assert_eq!(value, store.get(key).unwrap());
+        assert_eq!(json!([value]), store.get([key]).unwrap());
 
         let values = store.list().unwrap();
         let value = values.first().unwrap();
@@ -476,7 +481,7 @@ mod tests {
         let script = r#"
         local m = require('@lmb')
         local a = m:get('a')
-        assert(not m:get('b'))
+        assert(0 == #m:get({'b'}))
         m:put('a', 4.56)
         return a
         "#;
@@ -489,9 +494,9 @@ mod tests {
             .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(&json!(1.23), res.payload());
-        assert_eq!(json!(4.56), store.get("a").unwrap());
-        assert_eq!(json!(null), store.get("b").unwrap());
+        assert_eq!(&json!([1.23]), res.payload());
+        assert_eq!(json!([4.56]), store.get(["a"]).unwrap());
+        assert_eq!(json!([]), store.get(["b"]).unwrap());
     }
 
     #[test]
@@ -518,7 +523,7 @@ mod tests {
     fn primitive_types(key: &'static str, value: Value, size: usize) {
         let store = Store::default();
         store.put(key, &value).unwrap();
-        assert_eq!(value, store.get(key).unwrap());
+        assert_eq!(json!([value]), store.get([key]).unwrap());
 
         let values = store.list().unwrap();
         let value = values.first().unwrap();
@@ -529,8 +534,8 @@ mod tests {
     fn reuse() {
         let script = r#"
         local m = require('@lmb')
-        local a = m:get('a')
-        m:put('a', a+1)
+        local a = m:get({'a'})
+        m:put('a', a[1] + 1)
         return a
         "#;
 
@@ -543,14 +548,14 @@ mod tests {
 
         {
             let res = e.evaluate().unwrap();
-            assert_eq!(&json!(1), res.payload());
-            assert_eq!(json!(2), store.get("a").unwrap());
+            assert_eq!(&json!([1]), res.payload());
+            assert_eq!(json!([2]), store.get(["a"]).unwrap());
         }
 
         {
             let res = e.evaluate().unwrap();
-            assert_eq!(&json!(2), res.payload());
-            assert_eq!(json!(3), store.get("a").unwrap());
+            assert_eq!(&json!([2]), res.payload());
+            assert_eq!(json!([3]), store.get(["a"]).unwrap());
         }
     }
 
@@ -571,7 +576,7 @@ mod tests {
 
         let res = e.evaluate().unwrap();
         assert_eq!(&json!(2), res.payload());
-        assert_eq!(json!(2), store.get("a").unwrap());
+        assert_eq!(json!([2]), store.get(["a"]).unwrap());
     }
 
     #[test_log::test]
@@ -595,6 +600,6 @@ mod tests {
 
         let res = e.evaluate().unwrap();
         assert_eq!(&json!(1), res.payload());
-        assert_eq!(json!(1), store.get("a").unwrap());
+        assert_eq!(json!([1]), store.get(["a"]).unwrap());
     }
 }

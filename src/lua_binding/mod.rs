@@ -127,7 +127,7 @@ impl LuaUserData for LuaStderr {
 fn lua_lmb_get<'lua, R>(
     vm: &'lua Lua,
     lmb: &LuaBinding<R>,
-    key: String,
+    keys: LuaValue<'lua>,
 ) -> LuaResult<LuaValue<'lua>>
 where
     R: Read,
@@ -135,7 +135,22 @@ where
     let Some(store) = &lmb.store else {
         return Ok(LuaNil);
     };
-    let value = store.get(key.as_str()).into_lua_err()?;
+    let names = match keys {
+        LuaValue::String(s) => vec![s.to_string_lossy().to_string()],
+        LuaValue::Table(t) => {
+            let mut names = vec![];
+            t.pairs::<LuaValue<'_>, LuaValue<'_>>().for_each(|p| {
+                if let Ok((_, value)) = p {
+                    if let Some(s) = value.as_str() {
+                        names.push(s.to_string());
+                    }
+                }
+            });
+            names
+        }
+        _ => return Err(LuaError::runtime("unexpected type of keys")),
+    };
+    let value = store.get(names).into_lua_err()?;
     match value {
         Value::Null => Ok(LuaNil),
         _ => vm.to_value(&value),

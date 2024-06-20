@@ -444,9 +444,13 @@ async fn try_main() -> anyhow::Result<()> {
                     Ok(())
                 }
                 StoreCommands::Get { name } => {
-                    let value = store.get(name)?;
-                    let value = serde_json::to_string(&value)?;
-                    print!("{value}");
+                    let values = store.get([name])?;
+                    if let Some(value) = values.as_array().and_then(|a| a.first()) {
+                        let value = serde_json::to_string(&value)?;
+                        print!("{value}");
+                    } else {
+                        print!("{}", serde_json::Value::Null);
+                    }
                     Ok(())
                 }
                 StoreCommands::List => {
