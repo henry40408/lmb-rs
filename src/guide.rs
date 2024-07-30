@@ -1,5 +1,6 @@
+use std::sync::LazyLock;
+
 use include_dir::{include_dir, Dir};
-use once_cell::sync::Lazy;
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 /// Guide.
@@ -30,7 +31,7 @@ impl Guide {
 static GUIDE_DIR: Dir<'_> = include_dir!("guides");
 
 /// Guides.
-pub static GUIDES: Lazy<Vec<Guide>> = Lazy::new(|| {
+pub static GUIDES: LazyLock<Vec<Guide>> = LazyLock::new(|| {
     let mut guides = vec![];
     for f in GUIDE_DIR.find("**/*.md").expect("failed to list guides") {
         let Some(name) = f.path().file_stem().map(|f| f.to_string_lossy()) else {

@@ -1,6 +1,7 @@
+use std::sync::LazyLock;
+
 use full_moon::{tokenizer::TokenType, visitors::Visitor};
 use include_dir::{include_dir, Dir};
-use once_cell::sync::Lazy;
 use toml::{Table, Value};
 
 /// Lua example.
@@ -57,7 +58,7 @@ impl Visitor for Example {
 static EXAMPLES_DIR: Dir<'_> = include_dir!("lua-examples");
 
 /// Embedded Lua examples.
-pub static EXAMPLES: Lazy<Vec<Example>> = Lazy::new(|| {
+pub static EXAMPLES: LazyLock<Vec<Example>> = LazyLock::new(|| {
     let mut examples = vec![];
     for f in EXAMPLES_DIR
         .find("**/*.lua")

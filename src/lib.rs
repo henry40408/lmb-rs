@@ -4,10 +4,15 @@
 
 use dashmap::DashMap;
 use include_dir::{include_dir, Dir};
-use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use rusqlite_migration::Migrations;
-use std::{fmt::Display, io::BufReader, result::Result as StdResult, sync::Arc, time::Duration};
+use std::{
+    fmt::Display,
+    io::BufReader,
+    result::Result as StdResult,
+    sync::{Arc, LazyLock},
+    time::Duration,
+};
 
 pub use check::*;
 pub use error::*;
@@ -34,7 +39,7 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 static MIGRATIONS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/migrations");
 
 /// Migrations for the `SQLite` database.
-static MIGRATIONS: Lazy<Migrations<'static>> = Lazy::new(|| {
+static MIGRATIONS: LazyLock<Migrations<'static>> = LazyLock::new(|| {
     Migrations::from_directory(&MIGRATIONS_DIR)
         .expect("failed to load migrations from the directory")
 });

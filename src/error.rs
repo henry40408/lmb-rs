@@ -1,9 +1,8 @@
 use std::{fmt::Write, io::Read};
 
 use ariadne::{CharSet, ColorGenerator, Label, Report, ReportKind, Source};
-use lazy_regex::{lazy_regex, Regex};
+use lazy_regex::{lazy_regex, Lazy, Regex};
 use mlua::prelude::*;
-use once_cell::sync::Lazy;
 use thiserror::Error;
 
 use crate::{Evaluation, Result};
