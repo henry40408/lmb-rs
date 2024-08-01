@@ -56,7 +56,7 @@ git-version = "0.3.9"
 assert_fs = "1.1.1"
 axum-test = "15.0.1"
 bencher = "0.1.5"
-mockito = "1.4.0"
+mockito = "1.5.0"
 maplit = "1.0.2"
 predicates = "3.1.0"
 snapbox = { version = "0.6.10", features = ["cmd"] }
