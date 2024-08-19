@@ -1,3 +1,11 @@
+# Archival Notice
+
+After time-consuming research, I discovered that the two existing major SQLite libraries, [rusqlite](https://crates.io/crates/rusqlite) and [sqlx](https://crates.io/crates/sqlx), are unable to meet the requirements for transactional updates. This is because transactions must be passed into the Lua VM, but rusqlite's transactions are `!Send` / `!Sync`, so they cannot satisfy the constraints. On the other hand, sqlx cannot be used with mlua due to its async characteristics.
+
+I have decided to archive this project to provide future researchers interested in mlua with a substantial project to study.
+
+---
+
 # lmb
 
 > lmb is a Lua function runner
