@@ -1,9 +1,13 @@
 #![allow(clippy::unwrap_used)]
 
 use bencher::{benchmark_group, benchmark_main, Bencher};
+use dashmap::DashMap;
 use lmb::EvaluationBuilder;
 use mlua::prelude::*;
-use std::io::{empty, BufReader, Cursor, Read as _};
+use std::{
+    io::{empty, BufReader, Cursor, Read as _},
+    sync::Arc,
+};
 
 static SCRIPT: &str = "return true";
 
@@ -12,6 +16,12 @@ static SCRIPT: &str = "return true";
 fn lmb_evaluate(bencher: &mut Bencher) {
     let e = EvaluationBuilder::new(SCRIPT, empty()).build();
     bencher.iter(|| e.evaluate().unwrap());
+}
+
+fn lmb_evaluate_with_state(bencher: &mut Bencher) {
+    let e = EvaluationBuilder::new(SCRIPT, empty()).build();
+    let state = Arc::new(DashMap::new());
+    bencher.iter(|| e.evaluate_with_state(state.clone()).unwrap());
 }
 
 fn mlua_call(bencher: &mut Bencher) {
@@ -99,6 +109,7 @@ fn read_from_buf_reader(bencher: &mut Bencher) {
 benchmark_group!(
     evaluation,
     lmb_evaluate,
+    lmb_evaluate_with_state,
     mlua_call,
     mlua_eval,
     mlua_sandbox_eval
