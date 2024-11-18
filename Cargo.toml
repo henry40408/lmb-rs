@@ -59,7 +59,7 @@ bencher = "0.1.5"
 mockito = "1.4.0"
 maplit = "1.0.2"
 predicates = "3.1.0"
-snapbox = { version = "0.6.10", features = ["cmd"] }
+snapbox = { version = "0.6.20", features = ["cmd"] }
 test-case = "3.3.1"
 test-log = "0.2.15"
 

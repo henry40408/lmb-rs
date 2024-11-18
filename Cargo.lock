@@ -2418,9 +2418,9 @@ dependencies = [
 
 [[package]]
 name = "snapbox"
-version = "0.6.16"
+version = "0.6.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "027c936207f85d10d015e21faf5c676c7e08c453ed371adf55c0874c443ca77a"
+checksum = "1373ce406dfad473059bbc31d807715642182bbc952a811952b58d1c9e41dcfa"
 dependencies = [
  "anstream",
  "anstyle",
@@ -2430,7 +2430,7 @@ dependencies = [
  "similar",
  "snapbox-macros",
  "wait-timeout",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
