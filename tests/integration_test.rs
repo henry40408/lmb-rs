@@ -13,10 +13,11 @@ fn check_stdin_syntax_error() {
         .assert()
         .failure()
         .stderr_eq(str![[r#"
-Error: leftover token
-   ,-[-:1:1]
+Error: unexpected token, this needs to be a statement
+   ,-[-:1:5]
  1 |ret true
-   | `-- leftover token
+   |      `-- unexpected expression when looking for a statement
+   |      `-- unexpected token, this needs to be a statement
 
 "#]]);
 }
@@ -29,10 +30,11 @@ fn check_stdin_tokenizer_error() {
         .assert()
         .failure()
         .stderr_eq(str![[r#"
-Error: unexpected character !
+Error: unexpected token, this needs to be a statement
    ,-[-:1:8]
  1 |return !true
-   |       `- unexpected character !
+   |       `----- unexpected character !
+   |          `-- unexpected token, this needs to be a statement
 
 "#]]);
 }
