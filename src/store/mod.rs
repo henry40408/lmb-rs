@@ -430,34 +430,10 @@ impl Default for Store {
 mod tests {
     use assert_fs::NamedTempFile;
     use serde_json::{json, Value};
-    use std::{io::empty, thread};
+    use std::io::empty;
     use test_case::test_case;
 
     use crate::{EvaluationBuilder, Store};
-
-    #[test]
-    fn concurrency() {
-        let script = r#"
-        return require('@lmb'):update('a', function(v)
-            return v+1
-        end, 0)
-        "#;
-
-        let store = Store::default();
-
-        let mut threads = vec![];
-        for _ in 0..=1000 {
-            let store = store.clone();
-            threads.push(thread::spawn(move || {
-                let e = EvaluationBuilder::new(script, empty()).store(store).build();
-                e.evaluate().unwrap();
-            }));
-        }
-        for t in threads {
-            let _ = t.join();
-        }
-        assert_eq!(json!(1001), store.get("a").unwrap());
-    }
 
     #[test_case("a", json!([true, 1, 1.23, "hello"]), 1+8+8+5)]
     #[test_case("o", json!({ "bool": true, "num": 1.23, "str": "hello" }), (4+1)+(3+8)+(3+5))]
@@ -552,49 +528,5 @@ mod tests {
             assert_eq!(&json!(2), res.payload());
             assert_eq!(json!(3), store.get("a").unwrap());
         }
-    }
-
-    #[test]
-    fn update_without_default_value() {
-        let script = r#"
-        return require('@lmb'):update('a', function(v)
-            return v+1
-        end)
-        "#;
-
-        let store = Store::default();
-        store.put("a", &1.into()).unwrap();
-
-        let e = EvaluationBuilder::new(script, empty())
-            .store(store.clone())
-            .build();
-
-        let res = e.evaluate().unwrap();
-        assert_eq!(&json!(2), res.payload());
-        assert_eq!(json!(2), store.get("a").unwrap());
-    }
-
-    #[test_log::test]
-    fn rollback_when_error() {
-        let script = r#"
-        return require('@lmb'):update('a', function(v)
-            if v == 1 then
-                error('something went wrong')
-            else
-                return v+1
-            end
-        end, 0)
-        "#;
-
-        let store = Store::default();
-        store.put("a", &1.into()).unwrap();
-
-        let e = EvaluationBuilder::new(script, empty())
-            .store(store.clone())
-            .build();
-
-        let res = e.evaluate().unwrap();
-        assert_eq!(&json!(1), res.payload());
-        assert_eq!(json!(1), store.get("a").unwrap());
     }
 }

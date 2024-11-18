@@ -184,21 +184,18 @@ fn example_list() {
         .assert()
         .success()
         .stdout_eq(str![[r#"
- name          description                                                            
- algebra       Return the square of number.                                           
- count-bytes   Count bytes from standard input.                                       
- crypto        Hash data with HMAC-SHA256.                                            
- error         Demonstrate how the runner reacts when an error is thrown.             
- hello         Hello, world!                                                          
- http-echo     Echo headers and body from HTTP request.                               
- input         Echo the standard input.                                               
- read-unicode  Read 2 unicode characters from the standard input.                     
- return-table  The function can also return a table.                                  
-               Please note that JSON mode is needed to show the whole table,          
-               otherwise "table: 0x..." will be printed, which aligns how Lua works.  
- store         Update an absent key 'a' in store and return the new value.            
-               Please note that since store is epheremal the output will always be 1. 
-                                                                                      
+ name          description                                                           
+ algebra       Return the square of number.                                          
+ count-bytes   Count bytes from standard input.                                      
+ crypto        Hash data with HMAC-SHA256.                                           
+ error         Demonstrate how the runner reacts when an error is thrown.            
+ hello         Hello, world!                                                         
+ http-echo     Echo headers and body from HTTP request.                              
+ input         Echo the standard input.                                              
+ read-unicode  Read 2 unicode characters from the standard input.                    
+ return-table  The function can also return a table.                                 
+               Please note that JSON mode is needed to show the whole table,         
+               otherwise "table: 0x..." will be printed, which aligns how Lua works. 
 
 "#]]);
 }

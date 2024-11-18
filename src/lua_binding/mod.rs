@@ -158,31 +158,6 @@ where
     vm.to_value(&value)
 }
 
-fn lua_lmb_update<'lua, R>(
-    vm: &'lua Lua,
-    lmb: &LuaBinding<R>,
-    (key, f, default_v): (String, LuaFunction<'lua>, Option<LuaValue<'lua>>),
-) -> LuaResult<LuaValue<'lua>>
-where
-    R: Read,
-{
-    let Some(store) = &lmb.store else {
-        return Ok(LuaNil);
-    };
-    let update_fn = |old: &mut Value| -> LuaResult<()> {
-        let old_v = vm.to_value(old)?;
-        let new = f.call::<_, LuaValue<'_>>(old_v)?;
-        *old = vm.from_value(new)?;
-        Ok(())
-    };
-    let default_v = match default_v {
-        Some(v) => Some(vm.from_value(v)?),
-        None => None,
-    };
-    let value = store.update(key, update_fn, default_v).into_lua_err()?;
-    vm.to_value(&value)
-}
-
 impl<R> LuaUserData for LuaBinding<R>
 where
     for<'lua> R: 'lua + Read,
@@ -215,7 +190,6 @@ where
             lua_lmb_read_unicode(vm, &this.input, f)
         });
         methods.add_method("put", lua_lmb_put);
-        methods.add_method("update", lua_lmb_update);
     }
 }
 

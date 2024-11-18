@@ -83,41 +83,6 @@ assert(1 == m:put('b', 1))
 assert(1 == m:get('b'))
 ```
 
-### Update
-
-The function accepts three arguments:
-
-1. Key
-2. Function to update the value. It should return the new value. If any error is thrown, such as manually calling `error("something went wrong")`, the value will not be updated.
-3. (Optional) The default value will be passed as the first argument of the update function when the value is absent. It defaults to `nil` when omitted.
-
-```lua
-local m = require('@lmb')
-
-local function do_update()
-  return m:update('c', function(c)
-    assert(tonumber(c), 'c is not a number')
-    return c + 1
-  end, 1)
-end
-
-assert(not m:get('c'))
-
-assert(1 == m:put('c', 1))
-assert(1 == m:get('c'))
-assert(2 == do_update())
-assert(2 == m:get('c'))
-
-assert('not_a_number' == m:put('c', 'not_a_number'))
-assert('not_a_number' == m:get('c'))
-assert('not_a_number' == do_update()) -- no error will be thrown
-assert('not_a_number' == m:get('c'))
-```
-
-#### When Should `update` Be Used?
-
-When an atomic operation on the value is required because the `update` function wraps the operation in a database transaction.
-
 ## Initialize Store
 
 An in-memory SQLite database will be created and migrated when not specified. However, any changes will be lost when the program terminates.
