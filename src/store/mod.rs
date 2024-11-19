@@ -257,14 +257,16 @@ impl Store {
     ///
     /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     /// let store = Store::default();
-    /// let updated = store.update("b", |old| {
-    ///     if let Value::Number(_) = old {
-    ///         let n = old.as_i64().ok_or(mlua::Error::runtime("n is required"))?;
-    ///         *old = json!(n + 1);
+    /// let updated = store.update(&["b"], |old| {
+    ///     if let Some(old) = old.get_mut(0) {
+    ///         if let Value::Number(_) = old {
+    ///             let n = old.as_i64().ok_or(mlua::Error::runtime("n is required"))?;
+    ///             *old = json!(n + 1);
+    ///         }
     ///     }
     ///     Ok(())
-    /// }, Some(1.into()));
-    /// assert_eq!(json!(2), updated?);
+    /// }, Some(vec![1.into()]));
+    /// assert_eq!(vec![json!(2)], updated?);
     /// assert_eq!(json!(2), store.get("b")?);
     /// # Ok(())
     /// # }
@@ -279,69 +281,79 @@ impl Store {
     /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     /// let store = Store::default();
     /// store.put("a", &1.into());
-    /// let updated = store.update("a", |old| {
-    ///     if let Value::Number(_) = old {
-    ///        let n = old.as_i64().ok_or(mlua::Error::runtime("n is required"))?;
-    ///        if n == 1 {
-    ///            return Err(mlua::Error::runtime("something went wrong"));
+    /// let res = store.update(&["a"], |old| {
+    ///     if let Some(old) = old.get_mut(0) {
+    ///        if let Value::Number(_) = old {
+    ///           let n = old.as_i64().ok_or(mlua::Error::runtime("n is required"))?;
+    ///           if n == 1 {
+    ///               return Err(mlua::Error::runtime("something went wrong"));
+    ///           }
+    ///           *old = json!(n + 1);
     ///        }
-    ///        *old = json!(n + 1);
     ///     }
     ///     Ok(())
-    /// }, Some(1.into()));
-    /// assert_eq!(json!(1), updated?);
+    /// }, Some(vec![1.into()]));
+    /// assert!(res.is_err());
     /// assert_eq!(json!(1), store.get("a")?);
     /// # Ok(())
     /// # }
     /// ```
     pub fn update<S: AsRef<str>>(
         &self,
-        name: S,
-        f: impl FnOnce(&mut Value) -> mlua::Result<()>,
-        default_v: Option<Value>,
-    ) -> Result<Value> {
+        names: &[S],
+        f: impl FnOnce(&mut Vec<Value>) -> mlua::Result<()>,
+        default_values: Option<Vec<Value>>,
+    ) -> Result<Vec<Value>> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
 
-        let name = name.as_ref();
+        let names: Vec<String> = names.iter().map(|name| name.as_ref().to_owned()).collect();
 
-        let _s = trace_span!("store_update", name).entered();
-        let value: Vec<u8> = {
+        let _s = trace_span!("store_update", ?names).entered();
+
+        let default_vs = default_values.unwrap_or_else(|| Vec::new());
+        let filled_default_values: Vec<&Value> = default_vs
+            .iter()
+            .chain(std::iter::repeat(&Value::Null))
+            .take(names.len())
+            .collect();
+
+        let mut values = vec![];
+        for (name, default_value) in std::iter::zip(&names, &filled_default_values) {
             let mut cached_stmt = tx.prepare_cached(SQL_GET_VALUE_BY_NAME)?;
-            match cached_stmt.query_row((name,), |row| row.get(0)) {
+            let value = match cached_stmt.query_row((name,), |row| row.get(0)) {
                 Err(rusqlite::Error::QueryReturnedNoRows) => {
                     trace!("default_value");
-                    rmp_serde::to_vec(default_v.as_ref().unwrap_or(&Value::Null))?
+                    rmp_serde::to_vec(default_value)?
                 }
                 Err(e) => return Err(e.into()),
                 Ok(v) => {
                     trace!("value");
                     v
                 }
-            }
-        };
-
-        let mut value: Value = rmp_serde::from_slice(&value)?;
-        {
-            let _s = trace_span!("call_function").entered();
-            let Ok(_) = f(&mut value) else {
-                // the function throws an error instead of returing a new value,
-                // return the old value instead.
-                trace!("failed");
-                return Ok(value);
             };
+            let value: Value = rmp_serde::from_slice(&value)?;
+            values.push(value);
         }
-        let size = Self::get_size(&value);
-        let type_hint = Self::type_hint(&value);
-        {
-            let value = rmp_serde::to_vec(&value)?;
-            let mut cached_stmt = tx.prepare_cached(SQL_UPSERT_STORE)?;
-            cached_stmt.execute((name, value, size, type_hint))?;
-        }
-        tx.commit()?;
-        trace!(type_hint, "updated");
 
-        Ok(value)
+        let _s = trace_span!("call_function").entered();
+
+        f(&mut values)?;
+
+        for (name, value) in std::iter::zip(&names, &values) {
+            let size = Self::get_size(&value);
+            let type_hint = Self::type_hint(&value);
+            {
+                let value = rmp_serde::to_vec(&value)?;
+                let mut cached_stmt = tx.prepare_cached(SQL_UPSERT_STORE)?;
+                cached_stmt.execute((name, value, size, type_hint))?;
+            }
+        }
+
+        tx.commit()?;
+        trace!("updated");
+
+        Ok(values)
     }
 
     fn get_size(v: &Value) -> usize {
@@ -438,9 +450,10 @@ mod tests {
     #[test]
     fn concurrency() {
         let script = r#"
-        return require('@lmb'):update('a', function(v)
-            return v+1
-        end, 0)
+        return require('@lmb'):update({ 'a' }, function(values)
+          local a = table.unpack(values)
+          return table.pack(a + 1)
+        end, {0})
         "#;
 
         let store = Store::default();
@@ -557,8 +570,9 @@ mod tests {
     #[test]
     fn update_without_default_value() {
         let script = r#"
-        return require('@lmb'):update('a', function(v)
-            return v+1
+        return require('@lmb'):update({ 'a' }, function(values)
+          local a = table.unpack(values)
+          return table.pack(a + 1)
         end)
         "#;
 
@@ -570,20 +584,18 @@ mod tests {
             .build();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(&json!(2), res.payload());
+        assert_eq!(&json!([2]), res.payload());
         assert_eq!(json!(2), store.get("a").unwrap());
     }
 
     #[test_log::test]
     fn rollback_when_error() {
         let script = r#"
-        return require('@lmb'):update('a', function(v)
-            if v == 1 then
-                error('something went wrong')
-            else
-                return v+1
-            end
-        end, 0)
+        return require('@lmb'):update({ 'a' }, function(values)
+          local a = table.unpack(values)
+          assert(a ~= 1, 'expect a not to equal 1')
+          return table.pack(a + 1)
+        end, { 0 })
         "#;
 
         let store = Store::default();
@@ -593,8 +605,9 @@ mod tests {
             .store(store.clone())
             .build();
 
-        let res = e.evaluate().unwrap();
-        assert_eq!(&json!(1), res.payload());
+        let res = e.evaluate();
+        assert!(res.is_err());
+
         assert_eq!(json!(1), store.get("a").unwrap());
     }
 }

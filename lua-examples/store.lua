@@ -5,6 +5,7 @@
 --"""
 --]]
 local m = require("@lmb")
-return m:update("a", function(v)
-	return v + 1
-end, 0)
+return m:update({ "a" }, function(values)
+	local a = table.unpack(values)
+	return table.pack(a + 1)
+end, { 0 })

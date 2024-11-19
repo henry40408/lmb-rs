@@ -161,7 +161,7 @@ where
 fn lua_lmb_update<'lua, R>(
     vm: &'lua Lua,
     lmb: &LuaBinding<R>,
-    (key, f, default_v): (String, LuaFunction<'lua>, Option<LuaValue<'lua>>),
+    (keys, f, default_values): (Vec<String>, LuaFunction<'lua>, Option<LuaValue<'lua>>),
 ) -> LuaResult<LuaValue<'lua>>
 where
     R: Read,
@@ -169,17 +169,19 @@ where
     let Some(store) = &lmb.store else {
         return Ok(LuaNil);
     };
-    let update_fn = |old: &mut Value| -> LuaResult<()> {
+    let update_fn = |old: &mut Vec<Value>| -> LuaResult<()> {
         let old_v = vm.to_value(old)?;
         let new = f.call::<_, LuaValue<'_>>(old_v)?;
         *old = vm.from_value(new)?;
         Ok(())
     };
-    let default_v = match default_v {
+    let default_values = match default_values {
         Some(v) => Some(vm.from_value(v)?),
         None => None,
     };
-    let value = store.update(key, update_fn, default_v).into_lua_err()?;
+    let value = store
+        .update(&keys, update_fn, default_values)
+        .into_lua_err()?;
     vm.to_value(&value)
 }
 

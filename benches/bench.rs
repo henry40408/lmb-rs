@@ -48,9 +48,10 @@ fn lmb_default_store(bencher: &mut Bencher) {
 
 fn lmb_update(bencher: &mut Bencher) {
     let script = r#"
-    return require('@lmb'):update('a', function(v)
-        return v+1
-    end, 0)
+    return require("@lmb"):update({ "a" }, function(values)
+    	local a = table.unpack(values)
+    	return table.pack(a + 1)
+    end, { 0 })
     "#;
     let e = EvaluationBuilder::new(script, empty())
         .default_store()
