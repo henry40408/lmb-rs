@@ -290,7 +290,7 @@ async fn try_main() -> anyhow::Result<()> {
                 .name(&name)
                 .store(store)
                 .timeout(Some(Duration::from_secs(timeout)))
-                .build();
+                .build()?;
             let mut buf = String::new();
             match e.evaluate() {
                 Ok(s) => {
@@ -311,7 +311,7 @@ async fn try_main() -> anyhow::Result<()> {
             };
             let script = found.script().trim();
             let mut buf = String::new();
-            let e = EvaluationBuilder::new(script, io::stdin()).build();
+            let e = EvaluationBuilder::new(script, io::stdin()).build()?;
             e.write_script(&mut buf, &print_options)?;
             println!("{buf}");
             Ok(())
@@ -325,7 +325,7 @@ async fn try_main() -> anyhow::Result<()> {
             let e = EvaluationBuilder::new(script, io::stdin())
                 .name(name.as_str())
                 .store(store)
-                .build();
+                .build()?;
             let mut buf = String::new();
             match e.evaluate() {
                 Ok(s) => {
@@ -410,7 +410,7 @@ async fn try_main() -> anyhow::Result<()> {
             let e = EvaluationBuilder::new(script, io::stdin())
                 .name(name)
                 .store(store)
-                .build();
+                .build()?;
             e.schedule(&options);
             Ok(())
         }

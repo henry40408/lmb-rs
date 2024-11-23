@@ -47,7 +47,7 @@ impl LuaCheck {
     pub fn write_error<W>(
         &self,
         mut f: W,
-        erorrs: Vec<full_moon::Error>,
+        errors: Vec<full_moon::Error>,
         no_color: bool,
     ) -> Result<(), IoError>
     where
@@ -57,24 +57,27 @@ impl LuaCheck {
         let color = colors.next();
         let name = &self.name;
 
-        let start = erorrs
+        let span = errors
             .iter()
             .min_by_key(|e| match e {
                 full_moon::Error::AstError(e) => e.token().start_position().bytes(),
                 full_moon::Error::TokenizerError(e) => e.position().bytes(),
             })
             .map(|e| match e {
-                full_moon::Error::AstError(e) => e.token().start_position().bytes(),
-                full_moon::Error::TokenizerError(e) => e.position().bytes(),
+                full_moon::Error::AstError(e) => {
+                    let token = e.token();
+                    token.start_position().bytes()..token.end_position().bytes()
+                }
+                full_moon::Error::TokenizerError(e) => e.position().bytes()..e.position().bytes(),
             });
-        let mut report = Report::build(ReportKind::Error, name, start.unwrap_or_else(|| 0))
+        let mut report = Report::build(ReportKind::Error, (name, span.unwrap_or_else(|| 0..0)))
             .with_config(
                 Config::default()
                     .with_char_set(CharSet::Ascii)
                     .with_compact(true)
                     .with_color(!no_color),
             );
-        for error in erorrs {
+        for error in errors {
             let (message, start, end) = match error {
                 full_moon::Error::AstError(e) => (
                     e.error_message().to_string(),

@@ -343,11 +343,10 @@ impl Store {
         for (name, value) in std::iter::zip(&names, &values) {
             let size = Self::get_size(&value);
             let type_hint = Self::type_hint(&value);
-            {
-                let value = rmp_serde::to_vec(&value)?;
-                let mut cached_stmt = tx.prepare_cached(SQL_UPSERT_STORE)?;
-                cached_stmt.execute((name, value, size, type_hint))?;
-            }
+
+            let value = rmp_serde::to_vec(&value)?;
+            let mut cached_stmt = tx.prepare_cached(SQL_UPSERT_STORE)?;
+            cached_stmt.execute((name, value, size, type_hint))?;
         }
 
         tx.commit()?;
@@ -462,7 +461,10 @@ mod tests {
         for _ in 0..=1000 {
             let store = store.clone();
             threads.push(thread::spawn(move || {
-                let e = EvaluationBuilder::new(script, empty()).store(store).build();
+                let e = EvaluationBuilder::new(script, empty())
+                    .store(store)
+                    .build()
+                    .unwrap();
                 e.evaluate().unwrap();
             }));
         }
@@ -499,7 +501,8 @@ mod tests {
 
         let e = EvaluationBuilder::new(script, empty())
             .store(store.clone())
-            .build();
+            .build()
+            .unwrap();
 
         let res = e.evaluate().unwrap();
         assert_eq!(&json!(1.23), res.payload());
@@ -552,7 +555,8 @@ mod tests {
 
         let e = EvaluationBuilder::new(script, empty())
             .store(store.clone())
-            .build();
+            .build()
+            .unwrap();
 
         {
             let res = e.evaluate().unwrap();
@@ -581,7 +585,8 @@ mod tests {
 
         let e = EvaluationBuilder::new(script, empty())
             .store(store.clone())
-            .build();
+            .build()
+            .unwrap();
 
         let res = e.evaluate().unwrap();
         assert_eq!(&json!([2]), res.payload());
@@ -603,7 +608,8 @@ mod tests {
 
         let e = EvaluationBuilder::new(script, empty())
             .store(store.clone())
-            .build();
+            .build()
+            .unwrap();
 
         let res = e.evaluate();
         assert!(res.is_err());

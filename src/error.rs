@@ -1,6 +1,6 @@
 use std::{fmt::Write, io::Read};
 
-use ariadne::{CharSet, ColorGenerator, Label, Report, ReportKind, Source};
+use ariadne::{CharSet, ColorGenerator, Label, Report, ReportKind, Source, Span};
 use lazy_regex::{lazy_regex, Lazy, Regex};
 use mlua::prelude::*;
 use thiserror::Error;
@@ -80,7 +80,7 @@ impl Error {
 
         let message = captures.get(2).map_or(first_line, |s| s.as_str().trim());
         let mut buf = Vec::new();
-        Report::build(ReportKind::Error, e.name(), span.start)
+        Report::build(ReportKind::Error, (e.name(), span.start()..span.end()))
             .with_config(
                 ariadne::Config::default()
                     .with_char_set(CharSet::Ascii)
@@ -109,7 +109,7 @@ mod tests {
     #[test]
     fn write_error() {
         let script = "return nil+1";
-        let e = EvaluationBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
         let Err(err) = e.evaluate() else {
             panic!("expect error");
         };
