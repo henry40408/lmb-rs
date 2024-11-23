@@ -171,7 +171,10 @@ mod tests {
         for block in blocks {
             let block = block.replace("https://httpbin.org", &server.url());
             let store = Store::default();
-            let e = EvaluationBuilder::new(&block, empty()).store(store).build();
+            let e = EvaluationBuilder::new(&block, empty())
+                .store(store)
+                .build()
+                .unwrap();
             e.evaluate().unwrap();
         }
 

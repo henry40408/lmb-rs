@@ -79,11 +79,22 @@ fn do_handle_request<S>(
 where
     S: AsRef<str>,
 {
-    let e = EvaluationBuilder::new(state.script, Cursor::new(body))
+    let e = match EvaluationBuilder::new(state.script, Cursor::new(body))
         .name(state.name)
         .timeout(state.timeout)
         .store(state.store.clone())
-        .build();
+        .build()
+    {
+        Ok(e) => e,
+        Err(err) => {
+            error!(?err, "failed to compile Lua code");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                HeaderMap::new(),
+                String::new(),
+            );
+        }
+    };
 
     let mut headers_map: Map<_, Value> = Map::new();
     for (name, value) in headers {

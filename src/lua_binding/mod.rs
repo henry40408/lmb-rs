@@ -77,13 +77,13 @@ where
 
         let read_fn = vm.create_function({
             let input = input.clone();
-            move |vm, f: Option<LuaValue<'_>>| lua_lmb_read(vm, &input, f)
+            move |vm, f: Option<LuaValue>| lua_lmb_read(vm, &input, f)
         })?;
         io_table.set("read", read_fn)?;
 
         io_table.set("stderr", LuaStderr {})?;
 
-        let write_fn = vm.create_function(|_, vs: LuaMultiValue<'_>| {
+        let write_fn = vm.create_function(|_, vs: LuaMultiValue| {
             let mut locked = stdout().lock();
             for v in vs.into_vec() {
                 write!(locked, "{}", v.to_string()?)?;
@@ -95,7 +95,7 @@ where
         let globals = vm.globals();
         globals.set("io", io_table)?;
 
-        let loaded = vm.named_registry_value::<LuaTable<'_>>(K_LOADED)?;
+        let loaded = vm.named_registry_value::<LuaTable>(K_LOADED)?;
         loaded.set("@lmb", Self::new(input, store, state))?;
         loaded.set("@lmb/crypto", LuaModCrypto {})?;
         loaded.set("@lmb/http", LuaModHTTP {})?;
@@ -109,8 +109,8 @@ where
 struct LuaStderr {}
 
 impl LuaUserData for LuaStderr {
-    fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_method("write", |_, _, vs: LuaMultiValue<'_>| {
+    fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method("write", |_, _, vs: LuaMultiValue| {
             let mut locked = stderr().lock();
             let vs = vs.into_vec();
             for (idx, v) in vs.iter().enumerate() {
@@ -124,11 +124,7 @@ impl LuaUserData for LuaStderr {
     }
 }
 
-fn lua_lmb_get<'lua, R>(
-    vm: &'lua Lua,
-    lmb: &LuaBinding<R>,
-    key: String,
-) -> LuaResult<LuaValue<'lua>>
+fn lua_lmb_get<'lua, R>(vm: &'lua Lua, lmb: &LuaBinding<R>, key: String) -> LuaResult<LuaValue>
 where
     R: Read,
 {
@@ -145,8 +141,8 @@ where
 fn lua_lmb_put<'lua, R>(
     vm: &'lua Lua,
     lmb: &LuaBinding<R>,
-    (key, value): (String, LuaValue<'lua>),
-) -> LuaResult<LuaValue<'lua>>
+    (key, value): (String, LuaValue),
+) -> LuaResult<LuaValue>
 where
     R: Read,
 {
@@ -161,8 +157,8 @@ where
 fn lua_lmb_update<'lua, R>(
     vm: &'lua Lua,
     lmb: &LuaBinding<R>,
-    (keys, f, default_values): (Vec<String>, LuaFunction<'lua>, Option<LuaValue<'lua>>),
-) -> LuaResult<LuaValue<'lua>>
+    (keys, f, default_values): (Vec<String>, LuaFunction, Option<LuaValue>),
+) -> LuaResult<LuaValue>
 where
     R: Read,
 {
@@ -171,7 +167,7 @@ where
     };
     let update_fn = |old: &mut Vec<Value>| -> LuaResult<()> {
         let old_v = vm.to_value(old)?;
-        let new = f.call::<_, LuaValue<'_>>(old_v)?;
+        let new = f.call::<LuaValue>(old_v)?;
         *old = vm.from_value(new)?;
         Ok(())
     };
@@ -189,7 +185,7 @@ impl<R> LuaUserData for LuaBinding<R>
 where
     for<'lua> R: 'lua + Read,
 {
-    fn add_fields<'lua, F: LuaUserDataFields<'lua, Self>>(fields: &mut F) {
+    fn add_fields<F: LuaUserDataFields<Self>>(fields: &mut F) {
         fields.add_field("_VERSION", env!("APP_VERSION"));
         fields.add_field_method_get("request", |vm, this| {
             let Some(v) = this.state.as_ref().and_then(|m| m.get(&StateKey::Request)) else {
@@ -203,7 +199,7 @@ where
             };
             vm.to_value(&*v)
         });
-        fields.add_field_method_set("response", |vm, this, value: LuaValue<'lua>| {
+        fields.add_field_method_set("response", |vm, this, value: LuaValue| {
             if let Some(v) = this.state.as_ref() {
                 v.insert(StateKey::Response, vm.from_value(value)?);
             }
@@ -211,7 +207,7 @@ where
         });
     }
 
-    fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("get", lua_lmb_get);
         methods.add_method("read_unicode", |vm, this, f| {
             lua_lmb_read_unicode(vm, &this.input, f)
@@ -240,7 +236,7 @@ mod tests {
         end
         return t
         "#;
-        let e = EvaluationBuilder::new(script, input).build();
+        let e = EvaluationBuilder::new(script, input).build().unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(&json!([1, 2, 3]), res.payload());
     }
@@ -251,7 +247,7 @@ mod tests {
     #[test_case("assert(not io.read('*n'))")]
     #[test_case("assert(not io.read(1))")]
     fn read_empty(script: &'static str) {
-        let e = EvaluationBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
         let _ = e.evaluate().unwrap();
     }
 
@@ -263,7 +259,9 @@ mod tests {
     #[test_case("1\n", 1.into())]
     fn read_number(input: &'static str, expected: Value) {
         let script = "return io.read('*n')";
-        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
+        let e = EvaluationBuilder::new(script, input.as_bytes())
+            .build()
+            .unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(&expected, res.payload());
     }
@@ -275,7 +273,9 @@ mod tests {
     #[test_case("return io.read(4)", "foo\n".into())]
     fn read_string(script: &str, expected: Value) {
         let input = "foo\nbar";
-        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
+        let e = EvaluationBuilder::new(script, input.as_bytes())
+            .build()
+            .unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(&expected, res.payload());
     }
@@ -286,7 +286,9 @@ mod tests {
     fn read_unicode_cjk_characters(n: usize, expected: &str) {
         let script = format!("return require('@lmb'):read_unicode({n})");
         let input = "你好";
-        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
+        let e = EvaluationBuilder::new(script, input.as_bytes())
+            .build()
+            .unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(&json!(expected), res.payload());
     }
@@ -296,7 +298,9 @@ mod tests {
         let input = "你好";
         let script = "return require('@lmb'):read_unicode(1)";
 
-        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
+        let e = EvaluationBuilder::new(script, input.as_bytes())
+            .build()
+            .unwrap();
 
         let res = e.evaluate().unwrap();
         assert_eq!(&json!("你"), res.payload());
@@ -313,7 +317,9 @@ mod tests {
     #[test_case("你好", "*a", "你好")]
     fn read_unicode_format(input: &'static str, f: &str, expected: &str) {
         let script = format!(r#"return require('@lmb'):read_unicode('{f}')"#);
-        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
+        let e = EvaluationBuilder::new(script, input.as_bytes())
+            .build()
+            .unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(&json!(expected.to_string()), res.payload());
     }
@@ -323,7 +329,7 @@ mod tests {
         // ref: https://www.php.net/manual/en/reference.pcre.pattern.modifiers.php#54805
         let input: &[u8] = &[0xf0, 0x28, 0x8c, 0xbc];
         let script = "return require('@lmb'):read_unicode(1)";
-        let e = EvaluationBuilder::new(script, input).build();
+        let e = EvaluationBuilder::new(script, input).build().unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(&json!(null), res.payload());
     }
@@ -333,7 +339,9 @@ mod tests {
         // mix CJK and non-CJK characters
         let input = r#"{"key":"你好"}"#;
         let script = "return require('@lmb'):read_unicode(12)";
-        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
+        let e = EvaluationBuilder::new(script, input.as_bytes())
+            .build()
+            .unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(&json!(input), res.payload());
     }
@@ -344,7 +352,9 @@ mod tests {
     fn read_unicode_non_cjk_characters(n: usize, expected: &str) {
         let input = "ab";
         let script = format!("return require('@lmb'):read_unicode({n})");
-        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
+        let e = EvaluationBuilder::new(script, input.as_bytes())
+            .build()
+            .unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(&json!(expected), res.payload());
     }
@@ -352,12 +362,12 @@ mod tests {
     #[test]
     fn write() {
         let script = "io.write('l', 'a', 'm'); return nil";
-        let e = EvaluationBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(&json!(null), res.payload());
 
         let script = "io.stderr:write('err', 'or'); return nil";
-        let e = EvaluationBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(&json!(null), res.payload());
     }

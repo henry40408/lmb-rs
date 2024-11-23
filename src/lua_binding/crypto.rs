@@ -16,7 +16,7 @@ fn hash_to_string(bytes: &[u8]) -> String {
 }
 
 impl LuaUserData for LuaModCrypto {
-    fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("sha256", |_, _, payload: String| {
             let mut hasher = Sha256::default();
             hasher.update(payload.as_bytes());
@@ -49,7 +49,9 @@ mod tests {
     fn hmac_sha256() {
         let input = "input";
         let script = "return require('@lmb/crypto'):hmac('sha256', io.read('*a'), 'secret')";
-        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
+        let e = EvaluationBuilder::new(script, input.as_bytes())
+            .build()
+            .unwrap();
         let res = e.evaluate().unwrap();
         let expected = "8d8985d04b7abd32cbaa3779a3daa019e0d269a22aec15af8e7296f702cc68c6";
         assert_eq!(&json!(expected), res.payload());
@@ -59,7 +61,9 @@ mod tests {
     fn sha256() {
         let input = "input";
         let script = "return require('@lmb/crypto'):sha256(io.read('*a'))";
-        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
+        let e = EvaluationBuilder::new(script, input.as_bytes())
+            .build()
+            .unwrap();
         let res = e.evaluate().unwrap();
         let expected = "c96c6d5be8d08a12e7b5cdc1b207fa6b2430974c86803d8891675e76fd992c20";
         assert_eq!(&json!(expected), res.payload());

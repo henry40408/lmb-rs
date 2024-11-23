@@ -146,30 +146,39 @@ where
     ///
     /// The syntax of Lua script could be checked with [`crate::LuaCheck`].
     ///
+    /// ```should_panic
+    /// # use std::io::empty;
+    /// # use serde_json::json;
+    /// use lmb::*;
+    ///
+    /// # fn main() {
+    /// EvaluationBuilder::new("ret true", empty()).build().unwrap();
+    /// # }
+    /// ```
+    ///
     /// ```rust
     /// # use std::io::empty;
     /// # use serde_json::json;
     /// use lmb::*;
     ///
     /// # fn main() -> Result<()> {
-    /// let e = EvaluationBuilder::new("return true", empty()).build();
+    /// let e = EvaluationBuilder::new("return true", empty()).build().unwrap();
     /// let res = e.evaluate()?;
     /// assert_eq!(&json!(true), res.payload());
     /// # Ok(())
     /// # }
     /// ```
-    pub fn build(&self) -> Arc<Evaluation<R>> {
+    pub fn build(&self) -> Result<Arc<Evaluation<R>>> {
         let vm = Lua::new();
         vm.sandbox(true).expect("failed to enable sandbox");
 
         let compiled = {
             let compiler = Compiler::new();
             let _s = trace_span!("compile_script").entered();
-            compiler.compile(&self.script)
+            compiler.compile(&self.script)?
         };
-        LuaBinding::register(&vm, self.input.clone(), self.store.clone(), None)
-            .expect("failed to initalize the binding");
-        Arc::new(Evaluation {
+        LuaBinding::register(&vm, self.input.clone(), self.store.clone(), None)?;
+        Ok(Arc::new(Evaluation {
             compiled,
             input: self.input.clone(),
             name: self.name.clone().unwrap_or_default(),
@@ -177,7 +186,7 @@ where
             store: self.store.clone(),
             timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
             vm,
-        })
+        }))
     }
 }
 
@@ -261,7 +270,7 @@ where
     /// use lmb::*;
     ///
     /// # fn main() -> Result<()> {
-    /// let e = EvaluationBuilder::new("return 1+1", empty()).build();
+    /// let e = EvaluationBuilder::new("return 1+1", empty()).build().unwrap();
     /// let res = e.evaluate()?;
     /// assert_eq!(&json!(2), res.payload());
     /// # Ok(())
@@ -279,7 +288,7 @@ where
     /// use lmb::*;
     ///
     /// # fn main() -> Result<()> {
-    /// let e = EvaluationBuilder::new("return 1+1", empty()).build();
+    /// let e = EvaluationBuilder::new("return 1+1", empty()).build().unwrap();
     /// let state = Arc::new(State::new());
     /// state.insert(StateKey::from("bool"), true.into());
     /// let res = e.evaluate_with_state(state)?;
@@ -336,7 +345,7 @@ where
     ///
     /// # fn main() -> Result<()> {
     /// let script = "return io.read('*a')";
-    /// let mut e = EvaluationBuilder::new(script, Cursor::new("1")).build();
+    /// let mut e = EvaluationBuilder::new(script, Cursor::new("1")).build().unwrap();
     ///
     /// let r = e.evaluate()?;
     /// assert_eq!(&json!("1"), r.payload());
@@ -360,7 +369,7 @@ where
     ///
     /// # fn main() -> Result<()> {
     /// let script = "return 1";
-    /// let e = EvaluationBuilder::new(script, empty()).build();
+    /// let e = EvaluationBuilder::new(script, empty()).build().unwrap();
     ///
     /// let mut buf = String::new();
     /// e.write_script(&mut buf, &PrintOptions::no_color())?;
@@ -455,7 +464,7 @@ mod tests {
     #[test_case("./lua-examples/error.lua")]
     fn error_in_script(path: &str) {
         let script = fs::read_to_string(path).unwrap();
-        let e = EvaluationBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
         assert!(e.evaluate().is_err());
     }
 
@@ -470,7 +479,8 @@ mod tests {
         let script = fs::read_to_string(format!("./lua-examples/{filename}")).unwrap();
         let e = EvaluationBuilder::new(&script, input.as_bytes())
             .default_store()
-            .build();
+            .build()
+            .unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(expected, res.payload);
     }
@@ -482,7 +492,8 @@ mod tests {
 
         let e = EvaluationBuilder::new(r#"while true do end"#, empty())
             .timeout(Some(timeout))
-            .build();
+            .build()
+            .unwrap();
         let res = e.evaluate();
         assert!(res.is_err());
 
@@ -494,7 +505,7 @@ mod tests {
     #[test_case("return 'a'..1", json!("a1"))]
     #[test_case("return require('@lmb')._VERSION", json!(env!("APP_VERSION")))]
     fn evaluate_scripts(script: &str, expected: Value) {
-        let e = EvaluationBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(expected, res.payload);
     }
@@ -503,7 +514,9 @@ mod tests {
     fn reevaluate() {
         let input = "foo\nbar";
         let script = "return io.read('*l')";
-        let e = EvaluationBuilder::new(script, input.as_bytes()).build();
+        let e = EvaluationBuilder::new(script, input.as_bytes())
+            .build()
+            .unwrap();
 
         let res = e.evaluate().unwrap();
         assert_eq!(json!("foo"), res.payload);
@@ -515,7 +528,7 @@ mod tests {
     #[test]
     fn replace_input() {
         let script = "return io.read('*a')";
-        let e = EvaluationBuilder::new(script, &b"0"[..]).build();
+        let e = EvaluationBuilder::new(script, &b"0"[..]).build().unwrap();
 
         let res = e.evaluate().unwrap();
         assert_eq!(json!("0"), res.payload);
@@ -530,13 +543,15 @@ mod tests {
     fn syntax_error() {
         let script = "ret true"; // code with syntax error
         let e = EvaluationBuilder::new(script, empty()).build();
-        assert!(e.evaluate().is_err());
+        assert!(e.is_err());
     }
 
     #[test]
     fn with_bufreader() {
         let input = Arc::new(Mutex::new(BufReader::new(empty())));
-        let e = EvaluationBuilder::with_reader("return nil", input.clone()).build();
+        let e = EvaluationBuilder::with_reader("return nil", input.clone())
+            .build()
+            .unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(json!(null), res.payload);
         let _input = input;
@@ -544,7 +559,9 @@ mod tests {
 
     #[test]
     fn with_state() {
-        let e = EvaluationBuilder::new(r#"return require("@lmb").request"#, empty()).build();
+        let e = EvaluationBuilder::new(r#"return require("@lmb").request"#, empty())
+            .build()
+            .unwrap();
         let state = Arc::new(State::new());
         state.insert(StateKey::Request, 1.into());
         {
@@ -561,7 +578,7 @@ mod tests {
     #[test]
     fn write_solution() {
         let script = "return 1+1";
-        let e = EvaluationBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
         let solution = e.evaluate().unwrap();
         let mut buf = String::new();
         solution.write(&mut buf, false).unwrap();

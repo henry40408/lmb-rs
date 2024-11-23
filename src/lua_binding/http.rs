@@ -28,7 +28,7 @@ pub struct LuaModHTTPResponse {
 }
 
 impl LuaUserData for LuaModHTTPResponse {
-    fn add_fields<'lua, F: LuaUserDataFields<'lua, Self>>(fields: &mut F) {
+    fn add_fields<F: LuaUserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("charset", |_, this| Ok(this.charset.clone()));
         fields.add_field_method_get("content_type", |_, this| Ok(this.content_type.clone()));
         fields.add_field_method_get("headers", |_, this| Ok(this.headers.clone()));
@@ -36,7 +36,7 @@ impl LuaUserData for LuaModHTTPResponse {
         fields.add_field_method_get("status_code", |_, this| Ok(this.status_code.as_u16()));
     }
 
-    fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("json", |vm, this, ()| {
             if "application/json" != this.content_type {
                 warn!("content type is not application/json, convert with caution");
@@ -46,10 +46,10 @@ impl LuaUserData for LuaModHTTPResponse {
             let value = vm.to_value(&value)?;
             Ok(value)
         });
-        methods.add_method("read", |vm, this, f: Option<LuaValue<'lua>>| {
+        methods.add_method("read", |vm, this, f: Option<LuaValue>| {
             lua_lmb_read(vm, &this.reader, f)
         });
-        methods.add_method("read_unicode", |vm, this, f: LuaValue<'lua>| {
+        methods.add_method("read_unicode", |vm, this, f: LuaValue| {
             lua_lmb_read_unicode(vm, &this.reader, f)
         });
     }
@@ -73,7 +73,7 @@ fn set_headers(req: Request, headers: &Value) -> Request {
 fn lua_lmb_fetch(
     vm: &Lua,
     _: &LuaModHTTP,
-    (uri, options): (String, Option<LuaTable<'_>>),
+    (uri, options): (String, Option<LuaTable>),
 ) -> LuaResult<LuaModHTTPResponse> {
     let options = options.as_ref();
     let url: Url = uri.parse().into_lua_err()?;
@@ -129,7 +129,7 @@ fn lua_lmb_fetch(
 }
 
 impl LuaUserData for LuaModHTTP {
-    fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("fetch", lua_lmb_fetch);
     }
 }
@@ -162,7 +162,7 @@ mod tests {
             return res:read('*a')
             "#
         );
-        let e = EvaluationBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(&json!(body), res.payload());
 
@@ -189,7 +189,7 @@ mod tests {
             return res:read('*a')
             "#
         );
-        let e = EvaluationBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(&json!(body), res.payload());
 
@@ -215,7 +215,7 @@ mod tests {
             return res:read_unicode('*a')
             "#
         );
-        let e = EvaluationBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(&json!(body), res.payload());
 
@@ -241,7 +241,7 @@ mod tests {
             return res:json()
             "#
         );
-        let e = EvaluationBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(&json!({ "a": 1 }), res.payload());
 
@@ -270,7 +270,7 @@ mod tests {
             return res:read('*a')
             "#
         );
-        let e = EvaluationBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(&json!("2"), res.payload());
 

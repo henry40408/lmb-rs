@@ -10,8 +10,8 @@ use crate::Input;
 pub(crate) fn lua_lmb_read<'lua, R>(
     vm: &'lua Lua,
     input: &Input<R>,
-    f: Option<LuaValue<'lua>>,
-) -> LuaResult<LuaValue<'lua>>
+    f: Option<LuaValue>,
+) -> LuaResult<LuaValue>
 where
     R: Read,
 {
@@ -32,7 +32,7 @@ where
         // so we can easily convert it to a string in Lua.
         // Otherwise, it will be a list of bytes.
         let mut buf = String::new();
-        match f {
+        match f.as_ref() {
             "*a" | "*all" => {
                 let count = input.lock().read_to_string(&mut buf)?;
                 if count == 0 {
@@ -80,13 +80,13 @@ where
 pub(crate) fn lua_lmb_read_unicode<'lua, R>(
     vm: &'lua Lua,
     input: &Input<R>,
-    f: LuaValue<'lua>,
-) -> LuaResult<LuaValue<'lua>>
+    f: LuaValue,
+) -> LuaResult<LuaValue>
 where
     R: Read,
 {
     if let Some(f) = f.as_str() {
-        match f {
+        match f.as_ref() {
             "*a" | "*all" => {
                 let mut s = vec![];
                 input.lock().read_to_end(&mut s).into_lua_err()?;

@@ -5,11 +5,11 @@ use serde_json::Value;
 pub struct LuaModJSON {}
 
 impl LuaUserData for LuaModJSON {
-    fn add_methods<'lua, M: LuaUserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("decode", |vm, _, value: String| {
             vm.to_value(&serde_json::from_str::<Value>(&value).into_lua_err()?)
         });
-        methods.add_method("encode", |_, _, value: LuaValue<'lua>| {
+        methods.add_method("encode", |_, _, value: LuaValue| {
             serde_json::to_string(&value).into_lua_err()
         });
     }
@@ -27,7 +27,7 @@ mod tests {
         local m = require('@lmb/json');
         return m:decode('{"bool":true,"num":2,"str":"hello"}')
         "#;
-        let e = EvaluationBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
         let res = e.evaluate().unwrap();
         let expected = &json!({ "bool": true, "num": 2, "str": "hello" });
         assert_eq!(expected, res.payload());
@@ -39,7 +39,7 @@ mod tests {
         local m = require('@lmb/json');
         return m:encode({ bool = true, num = 2, str = 'hello' })
         "#;
-        let e = EvaluationBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
         let res = e.evaluate().unwrap();
         let actual: Value = serde_json::from_str(res.payload().as_str().unwrap()).unwrap();
         assert_eq!(json!({"bool":true,"num":2,"str":"hello"}), actual);
@@ -52,7 +52,7 @@ mod tests {
         local m = require('@lmb/json');
         return m:encode(m:decode('{"a":[{}]}'))
         "#;
-        let e = EvaluationBuilder::new(script, empty()).build();
+        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
         let res = e.evaluate().unwrap();
         let actual: Value = serde_json::from_str(res.payload().as_str().unwrap()).unwrap();
         assert_eq!(json!({"a":[{}]}), actual);
