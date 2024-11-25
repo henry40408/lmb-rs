@@ -87,9 +87,9 @@ assert(1 == m.store.b)
 
 The function accepts three arguments:
 
-1. Key
-2. Function to update the value. It should return the new value. If any error is thrown, such as manually calling `error("something went wrong")`, the value will not be updated.
-3. (Optional) The default value will be passed as the first argument of the update function when the value is absent. It defaults to `nil` when omitted.
+1. Keys
+2. Function to update the values. It should return the new values. If an error is thrown, such as manually calling `error("something went wrong")`, the values will NOT be updated.
+3. (Optional) Default values that will be passed as the first argument of the update function if any value is absent. Defaults to `nil` when omitted.
 
 ```lua
 local m = require('@lmb')
@@ -112,10 +112,49 @@ assert(2 == m.store.c)
 m.store.c = 'not_a_number'
 assert('not_a_number' == m.store.c)
 
-local _, err = pcall(do_update)
-assert(err, 'expect an error')
+local ok, err = pcall(do_update)
+assert(not ok)
+assert(string.find(tostring(err), 'c is not a number'))
 
 assert('not_a_number' == m.store.c)
+```
+
+The following is a classic example of a transaction:
+
+```lua
+local m = require('@lmb')
+
+local function transfer(amount)
+  return m.store:update({ 'alice', 'bob' }, function(values)
+    local alice, bob = table.unpack(values)
+    if alice < amount then
+      error('insufficient fund')
+    end
+    return table.pack(alice - amount, bob + amount)
+  end, { 0, 0 })
+end
+
+m.store.alice = 50
+m.store.bob = 50
+
+local ok, err = pcall(function() return transfer(100) end) -- insufficient fund
+assert(not ok)
+assert(string.find(tostring(err), 'insufficient fund'))
+
+assert(m.store.alice == 50)
+assert(m.store.bob == 50)
+
+m.store.alice = 100
+m.store.bob = 0
+
+local ok, res = pcall(function() return transfer(100) end) -- successful transfer
+assert(ok)
+local alice, bob = table.unpack(res)
+assert(alice == 0)
+assert(bob == 100)
+
+assert(m.store.alice == 0)
+assert(m.store.bob == 100)
 ```
 
 #### When Should `update` Be Used?
