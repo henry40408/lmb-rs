@@ -67,7 +67,7 @@ Lmb supports a key-value store backed by SQLite. The data can be read, written, 
 
 ```lua
 local m = require('@lmb')
-assert(not m:get('a'))
+assert(not m.store.a)
 ```
 
 ### Put
@@ -79,8 +79,8 @@ Insert or update the value in the store.
 
 ```lua
 local m = require('@lmb')
-assert(1 == m:put('b', 1))
-assert(1 == m:get('b'))
+m.store.b = 1
+assert(1 == m.store.b)
 ```
 
 ### Update
@@ -95,27 +95,27 @@ The function accepts three arguments:
 local m = require('@lmb')
 
 local function do_update()
-  return m:update({ 'c' }, function(values)
+  return m.store:update({ 'c' }, function(values)
     local c = table.unpack(values)
     assert(tonumber(c), 'c is not a number')
     return table.pack(c + 1)
   end, { 1 })
 end
 
-assert(not m:get('c'))
+assert(not m.store.c)
 
-assert(1 == m:put('c', 1))
-assert(1 == m:get('c'))
+m.store.c = 1
+assert(1 == m.store.c)
 assert(2 == do_update()[1])
-assert(2 == m:get('c'))
+assert(2 == m.store.c)
 
-assert('not_a_number' == m:put('c', 'not_a_number'))
-assert('not_a_number' == m:get('c'))
+m.store.c = 'not_a_number'
+assert('not_a_number' == m.store.c)
 
 local _, err = pcall(do_update)
 assert(err, 'expect an error')
 
-assert('not_a_number' == m:get('c'))
+assert('not_a_number' == m.store.c)
 ```
 
 #### When Should `update` Be Used?
