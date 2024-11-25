@@ -124,61 +124,56 @@ impl LuaUserData for LuaStderr {
     }
 }
 
-fn lua_lmb_get<'lua, R>(vm: &'lua Lua, lmb: &LuaBinding<R>, key: String) -> LuaResult<LuaValue>
-where
-    R: Read,
-{
-    let Some(store) = &lmb.store else {
-        return Ok(LuaNil);
-    };
-    let value = store.get(key.as_str()).into_lua_err()?;
-    match value {
-        Value::Null => Ok(LuaNil),
-        _ => vm.to_value(&value),
+struct LuaStoreBinding {
+    store: Option<Store>,
+}
+
+impl LuaUserData for LuaStoreBinding {
+    fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method(
+            "update",
+            |vm, this, (keys, f, default_values): (Vec<String>, LuaFunction, Option<LuaValue>)| {
+                let Some(store) = &this.store else {
+                    return Ok(LuaNil);
+                };
+                let update_fn = |old: &mut Vec<Value>| -> LuaResult<()> {
+                    let old_v = vm.to_value(old)?;
+                    let new = f.call::<LuaValue>(old_v)?;
+                    *old = vm.from_value(new)?;
+                    Ok(())
+                };
+                let default_values = match default_values {
+                    Some(v) => Some(vm.from_value(v)?),
+                    None => None,
+                };
+                let value = store
+                    .update(&keys, update_fn, default_values)
+                    .into_lua_err()?;
+                vm.to_value(&value)
+            },
+        );
+        methods.add_meta_method(LuaMetaMethod::Index, |vm, this, key: String| {
+            let Some(store) = &this.store else {
+                return Ok(LuaNil);
+            };
+            let value = store.get(key.as_str()).into_lua_err()?;
+            match value {
+                Value::Null => Ok(LuaNil),
+                _ => vm.to_value(&value),
+            }
+        });
+        methods.add_meta_method(
+            LuaMetaMethod::NewIndex,
+            |vm, this, (key, value): (String, LuaValue)| {
+                let Some(store) = &this.store else {
+                    return Ok(LuaNil);
+                };
+                let serialized = serde_json::to_value(&value).into_lua_err()?;
+                store.put(key, &serialized).into_lua_err()?;
+                vm.to_value(&value)
+            },
+        );
     }
-}
-
-fn lua_lmb_put<'lua, R>(
-    vm: &'lua Lua,
-    lmb: &LuaBinding<R>,
-    (key, value): (String, LuaValue),
-) -> LuaResult<LuaValue>
-where
-    R: Read,
-{
-    let Some(store) = &lmb.store else {
-        return Ok(LuaNil);
-    };
-    let serialized = serde_json::to_value(&value).into_lua_err()?;
-    store.put(key, &serialized).into_lua_err()?;
-    vm.to_value(&value)
-}
-
-fn lua_lmb_update<'lua, R>(
-    vm: &'lua Lua,
-    lmb: &LuaBinding<R>,
-    (keys, f, default_values): (Vec<String>, LuaFunction, Option<LuaValue>),
-) -> LuaResult<LuaValue>
-where
-    R: Read,
-{
-    let Some(store) = &lmb.store else {
-        return Ok(LuaNil);
-    };
-    let update_fn = |old: &mut Vec<Value>| -> LuaResult<()> {
-        let old_v = vm.to_value(old)?;
-        let new = f.call::<LuaValue>(old_v)?;
-        *old = vm.from_value(new)?;
-        Ok(())
-    };
-    let default_values = match default_values {
-        Some(v) => Some(vm.from_value(v)?),
-        None => None,
-    };
-    let value = store
-        .update(&keys, update_fn, default_values)
-        .into_lua_err()?;
-    vm.to_value(&value)
 }
 
 impl<R> LuaUserData for LuaBinding<R>
@@ -187,6 +182,11 @@ where
 {
     fn add_fields<F: LuaUserDataFields<Self>>(fields: &mut F) {
         fields.add_field("_VERSION", env!("APP_VERSION"));
+        fields.add_field_method_get("store", |_, this| {
+            Ok(LuaStoreBinding {
+                store: this.store.clone(),
+            })
+        });
         fields.add_field_method_get("request", |vm, this| {
             let Some(v) = this.state.as_ref().and_then(|m| m.get(&StateKey::Request)) else {
                 return Ok(LuaNil);
@@ -208,12 +208,9 @@ where
     }
 
     fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method("get", lua_lmb_get);
         methods.add_method("read_unicode", |vm, this, f| {
             lua_lmb_read_unicode(vm, &this.input, f)
         });
-        methods.add_method("put", lua_lmb_put);
-        methods.add_method("update", lua_lmb_update);
     }
 }
 

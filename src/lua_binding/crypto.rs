@@ -1,27 +1,35 @@
 use hmac::{Hmac, Mac};
 use mlua::prelude::*;
-use sha2::{Digest, Sha256};
-use std::fmt::Write as _;
+use sha1::Sha1;
+use sha2::{Digest, Sha256, Sha384, Sha512};
 
 type HmacSha256 = Hmac<Sha256>;
+type HmacSha512 = Hmac<Sha512>;
 
 /// Cryptography module
 pub struct LuaModCrypto {}
 
-fn hash_to_string(bytes: &[u8]) -> String {
-    bytes.iter().fold(String::new(), |mut output, b| {
-        let _ = write!(output, "{:02x}", b);
-        output
-    })
-}
-
 impl LuaUserData for LuaModCrypto {
     fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method("sha1", |_, _, payload: String| {
+            Ok(base16ct::lower::encode_string(&Sha1::digest(
+                payload.as_bytes(),
+            )))
+        });
         methods.add_method("sha256", |_, _, payload: String| {
-            let mut hasher = Sha256::default();
-            hasher.update(payload.as_bytes());
-            let res = hasher.finalize();
-            Ok(hash_to_string(res.as_slice()))
+            Ok(base16ct::lower::encode_string(&Sha256::digest(
+                payload.as_bytes(),
+            )))
+        });
+        methods.add_method("sha384", |_, _, payload: String| {
+            Ok(base16ct::lower::encode_string(&Sha384::digest(
+                payload.as_bytes(),
+            )))
+        });
+        methods.add_method("sha512", |_, _, payload: String| {
+            Ok(base16ct::lower::encode_string(&Sha512::digest(
+                payload.as_bytes(),
+            )))
         });
         methods.add_method(
             "hmac",
@@ -30,8 +38,15 @@ impl LuaUserData for LuaModCrypto {
                     let mut hasher =
                         HmacSha256::new_from_slice(secret.as_bytes()).into_lua_err()?;
                     hasher.update(payload.as_bytes());
-                    let res = hasher.finalize().into_bytes();
-                    Ok(hash_to_string(res.as_slice()))
+                    let hash = hasher.finalize().into_bytes();
+                    Ok(base16ct::lower::encode_string(&hash))
+                }
+                "sha512" => {
+                    let mut hasher =
+                        HmacSha512::new_from_slice(secret.as_bytes()).into_lua_err()?;
+                    hasher.update(payload.as_bytes());
+                    let hash = hasher.finalize().into_bytes();
+                    Ok(base16ct::lower::encode_string(&hash))
                 }
                 _ => Err(mlua::Error::runtime("unsupported algorithm {alg}")),
             },

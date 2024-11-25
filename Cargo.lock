@@ -282,6 +282,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "base16ct"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c7f02d4ea65f2c1853089ffd8d2787bdbc63de2f0d29dedbcf8ccdfa0ccd4cf"
+
+[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1628,6 +1634,7 @@ dependencies = [
  "assert_fs",
  "axum",
  "axum-test",
+ "base16ct",
  "bat",
  "bencher",
  "chrono",
@@ -1655,6 +1662,7 @@ dependencies = [
  "rusqlite_migration",
  "serde",
  "serde_json",
+ "sha1",
  "sha2",
  "snapbox",
  "termimad",
@@ -2450,6 +2458,17 @@ dependencies = [
  "ryu",
  "serde",
  "unsafe-libyaml",
+]
+
+[[package]]
+name = "sha1"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3bf829a2d51ab4a5ddf1352d8470c140cadc8301b2ae1789db023f01cedd6ba"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
 ]
 
 [[package]]

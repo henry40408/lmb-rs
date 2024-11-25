@@ -449,7 +449,7 @@ mod tests {
     #[test]
     fn concurrency() {
         let script = r#"
-        return require('@lmb'):update({ 'a' }, function(values)
+        return require('@lmb').store:update({ 'a' }, function(values)
           local a = table.unpack(values)
           return table.pack(a + 1)
         end, {0})
@@ -490,9 +490,9 @@ mod tests {
     fn get_put() {
         let script = r#"
         local m = require('@lmb')
-        local a = m:get('a')
-        assert(not m:get('b'))
-        m:put('a', 4.56)
+        local a = m.store.a
+        assert(not m.store.b)
+        m.store.a = 4.56
         return a
         "#;
 
@@ -545,8 +545,8 @@ mod tests {
     fn reuse() {
         let script = r#"
         local m = require('@lmb')
-        local a = m:get('a')
-        m:put('a', a+1)
+        local a = m.store.a
+        m.store.a = a + 1
         return a
         "#;
 
@@ -574,7 +574,7 @@ mod tests {
     #[test]
     fn update_without_default_value() {
         let script = r#"
-        return require('@lmb'):update({ 'a' }, function(values)
+        return require('@lmb').store:update({ 'a' }, function(values)
           local a = table.unpack(values)
           return table.pack(a + 1)
         end)
@@ -596,7 +596,7 @@ mod tests {
     #[test_log::test]
     fn rollback_when_error() {
         let script = r#"
-        return require('@lmb'):update({ 'a' }, function(values)
+        return require('@lmb').store:update({ 'a' }, function(values)
           local a = table.unpack(values)
           assert(a ~= 1, 'expect a not to equal 1')
           return table.pack(a + 1)
