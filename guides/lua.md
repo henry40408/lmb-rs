@@ -247,6 +247,10 @@ When receiving webhook events from another service, e.g. [GitHub](https://docs.g
 
 ```lua
 local crypto = require('@lmb/crypto')
-assert('2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824' == crypto:sha256('hello'))
-assert('88aab3ede8d3adf94d26ab90d3bafd4a2083070c3bcce9c014ee04a443847c0b' == crypto:hmac('sha256', 'hello', 'secret'))
+assert(crypto:sha1('')   == 'da39a3ee5e6b4b0d3255bfef95601890afd80709')
+assert(crypto:sha256('') == 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855')
+assert(crypto:sha384('') == '38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b')
+assert(crypto:sha512('') == 'cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e')
+assert(crypto:hmac('sha256', '', 'secret') == 'f9e66e179b6747ae54108f82f8ade8b3c25d76fd30afde6c395822c530196169')
+assert(crypto:hmac('sha512', '', 'secret') == 'b0e9650c5faf9cd8ae02276671545424104589b3656731ec193b25d01b07561c27637c2d4d68389d6cf5007a8632c26ec89ba80a01c77a6cdd389ec28db43901')
 ```
