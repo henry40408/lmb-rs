@@ -198,6 +198,7 @@ where
 {
     duration: Duration,
     evaluation: Arc<Evaluation<R>>,
+    json: bool,
     max_memory_usage: usize,
     payload: Value,
 }
@@ -206,6 +207,12 @@ impl<R> Solution<R>
 where
     for<'lua> R: 'lua + Read,
 {
+    /// Set JSON mode.
+    pub fn set_json(&mut self, json: bool) -> &mut Self {
+        self.json = json;
+        self
+    }
+
     /// Get duration.
     pub fn duration(&self) -> Duration {
         self.duration
@@ -227,11 +234,11 @@ where
     }
 
     /// Render the solution.
-    pub fn write<W>(&self, mut f: W, json: bool) -> Result<()>
+    pub fn write<W>(&self, mut f: W) -> Result<()>
     where
         W: Write,
     {
-        if json {
+        if self.json {
             let res = serde_json::to_string(&self.payload)?;
             Ok(write!(f, "{}", res)?)
         } else {
@@ -441,6 +448,7 @@ where
         Ok(Solution {
             duration,
             evaluation: self.clone(),
+            json: false,
             max_memory_usage: max_memory,
             payload: result,
         })
@@ -581,7 +589,7 @@ mod tests {
         let e = EvaluationBuilder::new(script, empty()).build().unwrap();
         let solution = e.evaluate().unwrap();
         let mut buf = String::new();
-        solution.write(&mut buf, false).unwrap();
+        solution.write(&mut buf).unwrap();
         assert_eq!("2", buf);
     }
 }

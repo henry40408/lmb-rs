@@ -39,6 +39,7 @@ md-5 = "0.10.6"
 mlua = { version = "0.10.1", features = ["luau", "send", "serialize"] }
 parking_lot = "0.12.1"
 pulldown-cmark = "0.12.2"
+rayon = "1.10.0"
 rmp-serde = "1.1.2"
 rusqlite = { version = "0.31.0", features = ["bundled", "chrono"] }
 rusqlite_migration = { version = "1.2.0", features = ["from-directory"] }
