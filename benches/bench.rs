@@ -49,7 +49,7 @@ fn lmb_default_store(bencher: &mut Bencher) {
 
 fn lmb_update(bencher: &mut Bencher) {
     let script = r#"
-    return require("@lmb"):update({ "a" }, function(values)
+    return require("@lmb").store:update({ "a" }, function(values)
     	local a = table.unpack(values)
     	return table.pack(a + 1)
     end, { 0 })

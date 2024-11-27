@@ -290,7 +290,7 @@ fn schedule() {
     let store_path = store.path().to_string_lossy();
 
     Command::new(cargo_bin("lmb"))
-        .stdin("require('@lmb'):put('a', 1); return true")
+        .stdin("require('@lmb').store.a = 1; return true")
         .args([
             "--no-color",
             "--store-path",

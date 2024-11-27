@@ -67,7 +67,7 @@ Lmb supports a key-value store backed by SQLite. The data can be read, written, 
 
 ```lua
 local m = require('@lmb')
-assert(not m:get('a'))
+assert(not m.store.a)
 ```
 
 ### Put
@@ -79,43 +79,82 @@ Insert or update the value in the store.
 
 ```lua
 local m = require('@lmb')
-assert(1 == m:put('b', 1))
-assert(1 == m:get('b'))
+m.store.b = 1
+assert(1 == m.store.b)
 ```
 
 ### Update
 
 The function accepts three arguments:
 
-1. Key
-2. Function to update the value. It should return the new value. If any error is thrown, such as manually calling `error("something went wrong")`, the value will not be updated.
-3. (Optional) The default value will be passed as the first argument of the update function when the value is absent. It defaults to `nil` when omitted.
+1. Keys
+2. Function to update the values. It should return the new values. If an error is thrown, such as manually calling `error("something went wrong")`, the values will NOT be updated.
+3. (Optional) Default values that will be passed as the first argument of the update function if any value is absent. Defaults to `nil` when omitted.
 
 ```lua
 local m = require('@lmb')
 
 local function do_update()
-  return m:update({ 'c' }, function(values)
+  return m.store:update({ 'c' }, function(values)
     local c = table.unpack(values)
     assert(tonumber(c), 'c is not a number')
     return table.pack(c + 1)
   end, { 1 })
 end
 
-assert(not m:get('c'))
+assert(not m.store.c)
 
-assert(1 == m:put('c', 1))
-assert(1 == m:get('c'))
+m.store.c = 1
+assert(1 == m.store.c)
 assert(2 == do_update()[1])
-assert(2 == m:get('c'))
+assert(2 == m.store.c)
 
-assert('not_a_number' == m:put('c', 'not_a_number'))
-assert('not_a_number' == m:get('c'))
+m.store.c = 'not_a_number'
+assert('not_a_number' == m.store.c)
 
-local _, err = pcall(do_update)
-assert(err, 'expect an error')
+local ok, err = pcall(do_update)
+assert(not ok)
+assert(string.find(tostring(err), 'c is not a number'))
 
-assert('not_a_number' == m:get('c'))
+assert('not_a_number' == m.store.c)
+```
+
+The following is a classic example of a transaction:
+
+```lua
+local m = require('@lmb')
+
+local function transfer(amount)
+  return m.store:update({ 'alice', 'bob' }, function(values)
+    local alice, bob = table.unpack(values)
+    if alice < amount then
+      error('insufficient fund')
+    end
+    return table.pack(alice - amount, bob + amount)
+  end, { 0, 0 })
+end
+
+m.store.alice = 50
+m.store.bob = 50
+
+local ok, err = pcall(function() return transfer(100) end) -- insufficient fund
+assert(not ok)
+assert(string.find(tostring(err), 'insufficient fund'))
+
+assert(m.store.alice == 50)
+assert(m.store.bob == 50)
+
+m.store.alice = 100
+m.store.bob = 0
+
+local ok, res = pcall(function() return transfer(100) end) -- successful transfer
+assert(ok)
+local alice, bob = table.unpack(res)
+assert(alice == 0)
+assert(bob == 100)
+
+assert(m.store.alice == 0)
+assert(m.store.bob == 100)
 ```
 
 #### When Should `update` Be Used?
@@ -208,6 +247,41 @@ When receiving webhook events from another service, e.g. [GitHub](https://docs.g
 
 ```lua
 local crypto = require('@lmb/crypto')
-assert('2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824' == crypto:sha256('hello'))
-assert('88aab3ede8d3adf94d26ab90d3bafd4a2083070c3bcce9c014ee04a443847c0b' == crypto:hmac('sha256', 'hello', 'secret'))
+
+assert(crypto:base64_encode(' ')    == 'IA==')
+assert(crypto:base64_decode('IA==') == ' ')
+assert(crypto:crc32('')  == '0')
+assert(crypto:md5('')    == 'd41d8cd98f00b204e9800998ecf8427e')
+assert(crypto:sha1('')   == 'da39a3ee5e6b4b0d3255bfef95601890afd80709')
+assert(crypto:sha256('') == 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855')
+assert(crypto:sha384('') == '38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b')
+assert(crypto:sha512('') == 'cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e')
+assert(crypto:hmac('sha1', '', 'secret') == '25af6174a0fcecc4d346680a72b7ce644b9a88e8')
+assert(crypto:hmac('sha256', '', 'secret') == 'f9e66e179b6747ae54108f82f8ade8b3c25d76fd30afde6c395822c530196169')
+assert(crypto:hmac('sha384', '', 'secret') == 'b818f4664d0826b102b72cf2a687f558368f2152b15b83a7f389e48c335fc455282c61e97335dae370bac31a8196772d')
+assert(crypto:hmac('sha512', '', 'secret') == 'b0e9650c5faf9cd8ae02276671545424104589b3656731ec193b25d01b07561c27637c2d4d68389d6cf5007a8632c26ec89ba80a01c77a6cdd389ec28db43901')
+
+local data = ''
+local key = '01234567'
+
+local encrypted = crypto:encrypt(data, 'des-ecb', key)
+assert(encrypted == '08bb5db6b37c06d7')
+local decrypted = crypto:decrypt(encrypted, 'des-ecb', key)
+assert(decrypted == '')
+
+local iv = '01234567'
+
+local encrypted = crypto:encrypt(data, 'des-cbc', key, iv)
+assert(encrypted == 'b9b77ae196c39d7a')
+local decrypted = crypto:decrypt(encrypted, 'des-cbc', key, iv)
+assert(decrypted == '')
+
+local key = '0123456701234567'
+local iv = '0123456701234567'
+
+local encrypted = crypto:encrypt(data, 'aes-cbc', key, iv)
+assert(encrypted == 'f71257f2ffa6808961efb09ad82c2abd')
+local decrypted = crypto:decrypt(encrypted, 'aes-cbc', key, iv)
+assert(decrypted == '')
+
 ```
