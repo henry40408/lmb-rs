@@ -8,6 +8,7 @@ use lmb::{
     DEFAULT_TIMEOUT, EXAMPLES, GUIDES,
 };
 use mlua::prelude::*;
+use rayon::prelude::*;
 use serde_json::json;
 use serve::ServeOptions;
 use std::{
@@ -74,15 +75,15 @@ enum Commands {
     /// Check syntax of script
     Check {
         /// Script path. Specify "-" or omit to load the script from standard input
-        #[arg(long, value_parser, default_value = "-")]
-        file: Input,
+        #[arg(long = "file", value_parser, default_value = "-")]
+        files: Vec<Input>,
     },
     /// Evaluate a script file
     #[command(alias = "eval")]
     Evaluate {
         /// Script path. Specify "-" or omit to load the script from standard input
-        #[arg(long, value_parser, default_value = "-")]
-        file: Input,
+        #[arg(long = "file", value_parser, default_value = "-")]
+        files: Vec<Input>,
         /// Timeout in seconds
         #[arg(long, default_value_t = DEFAULT_TIMEOUT.as_secs())]
         timeout: u64,
@@ -107,8 +108,8 @@ enum Commands {
         #[arg(long)]
         initial_run: bool,
         /// Script path. Specify "-" or omit to load the script from standard input
-        #[arg(long, value_parser, default_value = "-")]
-        file: Input,
+        #[arg(long = "file", value_parser, default_value = "-")]
+        files: Vec<Input>,
     },
     /// Handle HTTP requests with the script
     Serve {
@@ -276,34 +277,37 @@ async fn try_main() -> anyhow::Result<()> {
 
     let store_options = StoreOptions::new(cli.store_path, cli.run_migrations);
     match cli.command {
-        Commands::Check { mut file } => {
+        Commands::Check { files } => files.into_par_iter().try_for_each(|mut file| {
             let (name, script) = read_script(&mut file)?;
             do_check_syntax(cli.no_color, &name, &script)
-        }
-        Commands::Evaluate { mut file, timeout } => {
-            let (name, script) = read_script(&mut file)?;
-            if cli.check_syntax {
-                do_check_syntax(cli.no_color, &name, &script)?;
-            }
+        }),
+        Commands::Evaluate { files, timeout } => {
             let store = prepare_store(&store_options)?;
-            let e = EvaluationBuilder::new(&script, io::stdin())
-                .name(&name)
-                .store(store)
-                .timeout(Some(Duration::from_secs(timeout)))
-                .build()?;
-            let mut buf = String::new();
-            match e.evaluate() {
-                Ok(s) => {
-                    s.write(&mut buf, cli.json)?;
-                    print!("{buf}");
-                    Ok(())
+            files.into_par_iter().try_for_each(|mut file| {
+                let (name, script) = read_script(&mut file)?;
+                if cli.check_syntax {
+                    do_check_syntax(cli.no_color, &name, &script)?;
                 }
-                Err(err) => {
-                    err.write_lua_error(&mut buf, &e, cli.no_color)?;
-                    eprint!("{buf}");
-                    Err(err.into())
+                let e = EvaluationBuilder::new(&script, io::stdin())
+                    .name(&name)
+                    .store(store.clone())
+                    .timeout(Some(Duration::from_secs(timeout)))
+                    .build()?;
+                let mut buf = String::new();
+                match e.evaluate() {
+                    Ok(mut s) => {
+                        s.set_json(cli.json);
+                        s.write(&mut buf)?;
+                        print!("{buf}");
+                        Ok(())
+                    }
+                    Err(err) => {
+                        err.write_lua_error(&mut buf, &e, cli.no_color)?;
+                        eprint!("{buf}");
+                        Err(err.into())
+                    }
                 }
-            }
+            })
         }
         Commands::Example(ExampleCommands::Cat { name }) => {
             let Some(found) = EXAMPLES.iter().find(|e| e.name() == name) else {
@@ -328,8 +332,9 @@ async fn try_main() -> anyhow::Result<()> {
                 .build()?;
             let mut buf = String::new();
             match e.evaluate() {
-                Ok(s) => {
-                    s.write(&mut buf, cli.json)?;
+                Ok(mut s) => {
+                    s.set_json(cli.json);
+                    s.write(&mut buf)?;
                     print!("{buf}");
                     Ok(())
                 }
@@ -396,23 +401,25 @@ async fn try_main() -> anyhow::Result<()> {
         Commands::Schedule {
             bail,
             cron,
-            mut file,
+            files,
             initial_run,
         } => {
-            let (name, script) = read_script(&mut file)?;
-            let schedule = Schedule::from_str(&cron)?;
             let store = prepare_store(&store_options)?;
+            files.into_par_iter().try_for_each(|mut file| {
+                let (name, script) = read_script(&mut file)?;
+                let schedule = Schedule::from_str(&cron)?;
 
-            let mut options = ScheduleOptions::new(schedule);
-            options.set_bail(bail);
-            options.set_initial_run(initial_run);
+                let mut options = ScheduleOptions::new(schedule);
+                options.set_bail(bail);
+                options.set_initial_run(initial_run);
 
-            let e = EvaluationBuilder::new(script, io::stdin())
-                .name(name)
-                .store(store)
-                .build()?;
-            e.schedule(&options);
-            Ok(())
+                let e = EvaluationBuilder::new(script, io::stdin())
+                    .name(name)
+                    .store(store.clone())
+                    .build()?;
+                e.schedule(&options);
+                Ok(())
+            })
         }
         Commands::Serve {
             bind,
