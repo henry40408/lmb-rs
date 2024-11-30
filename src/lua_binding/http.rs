@@ -164,7 +164,7 @@ mod tests {
         );
         let e = EvaluationBuilder::new(script, empty()).build().unwrap();
         let res = e.evaluate().unwrap();
-        assert_eq!(&json!(body), res.payload());
+        assert_eq!(json!(body), res.payload);
 
         get_mock.assert();
     }
@@ -191,7 +191,7 @@ mod tests {
         );
         let e = EvaluationBuilder::new(script, empty()).build().unwrap();
         let res = e.evaluate().unwrap();
-        assert_eq!(&json!(body), res.payload());
+        assert_eq!(json!(body), res.payload);
 
         get_mock.assert();
     }
@@ -217,7 +217,7 @@ mod tests {
         );
         let e = EvaluationBuilder::new(script, empty()).build().unwrap();
         let res = e.evaluate().unwrap();
-        assert_eq!(&json!(body), res.payload());
+        assert_eq!(json!(body), res.payload);
 
         get_mock.assert();
     }
@@ -243,7 +243,7 @@ mod tests {
         );
         let e = EvaluationBuilder::new(script, empty()).build().unwrap();
         let res = e.evaluate().unwrap();
-        assert_eq!(&json!({ "a": 1 }), res.payload());
+        assert_eq!(json!({ "a": 1 }), res.payload);
 
         get_mock.assert();
     }
@@ -272,7 +272,7 @@ mod tests {
         );
         let e = EvaluationBuilder::new(script, empty()).build().unwrap();
         let res = e.evaluate().unwrap();
-        assert_eq!(&json!("2"), res.payload());
+        assert_eq!(json!("2"), res.payload);
 
         post_mock.assert();
     }

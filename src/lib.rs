@@ -3,6 +3,7 @@
 //! A Lua function runner.
 
 use dashmap::DashMap;
+use derive_builder::Builder;
 use include_dir::{include_dir, Dir};
 use parking_lot::Mutex;
 use rusqlite_migration::Migrations;
@@ -75,32 +76,14 @@ where
 pub type State = DashMap<StateKey, serde_json::Value>;
 
 /// Options for printing scripts.
-#[derive(Debug, Default)]
+#[derive(Builder, Debug)]
 pub struct PrintOptions {
+    /// Disable colors [`https://no-colors.org`].
+    #[builder(default)]
     no_color: bool,
+    /// Theme.
+    #[builder(default)]
     theme: Option<String>,
-}
-
-impl PrintOptions {
-    /// Creates a [`PrintOptions`] instance with colored output disabled.
-    pub fn no_color() -> Self {
-        Self {
-            no_color: true,
-            ..Default::default()
-        }
-    }
-
-    /// Set or unset "no color".
-    pub fn set_no_color(&mut self, yes: bool) -> &mut Self {
-        self.no_color = yes;
-        self
-    }
-
-    /// Set or unset theme.
-    pub fn set_theme(&mut self, theme: Option<String>) -> &mut Self {
-        self.theme = theme;
-        self
-    }
 }
 
 #[cfg(test)]
@@ -172,7 +155,7 @@ mod tests {
             let block = block.replace("https://httpbin.org", &server.url());
             let store = Store::default();
             let e = EvaluationBuilder::new(&block, empty())
-                .store(store)
+                .store(Some(store))
                 .build()
                 .unwrap();
             e.evaluate().unwrap();

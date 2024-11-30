@@ -107,7 +107,10 @@ fn eval_stdin_syntax_error() {
         .args(["--no-color", "eval", "--file", "-"])
         .assert()
         .failure()
-        .stderr_eq(str![""]);
+        .stderr_eq(str![[r#"
+syntax error: 1: Unexpected '!'; did you mean 'not'?
+
+"#]]);
 }
 
 #[test]

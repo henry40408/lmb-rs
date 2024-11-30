@@ -7,6 +7,7 @@ use axum::{
     routing::any,
     Router,
 };
+use derive_builder::Builder;
 use http::{HeaderName, HeaderValue};
 use lmb::{EvaluationBuilder, State, StateKey, Store};
 use serde_json::{Map, Value};
@@ -26,46 +27,36 @@ struct AppState {
     timeout: Option<Duration>,
 }
 
+#[derive(Builder)]
 pub struct ServeOptions<S, T>
 where
     S: Display,
     T: Display + ToSocketAddrs,
 {
     bind: T,
+    #[builder(default)]
     json: bool,
     name: S,
     script: S,
     store_options: StoreOptions,
+    #[builder(default)]
     timeout: Option<Duration>,
 }
 
-impl<S, T> ServeOptions<S, T>
+impl<S, T> ServeOptionsBuilder<S, T>
 where
     S: Display,
     T: Display + ToSocketAddrs,
 {
-    /// Create a new instance of serve options.
-    pub fn new(name: S, script: S, bind: T, store_options: StoreOptions) -> Self {
+    pub fn new(bind: T, name: S, script: S) -> Self {
         Self {
-            bind,
-            json: false,
-            name,
-            script,
-            store_options,
+            bind: Some(bind),
+            name: Some(name),
+            script: Some(script),
+            json: None,
+            store_options: None,
             timeout: None,
         }
-    }
-
-    /// Set JSON mode.
-    pub fn set_json(&mut self, yes: bool) -> &mut Self {
-        self.json = yes;
-        self
-    }
-
-    /// Set or unset timeout.
-    pub fn set_timeout(&mut self, timeout: Option<Duration>) -> &mut Self {
-        self.timeout = timeout;
-        self
     }
 }
 
@@ -80,9 +71,9 @@ where
     S: AsRef<str>,
 {
     let e = match EvaluationBuilder::new(state.script, Cursor::new(body))
-        .name(state.name)
+        .name(Some(state.name))
         .timeout(state.timeout)
-        .store(state.store.clone())
+        .store(Some(state.store.clone()))
         .build()
     {
         Ok(e) => e,
@@ -112,9 +103,10 @@ where
     let eval_state = Arc::new(State::new());
     eval_state.insert(StateKey::Request, request_map.into());
 
+    let e = Arc::new(e);
     let res = e.evaluate_with_state(eval_state.clone());
     match res {
-        Ok(res) => match build_response(state.json, eval_state, res.payload()) {
+        Ok(res) => match build_response(state.json, eval_state, &res.payload) {
             Ok(t) => t,
             Err(err) => {
                 error!(?err, "failed to build response");
@@ -204,9 +196,9 @@ where
     S: Display,
     T: Display + ToSocketAddrs,
 {
-    let store = if let Some(path) = &opts.store_options.store_path() {
+    let store = if let Some(path) = &opts.store_options.store_path {
         let store = Store::new(path.as_path())?;
-        if opts.store_options.run_migrations() {
+        if opts.store_options.run_migrations {
             store.migrate(None)?;
         }
         info!(?path, "open store");
@@ -251,10 +243,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::init_route;
-    use crate::{serve::ServeOptions, Cli, StoreOptions};
+    use crate::{serve::ServeOptionsBuilder, Cli};
     use axum_test::TestServer;
     use clap::Parser;
     use http::HeaderValue;
+    use lmb::StoreOptionsBuilder;
     use serde_json::{json, Value};
 
     #[tokio::test]
@@ -264,9 +257,12 @@ mod tests {
         local m = require('@lmb')
         return { request = m.request, body = io.read('*a') }
         "#;
-        let store_options = StoreOptions::default();
-        let mut opts = ServeOptions::new("", script, "", store_options);
-        opts.set_json(cli.json);
+        let store_options = StoreOptionsBuilder::default().build().unwrap();
+        let opts = ServeOptionsBuilder::new("", "", script)
+            .json(cli.json)
+            .store_options(store_options)
+            .build()
+            .unwrap();
 
         let router = init_route(&opts).unwrap();
         let server = TestServer::new(router.into_make_service()).unwrap();
@@ -300,9 +296,12 @@ mod tests {
         print(m.response)
         return "I'm a teapot."
         "#;
-        let store_options = StoreOptions::default();
-        let mut opts = ServeOptions::new("", script, "", store_options);
-        opts.set_json(cli.json);
+        let store_options = StoreOptionsBuilder::default().build().unwrap();
+        let opts = ServeOptionsBuilder::new("", "", script)
+            .json(cli.json)
+            .store_options(store_options)
+            .build()
+            .unwrap();
         let router = init_route(&opts).unwrap();
         let server = TestServer::new(router.into_make_service()).unwrap();
         let res = server.post("/").await;
@@ -318,9 +317,12 @@ mod tests {
     async fn headers_status_code_bad_script() {
         let cli = Cli::parse_from(["lmb", "serve", "--file", "-"]);
         let script = "ret 'hello'";
-        let store_options = StoreOptions::default();
-        let mut opts = ServeOptions::new("", script, "", store_options);
-        opts.set_json(cli.json);
+        let store_options = StoreOptionsBuilder::default().build().unwrap();
+        let opts = ServeOptionsBuilder::new("", "", script)
+            .json(cli.json)
+            .store_options(store_options)
+            .build()
+            .unwrap();
         let router = init_route(&opts).unwrap();
         let server = TestServer::new(router.into_make_service()).unwrap();
         let res = server.post("/").await;
@@ -338,9 +340,12 @@ mod tests {
         m.response = res
         return "hello"
         "#;
-        let store_options = StoreOptions::default();
-        let mut opts = ServeOptions::new("", script, "", store_options);
-        opts.set_json(cli.json);
+        let store_options = StoreOptionsBuilder::default().build().unwrap();
+        let opts = ServeOptionsBuilder::new("", "", script)
+            .json(cli.json)
+            .store_options(store_options)
+            .build()
+            .unwrap();
         let router = init_route(&opts).unwrap();
         let server = TestServer::new(router.into_make_service()).unwrap();
         let res = server.post("/").await;
@@ -352,9 +357,12 @@ mod tests {
     async fn json_string() {
         let cli = Cli::parse_from(["lmb", "--json", "serve", "--file", "-"]);
         let script = "return 'hello'";
-        let store_options = StoreOptions::default();
-        let mut opts = ServeOptions::new("", script, "", store_options);
-        opts.set_json(cli.json);
+        let store_options = StoreOptionsBuilder::default().build().unwrap();
+        let opts = ServeOptionsBuilder::new("", "", script)
+            .json(cli.json)
+            .store_options(store_options)
+            .build()
+            .unwrap();
         let router = init_route(&opts).unwrap();
         let server = TestServer::new(router.into_make_service()).unwrap();
         let res = server.post("/").await;
@@ -366,9 +374,12 @@ mod tests {
     async fn number() {
         let cli = Cli::parse_from(["lmb", "serve", "--file", "-"]);
         let script = r#"return 1"#;
-        let store_options = StoreOptions::default();
-        let mut opts = ServeOptions::new("", script, "", store_options);
-        opts.set_json(cli.json);
+        let store_options = StoreOptionsBuilder::default().build().unwrap();
+        let opts = ServeOptionsBuilder::new("", "", script)
+            .json(cli.json)
+            .store_options(store_options)
+            .build()
+            .unwrap();
         let router = init_route(&opts).unwrap();
         let server = TestServer::new(router.into_make_service()).unwrap();
         let res = server.post("/").await;
@@ -380,9 +391,12 @@ mod tests {
     async fn raw_string() {
         let cli = Cli::parse_from(["lmb", "serve", "--file", "-"]);
         let script = "return 'hello'";
-        let store_options = StoreOptions::default();
-        let mut opts = ServeOptions::new("", script, "", store_options);
-        opts.set_json(cli.json);
+        let store_options = StoreOptionsBuilder::default().build().unwrap();
+        let opts = ServeOptionsBuilder::new("", "", script)
+            .json(cli.json)
+            .store_options(store_options)
+            .build()
+            .unwrap();
         let router = init_route(&opts).unwrap();
         let server = TestServer::new(router.into_make_service()).unwrap();
         let res = server.post("/").await;
@@ -394,9 +408,12 @@ mod tests {
     async fn serve() {
         let cli = Cli::parse_from(["lmb", "--json", "serve", "--file", "-"]);
         let script = "return 1";
-        let store_options = StoreOptions::default();
-        let mut opts = ServeOptions::new("", script, "", store_options);
-        opts.set_json(cli.json);
+        let store_options = StoreOptionsBuilder::default().build().unwrap();
+        let opts = ServeOptionsBuilder::new("", "", script)
+            .json(cli.json)
+            .store_options(store_options)
+            .build()
+            .unwrap();
         let router = init_route(&opts).unwrap();
         let server = TestServer::new(router.into_make_service()).unwrap();
         let res = server.post("/").await;
