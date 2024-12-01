@@ -5,7 +5,7 @@
 Lmb currently uses Luau from Roblox.
 
 ```lua
-assert('Luau 0.650' == _G._VERSION, 'expect ' .. _G._VERSION) -- Luau version
+assert('Luau 0.653' == _G._VERSION, 'expect ' .. _G._VERSION) -- Luau version
 ```
 
 Luau is a Lua 5.1 language with gradual typing and ergonomic additions.
