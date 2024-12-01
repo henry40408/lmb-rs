@@ -4,13 +4,13 @@ use clio::*;
 use comfy_table::{presets, Table};
 use cron::Schedule;
 use lmb::{
-    Error, EvaluationBuilder, LuaCheck, PrintOptions, ScheduleOptions, Store, StoreOptions,
-    DEFAULT_TIMEOUT, EXAMPLES, GUIDES,
+    Error, EvaluationBuilder, LuaCheck, PrintOptionsBuilder, ScheduleOptionsBuilder, Store,
+    StoreOptions, StoreOptionsBuilder, DEFAULT_TIMEOUT, EXAMPLES, GUIDES,
 };
 use mlua::prelude::*;
 use rayon::prelude::*;
 use serde_json::json;
-use serve::ServeOptions;
+use serve::ServeOptionsBuilder;
 use std::{
     fmt::Display,
     io::{self, Read},
@@ -231,9 +231,9 @@ fn read_script(input: &mut Input) -> anyhow::Result<(String, String)> {
 }
 
 fn prepare_store(options: &StoreOptions) -> anyhow::Result<Store> {
-    let store = if let Some(store_path) = options.store_path() {
-        let store = Store::new(store_path)?;
-        if options.run_migrations() {
+    let store = if let Some(store_path) = &options.store_path {
+        let store = Store::new(&store_path)?;
+        if options.run_migrations {
             store.migrate(None)?;
         }
         store
@@ -271,11 +271,14 @@ async fn try_main() -> anyhow::Result<()> {
         .compact()
         .init();
 
-    let mut print_options = PrintOptions::default();
-    print_options.set_no_color(cli.no_color);
-    print_options.set_theme(cli.theme);
-
-    let store_options = StoreOptions::new(cli.store_path, cli.run_migrations);
+    let print_options = PrintOptionsBuilder::default()
+        .no_color(cli.no_color)
+        .theme(cli.theme)
+        .build()?;
+    let store_options = StoreOptionsBuilder::default()
+        .store_path(cli.store_path)
+        .run_migrations(cli.run_migrations)
+        .build()?;
     match cli.command {
         Commands::Check { files } => files.into_par_iter().try_for_each(|mut file| {
             let (name, script) = read_script(&mut file)?;
@@ -289,15 +292,18 @@ async fn try_main() -> anyhow::Result<()> {
                     do_check_syntax(cli.no_color, &name, &script)?;
                 }
                 let e = EvaluationBuilder::new(&script, io::stdin())
-                    .name(&name)
-                    .store(store.clone())
+                    .name(Some(name))
+                    .store(Some(store.clone()))
                     .timeout(Some(Duration::from_secs(timeout)))
                     .build()?;
                 let mut buf = String::new();
                 match e.evaluate() {
-                    Ok(mut s) => {
-                        s.set_json(cli.json);
-                        s.write(&mut buf)?;
+                    Ok(s) => {
+                        if cli.json {
+                            s.write_json(&mut buf)?;
+                        } else {
+                            s.write(&mut buf)?;
+                        }
                         print!("{buf}");
                         Ok(())
                     }
@@ -327,14 +333,17 @@ async fn try_main() -> anyhow::Result<()> {
             let script = found.script().trim();
             let store = prepare_store(&store_options)?;
             let e = EvaluationBuilder::new(script, io::stdin())
-                .name(name.as_str())
-                .store(store)
+                .name(Some(name))
+                .store(Some(store))
                 .build()?;
             let mut buf = String::new();
             match e.evaluate() {
-                Ok(mut s) => {
-                    s.set_json(cli.json);
-                    s.write(&mut buf)?;
+                Ok(s) => {
+                    if cli.json {
+                        s.write_json(&mut buf)?;
+                    } else {
+                        s.write(&mut buf)?;
+                    }
                     print!("{buf}");
                     Ok(())
                 }
@@ -367,9 +376,11 @@ async fn try_main() -> anyhow::Result<()> {
                 do_check_syntax(cli.no_color, name.as_str(), found.script())?;
             }
             let timeout = timeout.map(Duration::from_secs);
-            let mut options = ServeOptions::new(name.as_str(), found.script(), bind, store_options);
-            options.set_json(cli.json);
-            options.set_timeout(timeout);
+            let options = ServeOptionsBuilder::new(bind, found.name(), found.script())
+                .json(cli.json)
+                .store_options(store_options)
+                .timeout(timeout)
+                .build()?;
             serve::serve_file(&options).await?;
             Ok(())
         }
@@ -405,17 +416,17 @@ async fn try_main() -> anyhow::Result<()> {
             initial_run,
         } => {
             let store = prepare_store(&store_options)?;
+            let schedule = Schedule::from_str(&cron)?;
             files.into_par_iter().try_for_each(|mut file| {
                 let (name, script) = read_script(&mut file)?;
-                let schedule = Schedule::from_str(&cron)?;
-
-                let mut options = ScheduleOptions::new(schedule);
-                options.set_bail(bail);
-                options.set_initial_run(initial_run);
-
+                let options = ScheduleOptionsBuilder::default()
+                    .bail(bail)
+                    .initial_run(initial_run)
+                    .schedule(schedule.clone())
+                    .build()?;
                 let e = EvaluationBuilder::new(script, io::stdin())
-                    .name(name)
-                    .store(store.clone())
+                    .name(Some(name))
+                    .store(Some(store.clone()))
                     .build()?;
                 e.schedule(&options);
                 Ok(())
@@ -431,17 +442,20 @@ async fn try_main() -> anyhow::Result<()> {
                 do_check_syntax(cli.no_color, &name, &script)?;
             }
             let timeout = timeout.map(Duration::from_secs);
-            let mut options = ServeOptions::new(name, script, bind, store_options);
-            options.set_timeout(timeout);
+            let options = ServeOptionsBuilder::new(bind, name, script)
+                .json(cli.json)
+                .store_options(store_options)
+                .timeout(timeout)
+                .build()?;
             serve::serve_file(&options).await?;
             Ok(())
         }
         Commands::Store(c) => {
-            let Some(store_path) = store_options.store_path() else {
+            let Some(store_path) = store_options.store_path else {
                 bail!("store_path is required");
             };
-            let store = Store::new(store_path)?;
-            if store_options.run_migrations() {
+            let store = Store::new(&store_path)?;
+            if store_options.run_migrations {
                 store.migrate(None)?;
             }
             match c {

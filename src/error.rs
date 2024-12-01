@@ -5,7 +5,7 @@ use lazy_regex::{lazy_regex, Lazy, Regex};
 use mlua::prelude::*;
 use thiserror::Error;
 
-use crate::{Evaluation, Result};
+use crate::{Evaluation, Result, SolutionBuilderError};
 
 static LUA_ERROR_REGEX: Lazy<Regex> = lazy_regex!(r"\[[^\]]+\]:(\d+):(.+)");
 
@@ -15,6 +15,9 @@ pub enum Error {
     /// Error from the [`bat`] library
     #[error("bat error: {0}")]
     Bat(#[from] bat::error::Error),
+    /// Error from solution builder
+    #[error("failed to build solution: {0}")]
+    BuildSolution(#[from] SolutionBuilderError),
     /// Error from the `SQLite` database
     #[error("sqlite error: {0}")]
     Database(#[from] rusqlite::Error),

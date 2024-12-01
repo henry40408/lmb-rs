@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use derive_builder::Builder;
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use rusqlite_migration::SchemaVersion;
@@ -16,30 +17,14 @@ use crate::{Result, MIGRATIONS};
 mod stmt;
 
 /// Store options for command line.
-#[derive(Debug, Default)]
+#[derive(Builder, Clone, Debug)]
 pub struct StoreOptions {
-    store_path: Option<PathBuf>,
-    run_migrations: bool,
-}
-
-impl StoreOptions {
-    /// Create a new instance of store options.
-    pub fn new(store_path: Option<PathBuf>, run_migrations: bool) -> Self {
-        Self {
-            store_path,
-            run_migrations,
-        }
-    }
-
-    /// Get store path.
-    pub fn store_path(&self) -> &Option<PathBuf> {
-        &self.store_path
-    }
-
-    /// Get the option indicating whether migrations should be run.
-    pub fn run_migrations(&self) -> bool {
-        self.run_migrations
-    }
+    /// Store path.
+    #[builder(default)]
+    pub store_path: Option<PathBuf>,
+    /// Run migrations.
+    #[builder(default)]
+    pub run_migrations: bool,
 }
 
 /// Store that persists data across executions.
@@ -462,7 +447,7 @@ mod tests {
             let store = store.clone();
             threads.push(thread::spawn(move || {
                 let e = EvaluationBuilder::new(script, empty())
-                    .store(store)
+                    .store(Some(store))
                     .build()
                     .unwrap();
                 e.evaluate().unwrap();
@@ -500,12 +485,12 @@ mod tests {
         store.put("a", &1.23.into()).unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
-            .store(store.clone())
+            .store(Some(store.clone()))
             .build()
             .unwrap();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(&json!(1.23), res.payload());
+        assert_eq!(json!(1.23), res.payload);
         assert_eq!(json!(4.56), store.get("a").unwrap());
         assert_eq!(json!(null), store.get("b").unwrap());
     }
@@ -554,19 +539,19 @@ mod tests {
         store.put("a", &1.into()).unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
-            .store(store.clone())
+            .store(Some(store.clone()))
             .build()
             .unwrap();
 
         {
             let res = e.evaluate().unwrap();
-            assert_eq!(&json!(1), res.payload());
+            assert_eq!(json!(1), res.payload);
             assert_eq!(json!(2), store.get("a").unwrap());
         }
 
         {
             let res = e.evaluate().unwrap();
-            assert_eq!(&json!(2), res.payload());
+            assert_eq!(json!(2), res.payload);
             assert_eq!(json!(3), store.get("a").unwrap());
         }
     }
@@ -584,12 +569,12 @@ mod tests {
         store.put("a", &1.into()).unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
-            .store(store.clone())
+            .store(Some(store.clone()))
             .build()
             .unwrap();
 
         let res = e.evaluate().unwrap();
-        assert_eq!(&json!([2]), res.payload());
+        assert_eq!(json!([2]), res.payload);
         assert_eq!(json!(2), store.get("a").unwrap());
     }
 
@@ -607,7 +592,7 @@ mod tests {
         store.put("a", &1.into()).unwrap();
 
         let e = EvaluationBuilder::new(script, empty())
-            .store(store.clone())
+            .store(Some(store.clone()))
             .build()
             .unwrap();
 
