@@ -449,7 +449,7 @@ mod tests {
                     .store(store)
                     .call()
                     .unwrap();
-                e.evaluate().unwrap();
+                e.evaluate().call().unwrap();
             }));
         }
         for t in threads {
@@ -488,7 +488,7 @@ mod tests {
             .call()
             .unwrap();
 
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!(1.23), res.payload);
         assert_eq!(json!(4.56), store.get("a").unwrap());
         assert_eq!(json!(null), store.get("b").unwrap());
@@ -543,13 +543,13 @@ mod tests {
             .unwrap();
 
         {
-            let res = e.evaluate().unwrap();
+            let res = e.evaluate().call().unwrap();
             assert_eq!(json!(1), res.payload);
             assert_eq!(json!(2), store.get("a").unwrap());
         }
 
         {
-            let res = e.evaluate().unwrap();
+            let res = e.evaluate().call().unwrap();
             assert_eq!(json!(2), res.payload);
             assert_eq!(json!(3), store.get("a").unwrap());
         }
@@ -572,7 +572,7 @@ mod tests {
             .call()
             .unwrap();
 
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!([2]), res.payload);
         assert_eq!(json!(2), store.get("a").unwrap());
     }
@@ -595,7 +595,7 @@ mod tests {
             .call()
             .unwrap();
 
-        let res = e.evaluate();
+        let res = e.evaluate().call();
         assert!(res.is_err());
 
         assert_eq!(json!(1), store.get("a").unwrap());

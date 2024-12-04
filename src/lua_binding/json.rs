@@ -29,7 +29,7 @@ mod tests {
         return m:decode('{"bool":true,"num":2,"str":"hello"}')
         "#;
         let e = build_evaluation(script, empty()).call().unwrap();
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         let expected = json!({ "bool": true, "num": 2, "str": "hello" });
         assert_eq!(expected, res.payload);
     }
@@ -41,7 +41,7 @@ mod tests {
         return m:encode({ bool = true, num = 2, str = 'hello' })
         "#;
         let e = build_evaluation(script, empty()).call().unwrap();
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         let actual: Value = serde_json::from_str(res.payload.as_str().unwrap()).unwrap();
         assert_eq!(json!({"bool":true,"num":2,"str":"hello"}), actual);
     }
@@ -54,7 +54,7 @@ mod tests {
         return m:encode(m:decode('{"a":[{}]}'))
         "#;
         let e = build_evaluation(script, empty()).call().unwrap();
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         let actual: Value = serde_json::from_str(res.payload.as_str().unwrap()).unwrap();
         assert_eq!(json!({"a":[{}]}), actual);
     }

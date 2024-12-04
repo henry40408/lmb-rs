@@ -110,7 +110,7 @@ mod tests {
     fn write_error() {
         let script = "return nil+1";
         let e = build_evaluation(script, empty()).call().unwrap();
-        let Err(err) = e.evaluate() else {
+        let Err(err) = e.evaluate().call() else {
             panic!("expect error");
         };
         let mut buf = String::new();

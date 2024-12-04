@@ -4,7 +4,7 @@ use bat::{
     input::Input as BatInput,
     style::{StyleComponent, StyleComponents},
 };
-use bon::{builder, Builder};
+use bon::{bon, builder, Builder};
 use chrono::Utc;
 use console::Term;
 use mlua::{prelude::*, Compiler};
@@ -41,28 +41,27 @@ where
     pub payload: Value,
 }
 
+#[bon]
 impl<R> Solution<R>
 where
     for<'lua> R: 'lua + Read,
 {
     /// Render the solution.
-    pub fn write<W>(&self, mut f: W) -> Result<()>
+    #[builder]
+    pub fn write<W>(&self, #[builder(start_fn)] mut f: W, json: Option<bool>) -> Result<()>
     where
         W: Write,
     {
-        match &self.payload {
-            Value::String(s) => Ok(write!(f, "{}", s)?),
-            _ => Ok(write!(f, "{}", self.payload)?),
+        let json = json.unwrap_or_else(|| false);
+        if json {
+            let res = serde_json::to_string(&self.payload)?;
+            Ok(write!(f, "{}", res)?)
+        } else {
+            match &self.payload {
+                Value::String(s) => Ok(write!(f, "{}", s)?),
+                _ => Ok(write!(f, "{}", self.payload)?),
+            }
         }
-    }
-
-    /// Render the solution in JSON.
-    pub fn write_json<W>(&self, mut f: W) -> Result<()>
-    where
-        W: Write,
-    {
-        let res = serde_json::to_string(&self.payload)?;
-        Ok(write!(f, "{}", res)?)
     }
 }
 
@@ -88,28 +87,11 @@ where
     vm: Lua,
 }
 
+#[bon]
 impl<R> Evaluation<R>
 where
     for<'lua> R: 'lua + Read + Send,
 {
-    /// Evaluate the function and return a [`crate::Solution`] as result.
-    ///
-    /// ```rust
-    /// # use std::io::empty;
-    /// # use serde_json::json;
-    /// use lmb::*;
-    ///
-    /// # fn main() -> Result<()> {
-    /// let e = build_evaluation("return 1+1", empty()).call().unwrap();
-    /// let res = e.evaluate()?;
-    /// assert_eq!(json!(2), res.payload);
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn evaluate(self: &Arc<Self>) -> Result<Solution<R>> {
-        self.do_evaluate(None)
-    }
-
     /// Evaluate the function with a state.
     ///
     /// ```rust
@@ -121,13 +103,57 @@ where
     /// let e = build_evaluation("return 1+1", empty()).call().unwrap();
     /// let state = Arc::new(State::new());
     /// state.insert(StateKey::from("bool"), true.into());
-    /// let res = e.evaluate_with_state(state)?;
+    /// let res = e.evaluate().state(state).call()?;
     /// assert_eq!(json!(2), res.payload);
     /// # Ok(())
     /// # }
     /// ```
-    pub fn evaluate_with_state(self: &Arc<Self>, state: Arc<State>) -> Result<Solution<R>> {
-        self.do_evaluate(Some(state))
+    #[builder]
+    pub fn evaluate(self: &Arc<Self>, state: Option<Arc<State>>) -> Result<Solution<R>> {
+        if state.is_some() {
+            bind_vm(&self.vm)
+                .input(self.input.clone())
+                .maybe_store(self.store.clone())
+                .maybe_state(state)
+                .call()?;
+        }
+
+        let timeout = self.timeout.unwrap_or_else(|| DEFAULT_TIMEOUT);
+        let max_memory = Arc::new(AtomicUsize::new(0));
+
+        let start = Instant::now();
+        self.vm.set_interrupt({
+            let max_memory = Arc::clone(&max_memory);
+            move |vm| {
+                let used_memory = vm.used_memory();
+                max_memory.fetch_max(used_memory, Ordering::Relaxed);
+                if start.elapsed() > timeout {
+                    vm.remove_interrupt();
+                    return Err(mlua::Error::runtime("timeout"));
+                }
+                Ok(LuaVmState::Continue)
+            }
+        });
+
+        let script_name = &self.name;
+        let chunk = self.vm.load(&self.compiled);
+        let chunk = match &self.name {
+            Some(name) => chunk.set_name(name),
+            None => chunk,
+        };
+
+        let _s = trace_span!("evaluate").entered();
+        let result = self.vm.from_value(chunk.eval()?)?;
+
+        let duration = start.elapsed();
+        let max_memory = max_memory.load(Ordering::Acquire);
+        debug!(?duration, ?script_name, ?max_memory, "script evaluated");
+        let solution = Solution::builder(self.clone())
+            .duration(duration)
+            .max_memory_usage(max_memory)
+            .payload(result)
+            .build();
+        Ok(solution)
     }
 
     /// Get the name
@@ -151,7 +177,7 @@ where
                 debug!(%next, "next run");
                 let elapsed = next - now;
                 thread::sleep(elapsed.to_std().expect("failed to fetch next schedule"));
-                if let Err(err) = self.clone().evaluate() {
+                if let Err(err) = self.clone().evaluate().call() {
                     warn!(?err, "failed to evaluate");
                     if bail > 0 {
                         debug!(bail, error_count, "check bail threshold");
@@ -216,53 +242,6 @@ where
         let controller = Controller::new(&config, &assets);
         Ok(controller.run(inputs, Some(&mut f))?)
     }
-
-    fn do_evaluate(self: &Arc<Self>, state: Option<Arc<State>>) -> Result<Solution<R>> {
-        if state.is_some() {
-            bind_vm(&self.vm)
-                .input(self.input.clone())
-                .maybe_store(self.store.clone())
-                .maybe_state(state)
-                .call()?;
-        }
-
-        let timeout = self.timeout.unwrap_or_else(|| DEFAULT_TIMEOUT);
-        let max_memory = Arc::new(AtomicUsize::new(0));
-
-        let start = Instant::now();
-        self.vm.set_interrupt({
-            let max_memory = Arc::clone(&max_memory);
-            move |vm| {
-                let used_memory = vm.used_memory();
-                max_memory.fetch_max(used_memory, Ordering::Relaxed);
-                if start.elapsed() > timeout {
-                    vm.remove_interrupt();
-                    return Err(mlua::Error::runtime("timeout"));
-                }
-                Ok(LuaVmState::Continue)
-            }
-        });
-
-        let script_name = &self.name;
-        let chunk = self.vm.load(&self.compiled);
-        let chunk = match &self.name {
-            Some(name) => chunk.set_name(name),
-            None => chunk,
-        };
-
-        let _s = trace_span!("evaluate").entered();
-        let result = self.vm.from_value(chunk.eval()?)?;
-
-        let duration = start.elapsed();
-        let max_memory = max_memory.load(Ordering::Acquire);
-        debug!(?duration, ?script_name, ?max_memory, "script evaluated");
-        let solution = Solution::builder(self.clone())
-            .duration(duration)
-            .max_memory_usage(max_memory)
-            .payload(result)
-            .build();
-        Ok(solution)
-    }
 }
 
 /// Build evaluation.
@@ -319,7 +298,7 @@ mod tests {
     fn error_in_script(path: &str) {
         let script = fs::read_to_string(path).unwrap();
         let e = build_evaluation(script, empty()).call().unwrap();
-        assert!(e.evaluate().is_err());
+        assert!(e.evaluate().call().is_err());
     }
 
     #[test_case("algebra.lua", "2", 4.into())]
@@ -336,7 +315,7 @@ mod tests {
             .store(store)
             .call()
             .unwrap();
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(expected, res.payload);
     }
 
@@ -348,7 +327,7 @@ mod tests {
             .timeout(timeout)
             .call()
             .unwrap();
-        let res = e.evaluate();
+        let res = e.evaluate().call();
         assert!(res.is_err());
 
         let elapsed = timer.elapsed().as_millis();
@@ -360,7 +339,7 @@ mod tests {
     #[test_case("return require('@lmb')._VERSION", json!(env!("APP_VERSION")))]
     fn evaluate_scripts(script: &str, expected: Value) {
         let e = build_evaluation(script, empty()).call().unwrap();
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(expected, res.payload);
     }
 
@@ -370,10 +349,10 @@ mod tests {
         let script = "return io.read('*l')";
         let e = build_evaluation(script, input.as_bytes()).call().unwrap();
 
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!("foo"), res.payload);
 
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!("bar"), res.payload);
     }
 
@@ -382,12 +361,12 @@ mod tests {
         let script = "return io.read('*a')";
         let e = build_evaluation(script, &b"0"[..]).call().unwrap();
 
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!("0"), res.payload);
 
         e.set_input(&b"1"[..]);
 
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!("1"), res.payload);
     }
 
@@ -406,12 +385,12 @@ mod tests {
         let state = Arc::new(State::new());
         state.insert(StateKey::Request, 1.into());
         {
-            let res = e.evaluate_with_state(state.clone()).unwrap();
+            let res = e.evaluate().state(state.clone()).call().unwrap();
             assert_eq!(json!(1), res.payload);
         }
         state.insert(StateKey::Request, 2.into());
         {
-            let res = e.evaluate_with_state(state.clone()).unwrap();
+            let res = e.evaluate().state(state.clone()).call().unwrap();
             assert_eq!(json!(2), res.payload);
         }
     }
@@ -420,9 +399,9 @@ mod tests {
     fn write_solution() {
         let script = "return 1+1";
         let e = build_evaluation(script, empty()).call().unwrap();
-        let solution = e.evaluate().unwrap();
+        let solution = e.evaluate().call().unwrap();
         let mut buf = String::new();
-        solution.write(&mut buf).unwrap();
+        solution.write(&mut buf).call().unwrap();
         assert_eq!("2", buf);
     }
 }

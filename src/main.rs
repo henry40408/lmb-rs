@@ -298,13 +298,9 @@ async fn try_main() -> anyhow::Result<()> {
                     .timeout(Duration::from_secs(timeout))
                     .call()?;
                 let mut buf = String::new();
-                match e.evaluate() {
+                match e.evaluate().call() {
                     Ok(s) => {
-                        if cli.json {
-                            s.write_json(&mut buf)?;
-                        } else {
-                            s.write(&mut buf)?;
-                        }
+                        s.write(&mut buf).json(cli.json).call()?;
                         print!("{buf}");
                         Ok(())
                     }
@@ -338,13 +334,9 @@ async fn try_main() -> anyhow::Result<()> {
                 .store(store)
                 .call()?;
             let mut buf = String::new();
-            match e.evaluate() {
+            match e.evaluate().call() {
                 Ok(s) => {
-                    if cli.json {
-                        s.write_json(&mut buf)?;
-                    } else {
-                        s.write(&mut buf)?;
-                    }
+                    s.write(&mut buf).json(cli.json).call()?;
                     print!("{buf}");
                     Ok(())
                 }

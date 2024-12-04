@@ -11,7 +11,7 @@ static SCRIPT: &str = "return true";
 
 fn lmb_evaluate(bencher: &mut Bencher) {
     let e = build_evaluation(SCRIPT, empty()).call().unwrap();
-    bencher.iter(|| e.evaluate().unwrap());
+    bencher.iter(|| e.evaluate().call().unwrap());
 }
 
 fn mlua_call(bencher: &mut Bencher) {
@@ -36,7 +36,7 @@ fn mlua_sandbox_eval(bencher: &mut Bencher) {
 
 fn lmb_no_store(bencher: &mut Bencher) {
     let e = build_evaluation(SCRIPT, empty()).call().unwrap();
-    bencher.iter(|| e.evaluate().unwrap());
+    bencher.iter(|| e.evaluate().call().unwrap());
 }
 
 fn lmb_default_store(bencher: &mut Bencher) {
@@ -45,7 +45,7 @@ fn lmb_default_store(bencher: &mut Bencher) {
         .store(store)
         .call()
         .unwrap();
-    bencher.iter(|| e.evaluate().unwrap());
+    bencher.iter(|| e.evaluate().call().unwrap());
 }
 
 fn lmb_update(bencher: &mut Bencher) {
@@ -60,7 +60,7 @@ fn lmb_update(bencher: &mut Bencher) {
         .store(store)
         .call()
         .unwrap();
-    bencher.iter(|| e.evaluate().unwrap());
+    bencher.iter(|| e.evaluate().call().unwrap());
 }
 
 /// read
@@ -71,7 +71,7 @@ fn lmb_read_all(bencher: &mut Bencher) {
     let e = build_evaluation(script, input.as_bytes()).call().unwrap();
     bencher.iter(|| {
         e.set_input(&b"0"[..]);
-        e.evaluate().unwrap()
+        e.evaluate().call().unwrap()
     });
 }
 
@@ -81,7 +81,7 @@ fn lmb_read_line(bencher: &mut Bencher) {
     let e = build_evaluation(script, input.as_bytes()).call().unwrap();
     bencher.iter(|| {
         e.set_input(&b"0"[..]);
-        e.evaluate().unwrap()
+        e.evaluate().call().unwrap()
     });
 }
 
@@ -91,7 +91,7 @@ fn lmb_read_number(bencher: &mut Bencher) {
     let e = build_evaluation(script, input.as_bytes()).call().unwrap();
     bencher.iter(|| {
         e.set_input(&b"0"[..]);
-        e.evaluate().unwrap()
+        e.evaluate().call().unwrap()
     });
 }
 
@@ -101,7 +101,7 @@ fn lmb_read_unicode(bencher: &mut Bencher) {
     let e = build_evaluation(script, input.as_bytes()).call().unwrap();
     bencher.iter(|| {
         e.set_input(&b"0"[..]);
-        e.evaluate().unwrap()
+        e.evaluate().call().unwrap()
     });
 }
 

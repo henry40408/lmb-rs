@@ -83,7 +83,7 @@ where
     eval_state.insert(StateKey::Request, request_map.into());
 
     let e = Arc::new(e);
-    let res = e.evaluate_with_state(eval_state.clone());
+    let res = e.evaluate().state(eval_state.clone()).call();
     match res {
         Ok(res) => match build_response(state.json, eval_state, &res.payload) {
             Ok(t) => t,

@@ -208,7 +208,7 @@ mod tests {
         return t
         "#;
         let e = build_evaluation(script, input).call().unwrap();
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!([1, 2, 3]), res.payload);
     }
 
@@ -219,7 +219,7 @@ mod tests {
     #[test_case("assert(not io.read(1))")]
     fn read_empty(script: &'static str) {
         let e = build_evaluation(script, empty()).call().unwrap();
-        let _ = e.evaluate().unwrap();
+        let _ = e.evaluate().call().unwrap();
     }
 
     #[test_case("1", 1.into())]
@@ -231,7 +231,7 @@ mod tests {
     fn read_number(input: &'static str, expected: Value) {
         let script = "return io.read('*n')";
         let e = build_evaluation(script, input.as_bytes()).call().unwrap();
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(expected, res.payload);
     }
 
@@ -243,7 +243,7 @@ mod tests {
     fn read_string(script: &str, expected: Value) {
         let input = "foo\nbar";
         let e = build_evaluation(script, input.as_bytes()).call().unwrap();
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(expected, res.payload);
     }
 
@@ -254,7 +254,7 @@ mod tests {
         let script = format!("return require('@lmb'):read_unicode({n})");
         let input = "你好";
         let e = build_evaluation(script, input.as_bytes()).call().unwrap();
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!(expected), res.payload);
     }
 
@@ -265,13 +265,13 @@ mod tests {
 
         let e = build_evaluation(script, input.as_bytes()).call().unwrap();
 
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!("你"), res.payload);
 
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!("好"), res.payload);
 
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!(null), res.payload);
     }
 
@@ -281,7 +281,7 @@ mod tests {
     fn read_unicode_format(input: &'static str, f: &str, expected: &str) {
         let script = format!(r#"return require('@lmb'):read_unicode('{f}')"#);
         let e = build_evaluation(script, input.as_bytes()).call().unwrap();
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!(expected.to_string()), res.payload);
     }
 
@@ -291,7 +291,7 @@ mod tests {
         let input: &[u8] = &[0xf0, 0x28, 0x8c, 0xbc];
         let script = "return require('@lmb'):read_unicode(1)";
         let e = build_evaluation(script, input).call().unwrap();
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!(null), res.payload);
     }
 
@@ -301,7 +301,7 @@ mod tests {
         let input = r#"{"key":"你好"}"#;
         let script = "return require('@lmb'):read_unicode(12)";
         let e = build_evaluation(script, input.as_bytes()).call().unwrap();
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!(input), res.payload);
     }
 
@@ -312,7 +312,7 @@ mod tests {
         let input = "ab";
         let script = format!("return require('@lmb'):read_unicode({n})");
         let e = build_evaluation(script, input.as_bytes()).call().unwrap();
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!(expected), res.payload);
     }
 
@@ -320,12 +320,12 @@ mod tests {
     fn write() {
         let script = "io.write('l', 'a', 'm'); return nil";
         let e = build_evaluation(script, empty()).call().unwrap();
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!(null), res.payload);
 
         let script = "io.stderr:write('err', 'or'); return nil";
         let e = build_evaluation(script, empty()).call().unwrap();
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!(null), res.payload);
     }
 }

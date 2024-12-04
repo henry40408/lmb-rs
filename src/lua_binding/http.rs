@@ -163,7 +163,7 @@ mod tests {
             "#
         );
         let e = build_evaluation(script, empty()).call().unwrap();
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!(body), res.payload);
 
         get_mock.assert();
@@ -190,7 +190,7 @@ mod tests {
             "#
         );
         let e = build_evaluation(script, empty()).call().unwrap();
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!(body), res.payload);
 
         get_mock.assert();
@@ -216,7 +216,7 @@ mod tests {
             "#
         );
         let e = build_evaluation(script, empty()).call().unwrap();
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!(body), res.payload);
 
         get_mock.assert();
@@ -242,7 +242,7 @@ mod tests {
             "#
         );
         let e = build_evaluation(script, empty()).call().unwrap();
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!({ "a": 1 }), res.payload);
 
         get_mock.assert();
@@ -271,7 +271,7 @@ mod tests {
             "#
         );
         let e = build_evaluation(script, empty()).call().unwrap();
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!("2"), res.payload);
 
         post_mock.assert();

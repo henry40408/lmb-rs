@@ -156,7 +156,7 @@ mod tests {
                 .store(store)
                 .call()
                 .unwrap();
-            e.evaluate().unwrap();
+            e.evaluate().call().unwrap();
         }
 
         post_mock.assert();
