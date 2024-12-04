@@ -5,7 +5,7 @@ use lazy_regex::{lazy_regex, Lazy, Regex};
 use mlua::prelude::*;
 use thiserror::Error;
 
-use crate::{Evaluation, Result, SolutionBuilderError};
+use crate::{Evaluation, Result};
 
 static LUA_ERROR_REGEX: Lazy<Regex> = lazy_regex!(r"\[[^\]]+\]:(\d+):(.+)");
 
@@ -15,9 +15,6 @@ pub enum Error {
     /// Error from the [`bat`] library
     #[error("bat error: {0}")]
     Bat(#[from] bat::error::Error),
-    /// Error from solution builder
-    #[error("failed to build solution: {0}")]
-    BuildSolution(#[from] SolutionBuilderError),
     /// Error from the `SQLite` database
     #[error("sqlite error: {0}")]
     Database(#[from] rusqlite::Error),
@@ -107,13 +104,13 @@ impl Error {
 mod tests {
     use std::io::empty;
 
-    use crate::EvaluationBuilder;
+    use crate::build_evaluation;
 
     #[test]
     fn write_error() {
         let script = "return nil+1";
-        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
-        let Err(err) = e.evaluate() else {
+        let e = build_evaluation(script, empty()).call().unwrap();
+        let Err(err) = e.evaluate().call() else {
             panic!("expect error");
         };
         let mut buf = String::new();

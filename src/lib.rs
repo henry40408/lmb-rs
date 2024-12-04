@@ -2,8 +2,8 @@
 
 //! A Lua function runner.
 
+use bon::Builder;
 use dashmap::DashMap;
-use derive_builder::Builder;
 use include_dir::{include_dir, Dir};
 use parking_lot::Mutex;
 use rusqlite_migration::Migrations;
@@ -79,16 +79,14 @@ pub type State = DashMap<StateKey, serde_json::Value>;
 #[derive(Builder, Debug)]
 pub struct PrintOptions {
     /// Disable colors [`https://no-colors.org`].
-    #[builder(default)]
     no_color: bool,
     /// Theme.
-    #[builder(default)]
     theme: Option<String>,
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{EvaluationBuilder, StateKey, Store, MIGRATIONS};
+    use crate::{build_evaluation, StateKey, Store, MIGRATIONS};
     use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
     use serde_json::json;
     use std::io::empty;
@@ -154,11 +152,11 @@ mod tests {
         for block in blocks {
             let block = block.replace("https://httpbin.org", &server.url());
             let store = Store::default();
-            let e = EvaluationBuilder::new(&block, empty())
-                .store(Some(store))
-                .build()
+            let e = build_evaluation(&block, empty())
+                .store(store)
+                .call()
                 .unwrap();
-            e.evaluate().unwrap();
+            e.evaluate().call().unwrap();
         }
 
         post_mock.assert();

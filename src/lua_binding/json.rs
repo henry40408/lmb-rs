@@ -17,9 +17,10 @@ impl LuaUserData for LuaModJSON {
 
 #[cfg(test)]
 mod tests {
-    use crate::EvaluationBuilder;
     use serde_json::{json, Value};
     use std::io::empty;
+
+    use crate::build_evaluation;
 
     #[test]
     fn json_decode() {
@@ -27,8 +28,8 @@ mod tests {
         local m = require('@lmb/json');
         return m:decode('{"bool":true,"num":2,"str":"hello"}')
         "#;
-        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
-        let res = e.evaluate().unwrap();
+        let e = build_evaluation(script, empty()).call().unwrap();
+        let res = e.evaluate().call().unwrap();
         let expected = json!({ "bool": true, "num": 2, "str": "hello" });
         assert_eq!(expected, res.payload);
     }
@@ -39,8 +40,8 @@ mod tests {
         local m = require('@lmb/json');
         return m:encode({ bool = true, num = 2, str = 'hello' })
         "#;
-        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
-        let res = e.evaluate().unwrap();
+        let e = build_evaluation(script, empty()).call().unwrap();
+        let res = e.evaluate().call().unwrap();
         let actual: Value = serde_json::from_str(res.payload.as_str().unwrap()).unwrap();
         assert_eq!(json!({"bool":true,"num":2,"str":"hello"}), actual);
     }
@@ -52,8 +53,8 @@ mod tests {
         local m = require('@lmb/json');
         return m:encode(m:decode('{"a":[{}]}'))
         "#;
-        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
-        let res = e.evaluate().unwrap();
+        let e = build_evaluation(script, empty()).call().unwrap();
+        let res = e.evaluate().call().unwrap();
         let actual: Value = serde_json::from_str(res.payload.as_str().unwrap()).unwrap();
         assert_eq!(json!({"a":[{}]}), actual);
     }

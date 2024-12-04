@@ -1,5 +1,5 @@
+use bon::Builder;
 use chrono::{DateTime, Utc};
-use derive_builder::Builder;
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use rusqlite_migration::SchemaVersion;
@@ -20,7 +20,6 @@ mod stmt;
 #[derive(Builder, Clone, Debug)]
 pub struct StoreOptions {
     /// Store path.
-    #[builder(default)]
     pub store_path: Option<PathBuf>,
     /// Run migrations.
     #[builder(default)]
@@ -429,7 +428,7 @@ mod tests {
     use std::{io::empty, thread};
     use test_case::test_case;
 
-    use crate::{EvaluationBuilder, Store};
+    use crate::{build_evaluation, Store};
 
     #[test]
     fn concurrency() {
@@ -446,11 +445,11 @@ mod tests {
         for _ in 0..=1000 {
             let store = store.clone();
             threads.push(thread::spawn(move || {
-                let e = EvaluationBuilder::new(script, empty())
-                    .store(Some(store))
-                    .build()
+                let e = build_evaluation(script, empty())
+                    .store(store)
+                    .call()
                     .unwrap();
-                e.evaluate().unwrap();
+                e.evaluate().call().unwrap();
             }));
         }
         for t in threads {
@@ -484,12 +483,12 @@ mod tests {
         let store = Store::default();
         store.put("a", &1.23.into()).unwrap();
 
-        let e = EvaluationBuilder::new(script, empty())
-            .store(Some(store.clone()))
-            .build()
+        let e = build_evaluation(script, empty())
+            .store(store.clone())
+            .call()
             .unwrap();
 
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!(1.23), res.payload);
         assert_eq!(json!(4.56), store.get("a").unwrap());
         assert_eq!(json!(null), store.get("b").unwrap());
@@ -538,19 +537,19 @@ mod tests {
         let store = Store::default();
         store.put("a", &1.into()).unwrap();
 
-        let e = EvaluationBuilder::new(script, empty())
-            .store(Some(store.clone()))
-            .build()
+        let e = build_evaluation(script, empty())
+            .store(store.clone())
+            .call()
             .unwrap();
 
         {
-            let res = e.evaluate().unwrap();
+            let res = e.evaluate().call().unwrap();
             assert_eq!(json!(1), res.payload);
             assert_eq!(json!(2), store.get("a").unwrap());
         }
 
         {
-            let res = e.evaluate().unwrap();
+            let res = e.evaluate().call().unwrap();
             assert_eq!(json!(2), res.payload);
             assert_eq!(json!(3), store.get("a").unwrap());
         }
@@ -568,12 +567,12 @@ mod tests {
         let store = Store::default();
         store.put("a", &1.into()).unwrap();
 
-        let e = EvaluationBuilder::new(script, empty())
-            .store(Some(store.clone()))
-            .build()
+        let e = build_evaluation(script, empty())
+            .store(store.clone())
+            .call()
             .unwrap();
 
-        let res = e.evaluate().unwrap();
+        let res = e.evaluate().call().unwrap();
         assert_eq!(json!([2]), res.payload);
         assert_eq!(json!(2), store.get("a").unwrap());
     }
@@ -591,12 +590,12 @@ mod tests {
         let store = Store::default();
         store.put("a", &1.into()).unwrap();
 
-        let e = EvaluationBuilder::new(script, empty())
-            .store(Some(store.clone()))
-            .build()
+        let e = build_evaluation(script, empty())
+            .store(store.clone())
+            .call()
             .unwrap();
 
-        let res = e.evaluate();
+        let res = e.evaluate().call();
         assert!(res.is_err());
 
         assert_eq!(json!(1), store.get("a").unwrap());

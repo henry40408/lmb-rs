@@ -4,16 +4,17 @@ use clio::*;
 use comfy_table::{presets, Table};
 use cron::Schedule;
 use lmb::{
-    Error, EvaluationBuilder, LuaCheck, PrintOptionsBuilder, ScheduleOptionsBuilder, Store,
-    StoreOptions, StoreOptionsBuilder, DEFAULT_TIMEOUT, EXAMPLES, GUIDES,
+    build_evaluation, Error, LuaCheck, PrintOptions, ScheduleOptions, Store, StoreOptions,
+    DEFAULT_TIMEOUT, EXAMPLES, GUIDES,
 };
 use mlua::prelude::*;
 use rayon::prelude::*;
 use serde_json::json;
-use serve::ServeOptionsBuilder;
+use serve::ServeOptions;
 use std::{
     fmt::Display,
     io::{self, Read},
+    net::SocketAddr,
     path::PathBuf,
     process::ExitCode,
     str::FromStr,
@@ -271,14 +272,14 @@ async fn try_main() -> anyhow::Result<()> {
         .compact()
         .init();
 
-    let print_options = PrintOptionsBuilder::default()
+    let print_options = PrintOptions::builder()
         .no_color(cli.no_color)
-        .theme(cli.theme)
-        .build()?;
-    let store_options = StoreOptionsBuilder::default()
-        .store_path(cli.store_path)
+        .maybe_theme(cli.theme)
+        .build();
+    let store_options = StoreOptions::builder()
+        .maybe_store_path(cli.store_path)
         .run_migrations(cli.run_migrations)
-        .build()?;
+        .build();
     match cli.command {
         Commands::Check { files } => files.into_par_iter().try_for_each(|mut file| {
             let (name, script) = read_script(&mut file)?;
@@ -291,19 +292,15 @@ async fn try_main() -> anyhow::Result<()> {
                 if cli.check_syntax {
                     do_check_syntax(cli.no_color, &name, &script)?;
                 }
-                let e = EvaluationBuilder::new(&script, io::stdin())
-                    .name(Some(name))
-                    .store(Some(store.clone()))
-                    .timeout(Some(Duration::from_secs(timeout)))
-                    .build()?;
+                let e = build_evaluation(&script, io::stdin())
+                    .name(name)
+                    .store(store.clone())
+                    .timeout(Duration::from_secs(timeout))
+                    .call()?;
                 let mut buf = String::new();
-                match e.evaluate() {
+                match e.evaluate().call() {
                     Ok(s) => {
-                        if cli.json {
-                            s.write_json(&mut buf)?;
-                        } else {
-                            s.write(&mut buf)?;
-                        }
+                        s.write(&mut buf).json(cli.json).call()?;
                         print!("{buf}");
                         Ok(())
                     }
@@ -321,7 +318,7 @@ async fn try_main() -> anyhow::Result<()> {
             };
             let script = found.script().trim();
             let mut buf = String::new();
-            let e = EvaluationBuilder::new(script, io::stdin()).build()?;
+            let e = build_evaluation(script, io::stdin()).call()?;
             e.write_script(&mut buf, &print_options)?;
             println!("{buf}");
             Ok(())
@@ -332,18 +329,14 @@ async fn try_main() -> anyhow::Result<()> {
             };
             let script = found.script().trim();
             let store = prepare_store(&store_options)?;
-            let e = EvaluationBuilder::new(script, io::stdin())
-                .name(Some(name))
-                .store(Some(store))
-                .build()?;
+            let e = build_evaluation(script, io::stdin())
+                .name(name)
+                .store(store)
+                .call()?;
             let mut buf = String::new();
-            match e.evaluate() {
+            match e.evaluate().call() {
                 Ok(s) => {
-                    if cli.json {
-                        s.write_json(&mut buf)?;
-                    } else {
-                        s.write(&mut buf)?;
-                    }
+                    s.write(&mut buf).json(cli.json).call()?;
                     print!("{buf}");
                     Ok(())
                 }
@@ -375,12 +368,13 @@ async fn try_main() -> anyhow::Result<()> {
             if cli.check_syntax {
                 do_check_syntax(cli.no_color, name.as_str(), found.script())?;
             }
+            let bind = bind.parse::<SocketAddr>()?;
             let timeout = timeout.map(Duration::from_secs);
-            let options = ServeOptionsBuilder::new(bind, found.name(), found.script())
+            let options = ServeOptions::builder(bind, found.name(), found.script())
                 .json(cli.json)
                 .store_options(store_options)
-                .timeout(timeout)
-                .build()?;
+                .maybe_timeout(timeout)
+                .build();
             serve::serve_file(&options).await?;
             Ok(())
         }
@@ -419,15 +413,15 @@ async fn try_main() -> anyhow::Result<()> {
             let schedule = Schedule::from_str(&cron)?;
             files.into_par_iter().try_for_each(|mut file| {
                 let (name, script) = read_script(&mut file)?;
-                let options = ScheduleOptionsBuilder::default()
+                let options = ScheduleOptions::builder()
                     .bail(bail)
                     .initial_run(initial_run)
                     .schedule(schedule.clone())
-                    .build()?;
-                let e = EvaluationBuilder::new(script, io::stdin())
-                    .name(Some(name))
-                    .store(Some(store.clone()))
-                    .build()?;
+                    .build();
+                let e = build_evaluation(script, io::stdin())
+                    .name(name)
+                    .store(store.clone())
+                    .call()?;
                 e.schedule(&options);
                 Ok(())
             })
@@ -442,11 +436,12 @@ async fn try_main() -> anyhow::Result<()> {
                 do_check_syntax(cli.no_color, &name, &script)?;
             }
             let timeout = timeout.map(Duration::from_secs);
-            let options = ServeOptionsBuilder::new(bind, name, script)
+            let bind = bind.parse::<SocketAddr>()?;
+            let options = ServeOptions::builder(bind, name, script)
                 .json(cli.json)
                 .store_options(store_options)
-                .timeout(timeout)
-                .build()?;
+                .maybe_timeout(timeout)
+                .build();
             serve::serve_file(&options).await?;
             Ok(())
         }
