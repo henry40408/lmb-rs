@@ -1,3 +1,4 @@
+use bon::{builder, Builder};
 use mlua::prelude::*;
 use serde_json::Value;
 use std::{
@@ -21,7 +22,7 @@ mod read;
 const K_LOADED: &str = "_LOADED";
 
 /// Interface between Lua and Rust.
-#[derive(Debug)]
+#[derive(Builder, Debug)]
 pub struct LuaBinding<R>
 where
     R: Read,
@@ -31,79 +32,52 @@ where
     store: Option<Store>,
 }
 
-impl<R> LuaBinding<R>
+/// Bind Lua interface to Lua VM.
+#[builder]
+pub fn bind_vm<R>(
+    #[builder(start_fn)] vm: &Lua,
+    input: Input<R>,
+    store: Option<Store>,
+    state: Option<Arc<State>>,
+) -> Result<()>
 where
     for<'lua> R: 'lua + Read + Send,
 {
-    /// Create a new instance of interface with input [`Input`] and store [`Store`].
-    ///
-    /// <div class="warning">Export for benchmarking, but end-user should not directly use it.</div>
-    ///
-    /// ```rust
-    /// # use std::{io::{Cursor, BufReader}, sync::Arc};
-    /// # use parking_lot::Mutex;
-    /// use lmb::*;
-    /// let input = Arc::new(Mutex::new(BufReader::new(Cursor::new("0"))));
-    /// let store = Store::default();
-    /// let _ = LuaBinding::new(input, Some(store), None);
-    /// ```
-    pub fn new(input: Input<R>, store: Option<Store>, state: Option<Arc<State>>) -> Self {
-        Self {
-            input,
-            state,
-            store,
+    let io_table = vm.create_table()?;
+
+    let read_fn = vm.create_function({
+        let input = input.clone();
+        move |vm, f: Option<LuaValue>| lua_lmb_read(vm, &input, f)
+    })?;
+    io_table.set("read", read_fn)?;
+
+    io_table.set("stderr", LuaStderr {})?;
+
+    let write_fn = vm.create_function(|_, vs: LuaMultiValue| {
+        let mut locked = stdout().lock();
+        for v in vs.into_vec() {
+            write!(locked, "{}", v.to_string()?)?;
         }
-    }
-
-    /// Register the interface to a Lua virtual machine.
-    ///
-    /// ```rust
-    /// # use std::{io::{Cursor, BufReader}, sync::Arc};
-    /// # use mlua::prelude::*;
-    /// # use parking_lot::Mutex;
-    /// use lmb::*;
-    /// let vm = Lua::new();
-    /// let input = Arc::new(Mutex::new(BufReader::new(Cursor::new("0"))));
-    /// let store = Store::default();
-    /// let _ = LuaBinding::register(&vm, input, Some(store), None);
-    /// ```
-    pub fn register(
-        vm: &Lua,
-        input: Input<R>,
-        store: Option<Store>,
-        state: Option<Arc<State>>,
-    ) -> Result<()> {
-        let io_table = vm.create_table()?;
-
-        let read_fn = vm.create_function({
-            let input = input.clone();
-            move |vm, f: Option<LuaValue>| lua_lmb_read(vm, &input, f)
-        })?;
-        io_table.set("read", read_fn)?;
-
-        io_table.set("stderr", LuaStderr {})?;
-
-        let write_fn = vm.create_function(|_, vs: LuaMultiValue| {
-            let mut locked = stdout().lock();
-            for v in vs.into_vec() {
-                write!(locked, "{}", v.to_string()?)?;
-            }
-            Ok(())
-        })?;
-        io_table.set("write", write_fn)?;
-
-        let globals = vm.globals();
-        globals.set("io", io_table)?;
-
-        let loaded = vm.named_registry_value::<LuaTable>(K_LOADED)?;
-        loaded.set("@lmb", Self::new(input, store, state))?;
-        loaded.set("@lmb/crypto", LuaModCrypto {})?;
-        loaded.set("@lmb/http", LuaModHTTP {})?;
-        loaded.set("@lmb/json", LuaModJSON {})?;
-        vm.set_named_registry_value(K_LOADED, loaded)?;
-
         Ok(())
-    }
+    })?;
+    io_table.set("write", write_fn)?;
+
+    let globals = vm.globals();
+    globals.set("io", io_table)?;
+
+    let loaded = vm.named_registry_value::<LuaTable>(K_LOADED)?;
+    let binding = LuaBinding::builder()
+        .input(input)
+        .maybe_store(store)
+        .maybe_state(state)
+        .build();
+    loaded.set("@lmb", binding)?;
+    loaded.set("@lmb/crypto", LuaModCrypto {})?;
+    loaded.set("@lmb/http", LuaModHTTP {})?;
+    loaded.set("@lmb/json", LuaModJSON {})?;
+    vm.set_named_registry_value(K_LOADED, loaded)?;
+
+    Ok(())
 }
 
 struct LuaStderr {}
@@ -220,7 +194,7 @@ mod tests {
     use std::io::empty;
     use test_case::test_case;
 
-    use crate::EvaluationBuilder;
+    use crate::build_evaluation;
 
     #[test]
     fn read_binary() {
@@ -233,7 +207,7 @@ mod tests {
         end
         return t
         "#;
-        let e = EvaluationBuilder::new(script, input).build().unwrap();
+        let e = build_evaluation(script, input).call().unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(json!([1, 2, 3]), res.payload);
     }
@@ -244,7 +218,7 @@ mod tests {
     #[test_case("assert(not io.read('*n'))")]
     #[test_case("assert(not io.read(1))")]
     fn read_empty(script: &'static str) {
-        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
+        let e = build_evaluation(script, empty()).call().unwrap();
         let _ = e.evaluate().unwrap();
     }
 
@@ -256,9 +230,7 @@ mod tests {
     #[test_case("1\n", 1.into())]
     fn read_number(input: &'static str, expected: Value) {
         let script = "return io.read('*n')";
-        let e = EvaluationBuilder::new(script, input.as_bytes())
-            .build()
-            .unwrap();
+        let e = build_evaluation(script, input.as_bytes()).call().unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(expected, res.payload);
     }
@@ -270,9 +242,7 @@ mod tests {
     #[test_case("return io.read(4)", "foo\n".into())]
     fn read_string(script: &str, expected: Value) {
         let input = "foo\nbar";
-        let e = EvaluationBuilder::new(script, input.as_bytes())
-            .build()
-            .unwrap();
+        let e = build_evaluation(script, input.as_bytes()).call().unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(expected, res.payload);
     }
@@ -283,9 +253,7 @@ mod tests {
     fn read_unicode_cjk_characters(n: usize, expected: &str) {
         let script = format!("return require('@lmb'):read_unicode({n})");
         let input = "你好";
-        let e = EvaluationBuilder::new(script, input.as_bytes())
-            .build()
-            .unwrap();
+        let e = build_evaluation(script, input.as_bytes()).call().unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(json!(expected), res.payload);
     }
@@ -295,9 +263,7 @@ mod tests {
         let input = "你好";
         let script = "return require('@lmb'):read_unicode(1)";
 
-        let e = EvaluationBuilder::new(script, input.as_bytes())
-            .build()
-            .unwrap();
+        let e = build_evaluation(script, input.as_bytes()).call().unwrap();
 
         let res = e.evaluate().unwrap();
         assert_eq!(json!("你"), res.payload);
@@ -314,9 +280,7 @@ mod tests {
     #[test_case("你好", "*a", "你好")]
     fn read_unicode_format(input: &'static str, f: &str, expected: &str) {
         let script = format!(r#"return require('@lmb'):read_unicode('{f}')"#);
-        let e = EvaluationBuilder::new(script, input.as_bytes())
-            .build()
-            .unwrap();
+        let e = build_evaluation(script, input.as_bytes()).call().unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(json!(expected.to_string()), res.payload);
     }
@@ -326,7 +290,7 @@ mod tests {
         // ref: https://www.php.net/manual/en/reference.pcre.pattern.modifiers.php#54805
         let input: &[u8] = &[0xf0, 0x28, 0x8c, 0xbc];
         let script = "return require('@lmb'):read_unicode(1)";
-        let e = EvaluationBuilder::new(script, input).build().unwrap();
+        let e = build_evaluation(script, input).call().unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(json!(null), res.payload);
     }
@@ -336,9 +300,7 @@ mod tests {
         // mix CJK and non-CJK characters
         let input = r#"{"key":"你好"}"#;
         let script = "return require('@lmb'):read_unicode(12)";
-        let e = EvaluationBuilder::new(script, input.as_bytes())
-            .build()
-            .unwrap();
+        let e = build_evaluation(script, input.as_bytes()).call().unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(json!(input), res.payload);
     }
@@ -349,9 +311,7 @@ mod tests {
     fn read_unicode_non_cjk_characters(n: usize, expected: &str) {
         let input = "ab";
         let script = format!("return require('@lmb'):read_unicode({n})");
-        let e = EvaluationBuilder::new(script, input.as_bytes())
-            .build()
-            .unwrap();
+        let e = build_evaluation(script, input.as_bytes()).call().unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(json!(expected), res.payload);
     }
@@ -359,12 +319,12 @@ mod tests {
     #[test]
     fn write() {
         let script = "io.write('l', 'a', 'm'); return nil";
-        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
+        let e = build_evaluation(script, empty()).call().unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(json!(null), res.payload);
 
         let script = "io.stderr:write('err', 'or'); return nil";
-        let e = EvaluationBuilder::new(script, empty()).build().unwrap();
+        let e = build_evaluation(script, empty()).call().unwrap();
         let res = e.evaluate().unwrap();
         assert_eq!(json!(null), res.payload);
     }

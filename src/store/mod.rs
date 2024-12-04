@@ -1,5 +1,5 @@
+use bon::Builder;
 use chrono::{DateTime, Utc};
-use derive_builder::Builder;
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use rusqlite_migration::SchemaVersion;
@@ -20,7 +20,6 @@ mod stmt;
 #[derive(Builder, Clone, Debug)]
 pub struct StoreOptions {
     /// Store path.
-    #[builder(default)]
     pub store_path: Option<PathBuf>,
     /// Run migrations.
     #[builder(default)]
@@ -429,7 +428,7 @@ mod tests {
     use std::{io::empty, thread};
     use test_case::test_case;
 
-    use crate::{EvaluationBuilder, Store};
+    use crate::{build_evaluation, Store};
 
     #[test]
     fn concurrency() {
@@ -446,9 +445,9 @@ mod tests {
         for _ in 0..=1000 {
             let store = store.clone();
             threads.push(thread::spawn(move || {
-                let e = EvaluationBuilder::new(script, empty())
-                    .store(Some(store))
-                    .build()
+                let e = build_evaluation(script, empty())
+                    .store(store)
+                    .call()
                     .unwrap();
                 e.evaluate().unwrap();
             }));
@@ -484,9 +483,9 @@ mod tests {
         let store = Store::default();
         store.put("a", &1.23.into()).unwrap();
 
-        let e = EvaluationBuilder::new(script, empty())
-            .store(Some(store.clone()))
-            .build()
+        let e = build_evaluation(script, empty())
+            .store(store.clone())
+            .call()
             .unwrap();
 
         let res = e.evaluate().unwrap();
@@ -538,9 +537,9 @@ mod tests {
         let store = Store::default();
         store.put("a", &1.into()).unwrap();
 
-        let e = EvaluationBuilder::new(script, empty())
-            .store(Some(store.clone()))
-            .build()
+        let e = build_evaluation(script, empty())
+            .store(store.clone())
+            .call()
             .unwrap();
 
         {
@@ -568,9 +567,9 @@ mod tests {
         let store = Store::default();
         store.put("a", &1.into()).unwrap();
 
-        let e = EvaluationBuilder::new(script, empty())
-            .store(Some(store.clone()))
-            .build()
+        let e = build_evaluation(script, empty())
+            .store(store.clone())
+            .call()
             .unwrap();
 
         let res = e.evaluate().unwrap();
@@ -591,9 +590,9 @@ mod tests {
         let store = Store::default();
         store.put("a", &1.into()).unwrap();
 
-        let e = EvaluationBuilder::new(script, empty())
-            .store(Some(store.clone()))
-            .build()
+        let e = build_evaluation(script, empty())
+            .store(store.clone())
+            .call()
             .unwrap();
 
         let res = e.evaluate();

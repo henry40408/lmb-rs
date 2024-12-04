@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 use bencher::{benchmark_group, benchmark_main, Bencher};
-use lmb::EvaluationBuilder;
+use lmb::{build_evaluation, Store};
 use mlua::prelude::*;
 use std::io::{empty, BufReader, Cursor, Read as _};
 
@@ -10,7 +10,7 @@ static SCRIPT: &str = "return true";
 /// evaluation
 
 fn lmb_evaluate(bencher: &mut Bencher) {
-    let e = EvaluationBuilder::new(SCRIPT, empty()).build().unwrap();
+    let e = build_evaluation(SCRIPT, empty()).call().unwrap();
     bencher.iter(|| e.evaluate().unwrap());
 }
 
@@ -35,14 +35,15 @@ fn mlua_sandbox_eval(bencher: &mut Bencher) {
 /// store
 
 fn lmb_no_store(bencher: &mut Bencher) {
-    let e = EvaluationBuilder::new(SCRIPT, empty()).build().unwrap();
+    let e = build_evaluation(SCRIPT, empty()).call().unwrap();
     bencher.iter(|| e.evaluate().unwrap());
 }
 
 fn lmb_default_store(bencher: &mut Bencher) {
-    let e = EvaluationBuilder::new(SCRIPT, empty())
-        .default_store()
-        .build()
+    let store = Store::default();
+    let e = build_evaluation(SCRIPT, empty())
+        .store(store)
+        .call()
         .unwrap();
     bencher.iter(|| e.evaluate().unwrap());
 }
@@ -54,9 +55,10 @@ fn lmb_update(bencher: &mut Bencher) {
     	return table.pack(a + 1)
     end, { 0 })
     "#;
-    let e = EvaluationBuilder::new(script, empty())
-        .default_store()
-        .build()
+    let store = Store::default();
+    let e = build_evaluation(script, empty())
+        .store(store)
+        .call()
         .unwrap();
     bencher.iter(|| e.evaluate().unwrap());
 }
@@ -66,9 +68,7 @@ fn lmb_update(bencher: &mut Bencher) {
 fn lmb_read_all(bencher: &mut Bencher) {
     let input = "1";
     let script = "return io.read('*a')";
-    let e = EvaluationBuilder::new(script, input.as_bytes())
-        .build()
-        .unwrap();
+    let e = build_evaluation(script, input.as_bytes()).call().unwrap();
     bencher.iter(|| {
         e.set_input(&b"0"[..]);
         e.evaluate().unwrap()
@@ -78,9 +78,7 @@ fn lmb_read_all(bencher: &mut Bencher) {
 fn lmb_read_line(bencher: &mut Bencher) {
     let input = "1";
     let script = "return io.read('*l')";
-    let e = EvaluationBuilder::new(script, input.as_bytes())
-        .build()
-        .unwrap();
+    let e = build_evaluation(script, input.as_bytes()).call().unwrap();
     bencher.iter(|| {
         e.set_input(&b"0"[..]);
         e.evaluate().unwrap()
@@ -90,9 +88,7 @@ fn lmb_read_line(bencher: &mut Bencher) {
 fn lmb_read_number(bencher: &mut Bencher) {
     let input = "1";
     let script = "return io.read('*n')";
-    let e = EvaluationBuilder::new(script, input.as_bytes())
-        .build()
-        .unwrap();
+    let e = build_evaluation(script, input.as_bytes()).call().unwrap();
     bencher.iter(|| {
         e.set_input(&b"0"[..]);
         e.evaluate().unwrap()
@@ -102,9 +98,7 @@ fn lmb_read_number(bencher: &mut Bencher) {
 fn lmb_read_unicode(bencher: &mut Bencher) {
     let input = "1";
     let script = "return require('@lmb'):read_unicode(1)";
-    let e = EvaluationBuilder::new(script, input.as_bytes())
-        .build()
-        .unwrap();
+    let e = build_evaluation(script, input.as_bytes()).call().unwrap();
     bencher.iter(|| {
         e.set_input(&b"0"[..]);
         e.evaluate().unwrap()

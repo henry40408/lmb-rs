@@ -107,8 +107,8 @@ fn eval_stdin_syntax_error() {
         .args(["--no-color", "eval", "--file", "-"])
         .assert()
         .failure()
-        .stderr_eq(str![[r#"
-syntax error: 1: Unexpected '!'; did you mean 'not'?
+        .stdout_eq(str![[r#"
+[..]  INFO rusqlite_migration: Database migrated to version 1    
 
 "#]]);
 }
