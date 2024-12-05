@@ -36,7 +36,7 @@ where
 #[builder]
 pub fn bind_vm<R>(
     #[builder(start_fn)] vm: &Lua,
-    input: Input<R>,
+    #[builder(start_fn)] input: Input<R>,
     store: Option<Store>,
     state: Option<Arc<State>>,
 ) -> Result<()>
@@ -194,7 +194,7 @@ mod tests {
     use std::io::empty;
     use test_case::test_case;
 
-    use crate::build_evaluation;
+    use crate::Evaluation;
 
     #[test]
     fn read_binary() {
@@ -207,7 +207,7 @@ mod tests {
         end
         return t
         "#;
-        let e = build_evaluation(script, input).call().unwrap();
+        let e = Evaluation::builder(script, input).build().unwrap();
         let res = e.evaluate().call().unwrap();
         assert_eq!(json!([1, 2, 3]), res.payload);
     }
@@ -218,7 +218,7 @@ mod tests {
     #[test_case("assert(not io.read('*n'))")]
     #[test_case("assert(not io.read(1))")]
     fn read_empty(script: &'static str) {
-        let e = build_evaluation(script, empty()).call().unwrap();
+        let e = Evaluation::builder(script, empty()).build().unwrap();
         let _ = e.evaluate().call().unwrap();
     }
 
@@ -230,7 +230,9 @@ mod tests {
     #[test_case("1\n", 1.into())]
     fn read_number(input: &'static str, expected: Value) {
         let script = "return io.read('*n')";
-        let e = build_evaluation(script, input.as_bytes()).call().unwrap();
+        let e = Evaluation::builder(script, input.as_bytes())
+            .build()
+            .unwrap();
         let res = e.evaluate().call().unwrap();
         assert_eq!(expected, res.payload);
     }
@@ -242,7 +244,9 @@ mod tests {
     #[test_case("return io.read(4)", "foo\n".into())]
     fn read_string(script: &str, expected: Value) {
         let input = "foo\nbar";
-        let e = build_evaluation(script, input.as_bytes()).call().unwrap();
+        let e = Evaluation::builder(script, input.as_bytes())
+            .build()
+            .unwrap();
         let res = e.evaluate().call().unwrap();
         assert_eq!(expected, res.payload);
     }
@@ -253,7 +257,9 @@ mod tests {
     fn read_unicode_cjk_characters(n: usize, expected: &str) {
         let script = format!("return require('@lmb'):read_unicode({n})");
         let input = "你好";
-        let e = build_evaluation(script, input.as_bytes()).call().unwrap();
+        let e = Evaluation::builder(script, input.as_bytes())
+            .build()
+            .unwrap();
         let res = e.evaluate().call().unwrap();
         assert_eq!(json!(expected), res.payload);
     }
@@ -263,7 +269,9 @@ mod tests {
         let input = "你好";
         let script = "return require('@lmb'):read_unicode(1)";
 
-        let e = build_evaluation(script, input.as_bytes()).call().unwrap();
+        let e = Evaluation::builder(script, input.as_bytes())
+            .build()
+            .unwrap();
 
         let res = e.evaluate().call().unwrap();
         assert_eq!(json!("你"), res.payload);
@@ -280,7 +288,9 @@ mod tests {
     #[test_case("你好", "*a", "你好")]
     fn read_unicode_format(input: &'static str, f: &str, expected: &str) {
         let script = format!(r#"return require('@lmb'):read_unicode('{f}')"#);
-        let e = build_evaluation(script, input.as_bytes()).call().unwrap();
+        let e = Evaluation::builder(script, input.as_bytes())
+            .build()
+            .unwrap();
         let res = e.evaluate().call().unwrap();
         assert_eq!(json!(expected.to_string()), res.payload);
     }
@@ -290,7 +300,7 @@ mod tests {
         // ref: https://www.php.net/manual/en/reference.pcre.pattern.modifiers.php#54805
         let input: &[u8] = &[0xf0, 0x28, 0x8c, 0xbc];
         let script = "return require('@lmb'):read_unicode(1)";
-        let e = build_evaluation(script, input).call().unwrap();
+        let e = Evaluation::builder(script, input).build().unwrap();
         let res = e.evaluate().call().unwrap();
         assert_eq!(json!(null), res.payload);
     }
@@ -300,7 +310,9 @@ mod tests {
         // mix CJK and non-CJK characters
         let input = r#"{"key":"你好"}"#;
         let script = "return require('@lmb'):read_unicode(12)";
-        let e = build_evaluation(script, input.as_bytes()).call().unwrap();
+        let e = Evaluation::builder(script, input.as_bytes())
+            .build()
+            .unwrap();
         let res = e.evaluate().call().unwrap();
         assert_eq!(json!(input), res.payload);
     }
@@ -311,7 +323,9 @@ mod tests {
     fn read_unicode_non_cjk_characters(n: usize, expected: &str) {
         let input = "ab";
         let script = format!("return require('@lmb'):read_unicode({n})");
-        let e = build_evaluation(script, input.as_bytes()).call().unwrap();
+        let e = Evaluation::builder(script, input.as_bytes())
+            .build()
+            .unwrap();
         let res = e.evaluate().call().unwrap();
         assert_eq!(json!(expected), res.payload);
     }
@@ -319,12 +333,12 @@ mod tests {
     #[test]
     fn write() {
         let script = "io.write('l', 'a', 'm'); return nil";
-        let e = build_evaluation(script, empty()).call().unwrap();
+        let e = Evaluation::builder(script, empty()).build().unwrap();
         let res = e.evaluate().call().unwrap();
         assert_eq!(json!(null), res.payload);
 
         let script = "io.stderr:write('err', 'or'); return nil";
-        let e = build_evaluation(script, empty()).call().unwrap();
+        let e = Evaluation::builder(script, empty()).build().unwrap();
         let res = e.evaluate().call().unwrap();
         assert_eq!(json!(null), res.payload);
     }

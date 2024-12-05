@@ -86,7 +86,7 @@ pub struct PrintOptions {
 
 #[cfg(test)]
 mod tests {
-    use crate::{build_evaluation, StateKey, Store, MIGRATIONS};
+    use crate::{Evaluation, StateKey, Store, MIGRATIONS};
     use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
     use serde_json::json;
     use std::io::empty;
@@ -152,9 +152,9 @@ mod tests {
         for block in blocks {
             let block = block.replace("https://httpbin.org", &server.url());
             let store = Store::default();
-            let e = build_evaluation(&block, empty())
+            let e = Evaluation::builder(&block, empty())
                 .store(store)
-                .call()
+                .build()
                 .unwrap();
             e.evaluate().call().unwrap();
         }

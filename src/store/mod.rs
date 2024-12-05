@@ -428,7 +428,7 @@ mod tests {
     use std::{io::empty, thread};
     use test_case::test_case;
 
-    use crate::{build_evaluation, Store};
+    use crate::{Evaluation, Store};
 
     #[test]
     fn concurrency() {
@@ -445,9 +445,9 @@ mod tests {
         for _ in 0..=1000 {
             let store = store.clone();
             threads.push(thread::spawn(move || {
-                let e = build_evaluation(script, empty())
+                let e = Evaluation::builder(script, empty())
                     .store(store)
-                    .call()
+                    .build()
                     .unwrap();
                 e.evaluate().call().unwrap();
             }));
@@ -483,9 +483,9 @@ mod tests {
         let store = Store::default();
         store.put("a", &1.23.into()).unwrap();
 
-        let e = build_evaluation(script, empty())
+        let e = Evaluation::builder(script, empty())
             .store(store.clone())
-            .call()
+            .build()
             .unwrap();
 
         let res = e.evaluate().call().unwrap();
@@ -537,9 +537,9 @@ mod tests {
         let store = Store::default();
         store.put("a", &1.into()).unwrap();
 
-        let e = build_evaluation(script, empty())
+        let e = Evaluation::builder(script, empty())
             .store(store.clone())
-            .call()
+            .build()
             .unwrap();
 
         {
@@ -567,9 +567,9 @@ mod tests {
         let store = Store::default();
         store.put("a", &1.into()).unwrap();
 
-        let e = build_evaluation(script, empty())
+        let e = Evaluation::builder(script, empty())
             .store(store.clone())
-            .call()
+            .build()
             .unwrap();
 
         let res = e.evaluate().call().unwrap();
@@ -590,9 +590,9 @@ mod tests {
         let store = Store::default();
         store.put("a", &1.into()).unwrap();
 
-        let e = build_evaluation(script, empty())
+        let e = Evaluation::builder(script, empty())
             .store(store.clone())
-            .call()
+            .build()
             .unwrap();
 
         let res = e.evaluate().call();

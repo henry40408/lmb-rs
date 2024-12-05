@@ -104,12 +104,12 @@ impl Error {
 mod tests {
     use std::io::empty;
 
-    use crate::build_evaluation;
+    use crate::Evaluation;
 
     #[test]
     fn write_error() {
         let script = "return nil+1";
-        let e = build_evaluation(script, empty()).call().unwrap();
+        let e = Evaluation::builder(script, empty()).build().unwrap();
         let Err(err) = e.evaluate().call() else {
             panic!("expect error");
         };

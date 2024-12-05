@@ -141,7 +141,7 @@ mod tests {
     use mockito::Server;
     use serde_json::json;
 
-    use crate::build_evaluation;
+    use crate::Evaluation;
 
     #[test]
     fn http_get() {
@@ -162,7 +162,7 @@ mod tests {
             return res:read('*a')
             "#
         );
-        let e = build_evaluation(script, empty()).call().unwrap();
+        let e = Evaluation::builder(script, empty()).build().unwrap();
         let res = e.evaluate().call().unwrap();
         assert_eq!(json!(body), res.payload);
 
@@ -189,7 +189,7 @@ mod tests {
             return res:read('*a')
             "#
         );
-        let e = build_evaluation(script, empty()).call().unwrap();
+        let e = Evaluation::builder(script, empty()).build().unwrap();
         let res = e.evaluate().call().unwrap();
         assert_eq!(json!(body), res.payload);
 
@@ -215,7 +215,7 @@ mod tests {
             return res:read_unicode('*a')
             "#
         );
-        let e = build_evaluation(script, empty()).call().unwrap();
+        let e = Evaluation::builder(script, empty()).build().unwrap();
         let res = e.evaluate().call().unwrap();
         assert_eq!(json!(body), res.payload);
 
@@ -241,7 +241,7 @@ mod tests {
             return res:json()
             "#
         );
-        let e = build_evaluation(script, empty()).call().unwrap();
+        let e = Evaluation::builder(script, empty()).build().unwrap();
         let res = e.evaluate().call().unwrap();
         assert_eq!(json!({ "a": 1 }), res.payload);
 
@@ -270,7 +270,7 @@ mod tests {
             return res:read('*a')
             "#
         );
-        let e = build_evaluation(script, empty()).call().unwrap();
+        let e = Evaluation::builder(script, empty()).build().unwrap();
         let res = e.evaluate().call().unwrap();
         assert_eq!(json!("2"), res.payload);
 
