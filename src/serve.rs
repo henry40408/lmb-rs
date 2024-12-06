@@ -9,7 +9,7 @@ use axum::{
 };
 use bon::Builder;
 use http::{HeaderName, HeaderValue};
-use lmb::{build_evaluation, State, StateKey, Store};
+use lmb::{Evaluation, State, StateKey, Store};
 use serde_json::{Map, Value};
 use std::{
     collections::HashMap, io::Cursor, net::SocketAddr, str::FromStr as _, sync::Arc, time::Duration,
@@ -49,11 +49,11 @@ fn do_handle_request<S>(
 where
     S: AsRef<str>,
 {
-    let e = match build_evaluation(state.script, Cursor::new(body))
+    let e = match Evaluation::builder(state.script, Cursor::new(body))
         .name(state.name)
         .maybe_timeout(state.timeout)
         .store(state.store.clone())
-        .call()
+        .build()
     {
         Ok(e) => e,
         Err(err) => {

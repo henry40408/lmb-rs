@@ -4,7 +4,7 @@ use clio::*;
 use comfy_table::{presets, Table};
 use cron::Schedule;
 use lmb::{
-    build_evaluation, Error, LuaCheck, PrintOptions, ScheduleOptions, Store, StoreOptions,
+    Error, Evaluation, LuaCheck, PrintOptions, ScheduleOptions, Store, StoreOptions,
     DEFAULT_TIMEOUT, EXAMPLES, GUIDES,
 };
 use mlua::prelude::*;
@@ -292,11 +292,11 @@ async fn try_main() -> anyhow::Result<()> {
                 if cli.check_syntax {
                     do_check_syntax(cli.no_color, &name, &script)?;
                 }
-                let e = build_evaluation(&script, io::stdin())
+                let e = Evaluation::builder(&script, io::stdin())
                     .name(name)
                     .store(store.clone())
                     .timeout(Duration::from_secs(timeout))
-                    .call()?;
+                    .build()?;
                 let mut buf = String::new();
                 match e.evaluate().call() {
                     Ok(s) => {
@@ -318,7 +318,7 @@ async fn try_main() -> anyhow::Result<()> {
             };
             let script = found.script().trim();
             let mut buf = String::new();
-            let e = build_evaluation(script, io::stdin()).call()?;
+            let e = Evaluation::builder(script, io::stdin()).build()?;
             e.write_script(&mut buf, &print_options)?;
             println!("{buf}");
             Ok(())
@@ -329,10 +329,10 @@ async fn try_main() -> anyhow::Result<()> {
             };
             let script = found.script().trim();
             let store = prepare_store(&store_options)?;
-            let e = build_evaluation(script, io::stdin())
+            let e = Evaluation::builder(script, io::stdin())
                 .name(name)
                 .store(store)
-                .call()?;
+                .build()?;
             let mut buf = String::new();
             match e.evaluate().call() {
                 Ok(s) => {
@@ -418,10 +418,10 @@ async fn try_main() -> anyhow::Result<()> {
                     .initial_run(initial_run)
                     .schedule(schedule.clone())
                     .build();
-                let e = build_evaluation(script, io::stdin())
+                let e = Evaluation::builder(script, io::stdin())
                     .name(name)
                     .store(store.clone())
-                    .call()?;
+                    .build()?;
                 e.schedule(&options);
                 Ok(())
             })

@@ -7,7 +7,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        toolchain: [1.82.0, 1.80.1]
+        toolchain: [1.83.0, 1.80.1]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4.1.1
@@ -30,7 +30,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        toolchain: [1.82.0, 1.80.1]
+        toolchain: [1.83.0, 1.80.1]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4.1.1
@@ -81,8 +81,8 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - uses: taiki-e/install-action@v2.39.1
         with:
-          tool: cargo-tarpaulin@0.28.0
-      - run: cargo tarpaulin --follow-exec --out xml
+          tool: cargo-llvm-cov@0.6.14
+      - run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
       - uses: codecov/codecov-action@v4.4.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

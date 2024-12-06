@@ -92,6 +92,37 @@ impl<R> Evaluation<R>
 where
     for<'lua> R: 'lua + Read + Send,
 {
+    /// Build evaluation.
+    #[builder]
+    pub fn new(
+        #[builder(into, start_fn)] script: String,
+        #[builder(start_fn)] input: R,
+        name: Option<String>,
+        store: Option<Store>,
+        timeout: Option<Duration>,
+    ) -> Result<Arc<Evaluation<R>>> {
+        let compiled = {
+            let _s = trace_span!("compile_script").entered();
+            let compiler = Compiler::new();
+            compiler.compile(&script)?
+        };
+        let vm = Lua::new();
+        vm.sandbox(true)?;
+        let input = Arc::new(Mutex::new(BufReader::new(input)));
+        bind_vm(&vm, input.clone())
+            .maybe_store(store.clone())
+            .call()?;
+        Ok(Arc::new(Evaluation {
+            input,
+            name,
+            script,
+            store,
+            timeout,
+            compiled,
+            vm,
+        }))
+    }
+
     /// Evaluate the function with a state.
     ///
     /// ```rust
@@ -100,7 +131,7 @@ where
     /// use lmb::*;
     ///
     /// # fn main() -> Result<()> {
-    /// let e = build_evaluation("return 1+1", empty()).call().unwrap();
+    /// let e = Evaluation::builder("return 1+1", empty()).build().unwrap();
     /// let state = Arc::new(State::new());
     /// state.insert(StateKey::from("bool"), true.into());
     /// let res = e.evaluate().state(state).call()?;
@@ -111,8 +142,7 @@ where
     #[builder]
     pub fn evaluate(self: &Arc<Self>, state: Option<Arc<State>>) -> Result<Solution<R>> {
         if state.is_some() {
-            bind_vm(&self.vm)
-                .input(self.input.clone())
+            bind_vm(&self.vm, self.input.clone())
                 .maybe_store(self.store.clone())
                 .maybe_state(state)
                 .call()?;
@@ -205,7 +235,7 @@ where
     ///
     /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     /// let script = "return 1";
-    /// let e = build_evaluation(script, empty()).call().unwrap();
+    /// let e = Evaluation::builder(script, empty()).build().unwrap();
     ///
     /// let mut buf = String::new();
     /// let print_options = PrintOptions::builder().no_color(true).build();
@@ -244,41 +274,6 @@ where
     }
 }
 
-/// Build evaluation.
-#[builder]
-pub fn build_evaluation<R>(
-    #[builder(into, start_fn)] script: String,
-    #[builder(start_fn)] input: R,
-    name: Option<String>,
-    store: Option<Store>,
-    timeout: Option<Duration>,
-) -> Result<Arc<Evaluation<R>>>
-where
-    for<'lua> R: 'lua + Read + Send,
-{
-    let compiled = {
-        let _s = trace_span!("compile_script").entered();
-        let compiler = Compiler::new();
-        compiler.compile(&script)?
-    };
-    let vm = Lua::new();
-    vm.sandbox(true)?;
-    let input = Arc::new(Mutex::new(BufReader::new(input)));
-    bind_vm(&vm)
-        .input(input.clone())
-        .maybe_store(store.clone())
-        .call()?;
-    Ok(Arc::new(Evaluation {
-        input,
-        name,
-        script,
-        store,
-        timeout,
-        compiled,
-        vm,
-    }))
-}
-
 #[cfg(test)]
 mod tests {
     use serde_json::{json, Value};
@@ -290,14 +285,12 @@ mod tests {
     };
     use test_case::test_case;
 
-    use crate::{State, StateKey, Store};
-
-    use super::build_evaluation;
+    use crate::{Evaluation, State, StateKey, Store};
 
     #[test_case("./lua-examples/error.lua")]
     fn error_in_script(path: &str) {
         let script = fs::read_to_string(path).unwrap();
-        let e = build_evaluation(script, empty()).call().unwrap();
+        let e = Evaluation::builder(script, empty()).build().unwrap();
         assert!(e.evaluate().call().is_err());
     }
 
@@ -311,9 +304,9 @@ mod tests {
     fn evaluate_examples(filename: &str, input: &'static str, expected: Value) {
         let script = fs::read_to_string(format!("./lua-examples/{filename}")).unwrap();
         let store = Store::default();
-        let e = build_evaluation(&script, input.as_bytes())
+        let e = Evaluation::builder(&script, input.as_bytes())
             .store(store)
-            .call()
+            .build()
             .unwrap();
         let res = e.evaluate().call().unwrap();
         assert_eq!(expected, res.payload);
@@ -323,9 +316,9 @@ mod tests {
     fn evaluate_infinite_loop() {
         let timer = Instant::now();
         let timeout = Duration::from_millis(100);
-        let e = build_evaluation(r#"while true do end"#, empty())
+        let e = Evaluation::builder(r#"while true do end"#, empty())
             .timeout(timeout)
-            .call()
+            .build()
             .unwrap();
         let res = e.evaluate().call();
         assert!(res.is_err());
@@ -338,7 +331,7 @@ mod tests {
     #[test_case("return 'a'..1", json!("a1"))]
     #[test_case("return require('@lmb')._VERSION", json!(env!("APP_VERSION")))]
     fn evaluate_scripts(script: &str, expected: Value) {
-        let e = build_evaluation(script, empty()).call().unwrap();
+        let e = Evaluation::builder(script, empty()).build().unwrap();
         let res = e.evaluate().call().unwrap();
         assert_eq!(expected, res.payload);
     }
@@ -347,7 +340,9 @@ mod tests {
     fn reevaluate() {
         let input = "foo\nbar";
         let script = "return io.read('*l')";
-        let e = build_evaluation(script, input.as_bytes()).call().unwrap();
+        let e = Evaluation::builder(script, input.as_bytes())
+            .build()
+            .unwrap();
 
         let res = e.evaluate().call().unwrap();
         assert_eq!(json!("foo"), res.payload);
@@ -359,7 +354,7 @@ mod tests {
     #[test]
     fn replace_input() {
         let script = "return io.read('*a')";
-        let e = build_evaluation(script, &b"0"[..]).call().unwrap();
+        let e = Evaluation::builder(script, &b"0"[..]).build().unwrap();
 
         let res = e.evaluate().call().unwrap();
         assert_eq!(json!("0"), res.payload);
@@ -373,14 +368,14 @@ mod tests {
     #[test]
     fn syntax_error() {
         let script = "ret true"; // code with syntax error
-        let e = build_evaluation(script, empty()).call();
+        let e = Evaluation::builder(script, empty()).build();
         assert!(e.is_err());
     }
 
     #[test]
     fn with_state() {
-        let e = build_evaluation(r#"return require("@lmb").request"#, empty())
-            .call()
+        let e = Evaluation::builder(r#"return require("@lmb").request"#, empty())
+            .build()
             .unwrap();
         let state = Arc::new(State::new());
         state.insert(StateKey::Request, 1.into());
@@ -398,7 +393,7 @@ mod tests {
     #[test]
     fn write_solution() {
         let script = "return 1+1";
-        let e = build_evaluation(script, empty()).call().unwrap();
+        let e = Evaluation::builder(script, empty()).build().unwrap();
         let solution = e.evaluate().call().unwrap();
         let mut buf = String::new();
         solution.write(&mut buf).call().unwrap();
