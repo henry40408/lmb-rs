@@ -8,7 +8,6 @@ use include_dir::{include_dir, Dir};
 use parking_lot::Mutex;
 use rusqlite_migration::Migrations;
 use std::{
-    fmt::Display,
     io::BufReader,
     result::Result as StdResult,
     sync::{Arc, LazyLock},
@@ -64,11 +63,11 @@ pub enum StateKey {
 
 impl<S> From<S> for StateKey
 where
-    S: Display,
+    S: Into<String>,
 {
     /// Converts a type that can be referenced as a string into a [`StateKey`].
     fn from(value: S) -> Self {
-        Self::String(value.to_string())
+        Self::String(value.into())
     }
 }
 

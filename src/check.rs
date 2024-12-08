@@ -1,28 +1,19 @@
 use ariadne::{CharSet, ColorGenerator, Config, Label, Report, ReportKind, Source};
-use std::{
-    fmt::Display,
-    io::{Error as IoError, Write},
-};
+use bon::Builder;
+use std::io::{Error as IoError, Write};
 
 /// Container for the script used for syntax checking.
-#[derive(Debug)]
+#[derive(Builder, Debug)]
 pub struct LuaCheck {
-    name: String,
-    script: String,
+    /// Name.
+    #[builder(start_fn, into)]
+    pub name: String,
+    /// Script.
+    #[builder(start_fn, into)]
+    pub script: String,
 }
 
 impl LuaCheck {
-    /// Create a new [`LuaCheck`] container.
-    pub fn new<S>(name: S, script: S) -> Self
-    where
-        S: Display,
-    {
-        Self {
-            name: name.to_string(),
-            script: script.to_string(),
-        }
-    }
-
     /// Check the syntax of the script.
     ///
     /// # Errors
@@ -32,7 +23,7 @@ impl LuaCheck {
     /// ```rust
     /// use lmb::LuaCheck;
     ///
-    /// let check = LuaCheck::new("", "ret true");
+    /// let check = LuaCheck::builder("", "ret true").build();
     /// assert!(check.check().is_err());
     /// ```
     pub fn check(&self) -> Result<full_moon::ast::Ast, Vec<full_moon::Error>> {
@@ -113,21 +104,21 @@ mod tests {
     #[test]
     fn syntax() {
         let script = "ret true";
-        let check = LuaCheck::new("", script);
+        let check = LuaCheck::builder("", script).build();
         assert!(matches!(
             check.check().unwrap_err().get(0),
             Some(full_moon::Error::AstError { .. })
         ));
 
         let script = "return true";
-        let check = LuaCheck::new("", script);
+        let check = LuaCheck::builder("", script).build();
         assert!(check.check().is_ok());
     }
 
     #[test]
     fn syntax_error() {
         let script = "ret true";
-        let check = LuaCheck::new("", script);
+        let check = LuaCheck::builder("", script).build();
         let errors = check.check().unwrap_err();
         let mut buf = Vec::new();
         check.write_error(&mut buf, errors, true).unwrap();

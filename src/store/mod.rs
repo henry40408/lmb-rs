@@ -179,13 +179,15 @@ impl Store {
             let size: usize = row.get_unwrap("size");
             let created_at: DateTime<Utc> = row.get_unwrap("created_at");
             let updated_at: DateTime<Utc> = row.get_unwrap("updated_at");
-            res.push(StoreValueMetadata {
-                name,
-                size,
-                type_hint,
-                created_at,
-                updated_at,
-            });
+            res.push(
+                StoreValueMetadata::builder()
+                    .name(name)
+                    .type_hint(type_hint)
+                    .size(size)
+                    .created_at(created_at)
+                    .updated_at(updated_at)
+                    .build(),
+            );
         }
         Ok(res)
     }
@@ -370,40 +372,18 @@ impl Store {
 }
 
 /// Value metadata. The value itself is intentionally not included.
-#[derive(Debug)]
+#[derive(Builder, Debug)]
 pub struct StoreValueMetadata {
-    name: String,
-    size: usize,
-    type_hint: String,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-}
-
-impl StoreValueMetadata {
-    /// Get the timestamp that the value is created.
-    pub fn created_at(&self) -> &DateTime<Utc> {
-        &self.created_at
-    }
-
-    /// Get name.
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    /// Get size in bytes.
-    pub fn size(&self) -> usize {
-        self.size
-    }
-
-    /// Get type hint.
-    pub fn type_hint(&self) -> &str {
-        &self.type_hint
-    }
-
-    /// Get the timestamp that the value is updated.
-    pub fn updated_at(&self) -> &DateTime<Utc> {
-        &self.updated_at
-    }
+    /// Name.
+    pub name: String,
+    /// Size in bytes.
+    pub size: usize,
+    /// Type hint e.g. String.
+    pub type_hint: String,
+    /// Creation timestamp.
+    pub created_at: DateTime<Utc>,
+    /// Update timestamp.
+    pub updated_at: DateTime<Utc>,
 }
 
 impl Default for Store {
@@ -467,7 +447,7 @@ mod tests {
 
         let values = store.list().unwrap();
         let value = values.first().unwrap();
-        assert_eq!(size, value.size());
+        assert_eq!(size, value.size);
     }
 
     #[test]
@@ -522,7 +502,7 @@ mod tests {
 
         let values = store.list().unwrap();
         let value = values.first().unwrap();
-        assert_eq!(size, value.size());
+        assert_eq!(size, value.size);
     }
 
     #[test]
