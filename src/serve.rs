@@ -17,10 +17,12 @@ use std::{
 use tower_http::trace::{self, TraceLayer};
 use tracing::{error, info, warn, Level};
 
-#[derive(Clone)]
+#[derive(Builder, Clone)]
 struct AppState {
     json: bool,
+    #[builder(into)]
     name: String,
+    #[builder(into)]
     script: String,
     store: Store,
     timeout: Option<Duration>,
@@ -183,13 +185,13 @@ pub fn init_route(opts: &ServeOptions) -> anyhow::Result<Router> {
         warn!("no store path is specified, an in-memory store will be used and values will be lost when process ends");
         store
     };
-    let app_state = AppState {
-        json: opts.json,
-        name: opts.name.to_string(),
-        script: opts.script.to_string(),
-        store,
-        timeout: opts.timeout,
-    };
+    let app_state = AppState::builder()
+        .json(opts.json)
+        .name(&opts.name)
+        .script(&opts.script)
+        .store(store)
+        .maybe_timeout(opts.timeout)
+        .build();
     let app = Router::new()
         .route("/", any(index_route))
         .route("/*path", any(match_all_route))

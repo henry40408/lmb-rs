@@ -1,31 +1,20 @@
 use std::sync::LazyLock;
 
+use bon::Builder;
 use include_dir::{include_dir, Dir};
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 /// Guide.
-#[derive(Debug)]
+#[derive(Builder, Debug)]
 pub struct Guide {
-    content: String,
-    name: String,
-    title: String,
-}
-
-impl Guide {
-    /// Get content.
-    pub fn content(&self) -> &str {
-        &self.content
-    }
-
-    /// Get name.
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
+    /// Content.
+    #[builder(into)]
+    pub content: String,
+    /// Name.
+    #[builder(into)]
+    pub name: String,
     /// Title.
-    pub fn title(&self) -> &str {
-        &self.title
-    }
+    pub title: String,
 }
 
 static GUIDE_DIR: Dir<'_> = include_dir!("guides");
@@ -63,11 +52,13 @@ pub static GUIDES: LazyLock<Vec<Guide>> = LazyLock::new(|| {
                 _ => {}
             }
         }
-        guides.push(Guide {
-            content: content.to_string(),
-            name: name.to_string(),
-            title,
-        });
+        guides.push(
+            Guide::builder()
+                .content(content)
+                .name(name)
+                .title(title)
+                .build(),
+        );
     }
     guides.sort_by(|a, b| a.title.cmp(&b.title));
     guides
@@ -82,7 +73,7 @@ mod tests {
         assert!(!GUIDES.is_empty());
 
         let guide = GUIDES.first().unwrap();
-        assert_eq!("lua", guide.name());
-        assert_eq!("Lua Guide with Lmb", guide.title());
+        assert_eq!("lua", guide.name);
+        assert_eq!("Lua Guide with Lmb", guide.title);
     }
 }

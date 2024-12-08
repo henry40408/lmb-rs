@@ -12,7 +12,6 @@ use rayon::prelude::*;
 use serde_json::json;
 use serve::ServeOptions;
 use std::{
-    fmt::Display,
     io::{self, Read},
     net::SocketAddr,
     path::PathBuf,
@@ -213,9 +212,9 @@ enum StoreCommands {
 
 fn do_check_syntax<S>(no_color: bool, name: S, script: S) -> anyhow::Result<()>
 where
-    S: Display,
+    S: Into<String>,
 {
-    let check = LuaCheck::new(name, script);
+    let check = LuaCheck::builder(name, script).build();
     if let Err(err) = check.check() {
         let mut buf = Vec::new();
         check.write_error(&mut buf, err, no_color)?;
@@ -313,10 +312,10 @@ async fn try_main() -> anyhow::Result<()> {
             })
         }
         Commands::Example(ExampleCommands::Cat { name }) => {
-            let Some(found) = EXAMPLES.iter().find(|e| e.name() == name) else {
+            let Some(found) = EXAMPLES.iter().find(|e| e.name == name) else {
                 bail!("example with {name} not found");
             };
-            let script = found.script().trim();
+            let script = found.script.trim();
             let mut buf = String::new();
             let e = Evaluation::builder(script, io::stdin()).build()?;
             e.write_script(&mut buf, &print_options)?;
@@ -324,10 +323,10 @@ async fn try_main() -> anyhow::Result<()> {
             Ok(())
         }
         Commands::Example(ExampleCommands::Evaluate { name }) => {
-            let Some(found) = EXAMPLES.iter().find(|e| e.name() == name) else {
+            let Some(found) = EXAMPLES.iter().find(|e| e.name == name) else {
                 bail!("example with {name} not found");
             };
-            let script = found.script().trim();
+            let script = found.script.trim();
             let store = prepare_store(&store_options)?;
             let e = Evaluation::builder(script, io::stdin())
                 .name(name)
@@ -352,7 +351,7 @@ async fn try_main() -> anyhow::Result<()> {
             table.load_preset(presets::NOTHING);
             table.set_header(["name", "description"]);
             for e in EXAMPLES.iter() {
-                table.add_row([e.name(), e.description()]);
+                table.add_row([&e.name, &e.description]);
             }
             println!("{table}");
             Ok(())
@@ -362,15 +361,15 @@ async fn try_main() -> anyhow::Result<()> {
             name,
             timeout,
         }) => {
-            let Some(found) = EXAMPLES.iter().find(|e| e.name() == name) else {
+            let Some(found) = EXAMPLES.iter().find(|e| e.name == name) else {
                 bail!("example with {name} not found");
             };
             if cli.check_syntax {
-                do_check_syntax(cli.no_color, name.as_str(), found.script())?;
+                do_check_syntax(cli.no_color, name.as_str(), &found.script)?;
             }
             let bind = bind.parse::<SocketAddr>()?;
             let timeout = timeout.map(Duration::from_secs);
-            let options = ServeOptions::builder(bind, found.name(), found.script())
+            let options = ServeOptions::builder(bind, &found.name, &found.script)
                 .json(cli.json)
                 .store_options(store_options)
                 .maybe_timeout(timeout)
@@ -383,17 +382,17 @@ async fn try_main() -> anyhow::Result<()> {
             table.load_preset(presets::NOTHING);
             table.set_header(["name", "title"]);
             for guide in GUIDES.iter() {
-                table.add_row([guide.name(), guide.title()]);
+                table.add_row([&guide.name, &guide.title]);
             }
             print!("{table}");
             Ok(())
         }
         Commands::Guide(GuideCommands::Cat { name }) => {
-            let Some(guide) = GUIDES.iter().find(|g| name == g.name()) else {
+            let Some(guide) = GUIDES.iter().find(|g| name == g.name) else {
                 bail!("guide with {name} not found");
             };
             let skin = MadSkin::default();
-            println!("{}", skin.term_text(guide.content()));
+            println!("{}", skin.term_text(&guide.content));
             Ok(())
         }
         Commands::ListThemes => {
@@ -472,11 +471,11 @@ async fn try_main() -> anyhow::Result<()> {
                     table.set_header(["name", "type", "size", "created at", "updated at"]);
                     for m in metadata_rows.iter() {
                         table.add_row([
-                            m.name(),
-                            m.type_hint(),
-                            &m.size().to_string(),
-                            &m.created_at().to_rfc3339(),
-                            &m.updated_at().to_rfc3339(),
+                            &m.name,
+                            &m.type_hint,
+                            &m.size.to_string(),
+                            &m.created_at.to_rfc3339(),
+                            &m.updated_at.to_rfc3339(),
                         ]);
                     }
                     println!("{table}");

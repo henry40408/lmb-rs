@@ -1,33 +1,24 @@
 use std::sync::LazyLock;
 
+use bon::Builder;
 use full_moon::{tokenizer::TokenType, visitors::Visitor};
 use include_dir::{include_dir, Dir};
 use toml::{Table, Value};
 
 /// Lua example.
-#[derive(Debug, Default)]
+#[derive(Builder, Debug, Default)]
 pub struct Example {
-    description: String,
+    /// Name.
+    #[builder(into)]
+    pub name: String,
+    /// Script.
+    #[builder(into)]
+    pub script: String,
+    /// Description.
+    #[builder(default)]
+    pub description: String,
+    #[builder(default)]
     done: bool,
-    name: String,
-    script: String,
-}
-
-impl Example {
-    /// Get description.
-    pub fn description(&self) -> &str {
-        &self.description
-    }
-
-    /// Get name.
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    /// Get script.
-    pub fn script(&self) -> &str {
-        &self.script
-    }
 }
 
 impl Visitor for Example {
@@ -70,11 +61,7 @@ pub static EXAMPLES: LazyLock<Vec<Example>> = LazyLock::new(|| {
         let Some(script) = f.as_file().and_then(|handle| handle.contents_utf8()) else {
             continue;
         };
-        let mut example = Example {
-            name: name.to_string(),
-            script: script.to_string(),
-            ..Default::default()
-        };
+        let mut example = Example::builder().name(name).script(script).build();
         let Ok(ast) = full_moon::parse(script) else {
             continue;
         };
