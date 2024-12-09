@@ -17,7 +17,7 @@ base64 = "0.22.1"
 bat = { version = "0.24.0", default-features = false, features = [
   "regex-fancy",
 ] }
-bon = "3.2.0"
+bon = "3.3.0"
 cbc = { version = "0.1.2", features = ["alloc"] }
 chrono = "0.4.38"
 comfy-table = "7.1.1"
